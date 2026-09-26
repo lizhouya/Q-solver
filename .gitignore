@@ -33,3 +33,11 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# -- 二次开发归档区 (_dev/) 选择性忽略 --
+# 注意：归档文档本身纳入版本控制（开发记录是项目资产），仅忽略其中的临时物。
+_dev/**/tmp/
+_dev/**/*.tmp
+_dev/**/node_modules/
+_dev/**/.env
+_dev/**/.env.*

@@ -4,6 +4,7 @@ import {
   ClearResume,
   GetDomainCategories,
   GetInitStatus,
+  GetMobileOutputInfo,
   GetModels,
   GetScreenshotPreview,
   GetSettings,
@@ -65,6 +66,7 @@ export const api = {
 
   getInitStatus: () => GetInitStatus(),
   getDomainCategories: () => GetDomainCategories(),
+  getMobileOutputInfo: () => GetMobileOutputInfo(),
 
   getScreenshotPreview: (q, s, g, n, m) => GetScreenshotPreview(q, s, g, n, m),
   checkScreenCapturePermission: () => CheckScreenCapturePermission(),

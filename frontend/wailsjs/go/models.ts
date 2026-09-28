@@ -1,3 +1,24 @@
+export namespace app {
+	
+	export class MobileInfo {
+	    available: boolean;
+	    url: string;
+	    port: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MobileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.url = source["url"];
+	        this.port = source["port"];
+	    }
+	}
+
+}
+
 export namespace config {
 	
 	export class Config {
@@ -14,6 +35,7 @@ export namespace config {
 	    keepContext?: boolean;
 	    interruptThinking?: boolean;
 	    screenshotMode?: string;
+	    outputMode?: string;
 	    resumePath?: string;
 	    resumeContent?: string;
 	    shortcuts?: Record<string, shortcut.KeyBinding>;
@@ -41,6 +63,7 @@ export namespace config {
 	        this.keepContext = source["keepContext"];
 	        this.interruptThinking = source["interruptThinking"];
 	        this.screenshotMode = source["screenshotMode"];
+	        this.outputMode = source["outputMode"];
 	        this.resumePath = source["resumePath"];
 	        this.resumeContent = source["resumeContent"];
 	        this.shortcuts = this.convertValues(source["shortcuts"], shortcut.KeyBinding, true);

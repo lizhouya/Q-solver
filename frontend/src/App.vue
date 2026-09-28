@@ -174,6 +174,20 @@ onMounted(() => {
     solution.handleSolution(data)
   })
 
+  on('solution-hidden', (info) => {
+    // 001 · OutputMode=mobile：桌面不渲染答案，终态仅复位 UI，避免卡 loading
+    solution.isLoading = false
+    solution.isAppending = false
+    solution.isThinking = false
+    if (info && info.success) {
+      settingsStore.statusText = '已转发到手机端'
+      settingsStore.statusIcon = '📱'
+    } else {
+      settingsStore.statusText = '已转发到手机端（出错）'
+      settingsStore.statusIcon = '!'
+    }
+  })
+
   on('copy-code', () => {
     const old = settingsStore.statusText
     settingsStore.statusText = '已复制'

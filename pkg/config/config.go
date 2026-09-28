@@ -20,6 +20,7 @@ type Config struct {
 	KeepContext        bool                           `json:"keepContext,omitempty"`
 	InterruptThinking  bool                           `json:"interruptThinking,omitempty"`
 	ScreenshotMode     string                         `json:"screenshotMode,omitempty"`
+	OutputMode         string                         `json:"outputMode,omitempty"` // desktop | mobile | dual（见 _dev/changes/001）
 	ResumePath         string                         `json:"resumePath,omitempty"`
 	ResumeContent      string                         `json:"resumeContent,omitempty"`
 	Shortcuts          map[string]shortcut.KeyBinding `json:"shortcuts,omitempty"`
@@ -49,6 +50,7 @@ func NewDefaultConfig() Config {
 		KeepContext:        false,
 		InterruptThinking:  false,
 		ScreenshotMode:     "fullscreen", // 默认全屏截图，确保捕获完整内容
+		OutputMode:         "desktop",    // 默认 desktop：仅桌面输出（见 _dev/changes/001）
 		NoCompression:      false,        // 保持压缩以减小文件大小
 		CompressionQuality: 92,           // 高质量压缩，确保 AI 清晰识别文字
 		Sharpening:         0.3,          // 适度锐化，增强文字边缘清晰度
@@ -111,6 +113,9 @@ func (c *Config) ToJSON() string {
 func (c *Config) Validate() error {
 	if c.ScreenshotMode != "" && c.ScreenshotMode != "fullscreen" && c.ScreenshotMode != "window" {
 		return &ValidationError{Field: "screenshotMode", Message: "截图模式必须是 'fullscreen' 或 'window'"}
+	}
+	if c.OutputMode != "" && c.OutputMode != "desktop" && c.OutputMode != "mobile" && c.OutputMode != "dual" {
+		return &ValidationError{Field: "outputMode", Message: "输出模式必须是 'desktop' / 'mobile' / 'dual'"}
 	}
 	if c.Opacity < 0 || c.Opacity > 1 {
 		return &ValidationError{Field: "opacity", Message: "透明度必须在 0-1 之间"}

@@ -16,6 +16,7 @@ export const useSettingsStore = defineStore('settings', () => {
     domainId: 'general-assistant',
     transparency: 0,
     keepContext: false,
+    outputMode: 'desktop',
     screenshotMode: 'window',
     resumePath: '',
     resumeContent: '',
@@ -176,6 +177,7 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.grayscale = config.grayscale !== undefined ? config.grayscale : true
     settings.noCompression = config.noCompression || false
     settings.keepContext = config.keepContext || false
+    settings.outputMode = config.outputMode || 'desktop'
     settings.resumePath = config.resumePath || ''
     settings.resumeContent = config.resumeContent || ''
     settings.screenshotMode = config.screenshotMode || 'window'
@@ -264,6 +266,7 @@ export const useSettingsStore = defineStore('settings', () => {
       domainId: sourceSettings.domainId,
       opacity: 1.0 - sourceSettings.transparency,
       keepContext: sourceSettings.keepContext,
+      outputMode: sourceSettings.outputMode,
       screenshotMode: sourceSettings.screenshotMode,
       compressionQuality: sourceSettings.compressionQuality,
       sharpening: sourceSettings.sharpening,

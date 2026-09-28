@@ -11,6 +11,7 @@
           <div class="tab" :class="{ active: ui.activeTab === 'general' }" @click="ui.activeTab = 'general'">常规</div>
           <div class="tab" :class="{ active: ui.activeTab === 'model' }" @click="ui.activeTab = 'model'">模型</div>
           <div class="tab" :class="{ active: ui.activeTab === 'screenshot' }" @click="ui.activeTab = 'screenshot'">截图</div>
+          <div class="tab" :class="{ active: ui.activeTab === 'output' }" @click="ui.activeTab = 'output'">输出</div>
           <div class="tab" :class="{ active: ui.activeTab === 'resume' }" @click="ui.activeTab = 'resume'">简历</div>
           <div class="tab" :class="{ active: ui.activeTab === 'api' }" @click="ui.activeTab = 'api'">API</div>
         </div>
@@ -107,6 +108,50 @@
           <ScreenshotSettings v-model="screenshotConfig" />
         </div>
 
+        <div v-show="ui.activeTab === 'output'" class="tab-pane">
+          <div class="form-group">
+            <label>输出模式（谁看解题结果）</label>
+            <div class="output-mode-grid">
+              <label class="mode-option" :class="{ active: settingsStore.tempSettings.outputMode === 'desktop' }">
+                <input type="radio" value="desktop" v-model="settingsStore.tempSettings.outputMode" />
+                <span class="mode-title">💻 desktop</span>
+                <span class="mode-desc">仅电脑端显示</span>
+              </label>
+              <label class="mode-option" :class="{ active: settingsStore.tempSettings.outputMode === 'mobile' }">
+                <input type="radio" value="mobile" v-model="settingsStore.tempSettings.outputMode" />
+                <span class="mode-title">📱 mobile</span>
+                <span class="mode-desc">仅手机显示，电脑端隐藏答案</span>
+              </label>
+              <label class="mode-option" :class="{ active: settingsStore.tempSettings.outputMode === 'dual' }">
+                <input type="radio" value="dual" v-model="settingsStore.tempSettings.outputMode" />
+                <span class="mode-title">🖥️📱 dual</span>
+                <span class="mode-desc">电脑和手机同时显示</span>
+              </label>
+            </div>
+            <p class="hint-text">mobile 模式下，解题答案只推送到同一局域网内的手机浏览器，电脑不会渲染。</p>
+          </div>
+
+          <div class="form-group">
+            <label>手机连接入口</label>
+            <div v-if="mobileInfo.loading" class="empty-hint">连接信息加载中…</div>
+            <div v-else-if="!mobileInfo.available" class="mobile-unavailable">
+              <p class="hint-text">⚠️ Mobile 服务未就绪（端口冲突或被占用时会自动降级，不影响桌面功能）。</p>
+            </div>
+            <div v-else class="mobile-info">
+              <div class="mobile-url-row">
+                <input readonly :value="mobileInfo.url" class="mobile-url" @click="$event.target.select()" />
+                <button class="btn-copy" @click="copyMobileUrl">复制</button>
+              </div>
+              <ol class="mobile-steps">
+                <li>手机连上与电脑相同的 Wi-Fi <b>（同一局域网）</b></li>
+                <li>打开相机扫码下 URL，或手动在浏览器输入上方地址</li>
+                <li>等待解题后实时查看答案与分析</li>
+              </ol>
+              <p class="hint-text">仅局域网可访问，不含外网。当前端口 <b>{{ mobileInfo.port }}</b>。</p>
+            </div>
+          </div>
+        </div>
+
         <div v-if="ui.activeTab === 'resume'" class="tab-pane">
           <ResumeImport
             :resumePath="settingsStore.tempSettings.resumePath"
@@ -135,9 +180,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { useUIStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
+import { api } from '../services/api'
 import ResumeImport from './ResumeImport.vue'
 import ProviderSelect from './ProviderSelect.vue'
 import ModelSelect from './ModelSelect.vue'
@@ -147,6 +193,38 @@ import Icon from './Icon.vue'
 
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
+
+// Mobile Output 连接信息（001）——打开设置时拉取
+const mobileInfo = reactive({ loading: true, available: false, url: '', port: 0 })
+
+function refreshMobileInfo() {
+  mobileInfo.loading = true
+  api.getMobileOutputInfo()
+    .then((info) => {
+      mobileInfo.available = !!info?.available
+      mobileInfo.url = info?.url || ''
+      mobileInfo.port = info?.port || 0
+    })
+    .catch(() => {
+      mobileInfo.available = false
+      mobileInfo.url = ''
+    })
+    .finally(() => { mobileInfo.loading = false })
+}
+
+function copyMobileUrl() {
+  if (!mobileInfo.url) return
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(mobileInfo.url).then(() => {
+      ui.showToast('连接地址已复制', 'success')
+    })
+  } else {
+    // 降级：选中便于手动复制
+    document.querySelector('.mobile-url')?.select()
+  }
+}
+
+onMounted(() => refreshMobileInfo())
 
 const screenshotConfig = computed({
   get: () => ({
@@ -432,6 +510,88 @@ const screenshotConfig = computed({
 }
 
 .warning-hint { color: var(--color-warning); }
+
+/* ---- 001 · 输出模式 + 手机连接 ---- */
+.output-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2);
+}
+.mode-option {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all var(--duration-fast) ease;
+  background: var(--surface-card);
+}
+.mode-option input { display: none; }
+.mode-option.active {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.mode-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.mode-desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.mobile-info {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  background: var(--surface-card);
+}
+.mobile-url-row { display: flex; gap: var(--sp-2); }
+.mobile-url {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--surface-input);
+  color: var(--text-secondary);
+  min-width: 0;
+}
+.btn-copy {
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: white;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-copy:hover { background: var(--accent-hover); }
+.mobile-steps {
+  margin: var(--sp-3) 0 0;
+  padding-left: 1.2em;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+.mobile-unavailable .hint-text {
+  margin-top: 0;
+  padding: var(--sp-3);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+}
+.empty-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  padding: var(--sp-3);
+}
 
 .shortcut-list {
   display: grid;

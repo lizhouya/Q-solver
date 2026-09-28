@@ -38,6 +38,10 @@ export function GetInitStatus() {
   return window['go']['app']['App']['GetInitStatus']();
 }
 
+export function GetMobileOutputInfo() {
+  return window['go']['app']['App']['GetMobileOutputInfo']();
+}
+
 export function GetModels(arg1) {
   return window['go']['app']['App']['GetModels'](arg1);
 }

@@ -46,6 +46,7 @@ export const useSettingsStore = defineStore('settings', () => {
     { action: 'send', label: '发送解题', default: 'Ctrl+J', macDefault: 'Cmd+J' },
     { action: 'delete', label: '删除截图', default: 'Ctrl+D', macDefault: 'Cmd+D' },
     { action: 'toggle', label: '隐藏/显示', default: 'F9', macDefault: 'Cmd+2' },
+    { action: 'toggle_window', label: '隐藏窗口', default: 'Ctrl+Shift+H', macDefault: 'Cmd+4' },
     { action: 'clickthrough', label: '鼠标穿透', default: 'F10', macDefault: 'Cmd+3' },
     { action: 'move_up', label: '向上移动', default: 'Alt+Up', macDefault: 'Cmd+Option+Up' },
     { action: 'move_down', label: '向下移动', default: 'Alt+Down', macDefault: 'Cmd+Option+Down' },

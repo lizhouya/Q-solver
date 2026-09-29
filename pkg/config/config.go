@@ -76,32 +76,34 @@ func getDefaultShortcuts() map[string]shortcut.KeyBinding {
 	if runtime.GOOS == "darwin" {
 		// macOS 使用简化的快捷键（不依赖 Windows VK 码）
 		return map[string]shortcut.KeyBinding{
-			"solve":        {ComboID: "Cmd+1", KeyName: "⌘1"},
-			"send":         {ComboID: "Cmd+J", KeyName: "⌘J"},
-			"delete":       {ComboID: "Cmd+D", KeyName: "⌘D"},
-			"toggle":       {ComboID: "Cmd+2", KeyName: "⌘2"},
-			"clickthrough": {ComboID: "Cmd+3", KeyName: "⌘3"},
-			"move_up":      {ComboID: "Cmd+Option+Up", KeyName: "⌘⌥↑"},
-			"move_down":    {ComboID: "Cmd+Option+Down", KeyName: "⌘⌥↓"},
-			"move_left":    {ComboID: "Cmd+Option+Left", KeyName: "⌘⌥←"},
-			"move_right":   {ComboID: "Cmd+Option+Right", KeyName: "⌘⌥→"},
-			"scroll_up":    {ComboID: "Cmd+Option+Shift+Up", KeyName: "⌘⌥⇧↑"},
-			"scroll_down":  {ComboID: "Cmd+Option+Shift+Down", KeyName: "⌘⌥⇧↓"},
+			"solve":         {ComboID: "Cmd+1", KeyName: "⌘1"},
+			"send":          {ComboID: "Cmd+J", KeyName: "⌘J"},
+			"delete":        {ComboID: "Cmd+D", KeyName: "⌘D"},
+			"toggle":        {ComboID: "Cmd+2", KeyName: "⌘2"},
+			"clickthrough":  {ComboID: "Cmd+3", KeyName: "⌘3"},
+			"toggle_window": {ComboID: "Cmd+4", KeyName: "⌘4"}, // 003：macOS 非目标，仅占位维持 map 一致
+			"move_up":       {ComboID: "Cmd+Option+Up", KeyName: "⌘⌥↑"},
+			"move_down":     {ComboID: "Cmd+Option+Down", KeyName: "⌘⌥↓"},
+			"move_left":     {ComboID: "Cmd+Option+Left", KeyName: "⌘⌥←"},
+			"move_right":    {ComboID: "Cmd+Option+Right", KeyName: "⌘⌥→"},
+			"scroll_up":     {ComboID: "Cmd+Option+Shift+Up", KeyName: "⌘⌥⇧↑"},
+			"scroll_down":   {ComboID: "Cmd+Option+Shift+Down", KeyName: "⌘⌥⇧↓"},
 		}
 	}
 	// Windows 默认快捷键
 	return map[string]shortcut.KeyBinding{
-		"screenshot":   {ComboID: "119", KeyName: "F8"},
-		"send":         {ComboID: "74+162", KeyName: "Ctrl+J"},
-		"delete":       {ComboID: "68+162", KeyName: "Ctrl+D"},
-		"toggle":       {ComboID: "120", KeyName: "F9"},
-		"clickthrough": {ComboID: "121", KeyName: "F10"},
-		"move_up":      {ComboID: "38+164", KeyName: "Alt+↑"},
-		"move_down":    {ComboID: "40+164", KeyName: "Alt+↓"},
-		"move_left":    {ComboID: "37+164", KeyName: "Alt+←"},
-		"move_right":   {ComboID: "39+164", KeyName: "Alt+→"},
-		"scroll_up":    {ComboID: "33+164", KeyName: "Alt+PgUp"},
-		"scroll_down":  {ComboID: "34+164", KeyName: "Alt+PgDn"},
+		"screenshot":    {ComboID: "119", KeyName: "F8"},
+		"send":          {ComboID: "74+162", KeyName: "Ctrl+J"},
+		"delete":        {ComboID: "68+162", KeyName: "Ctrl+D"},
+		"toggle":        {ComboID: "120", KeyName: "F9"},
+		"clickthrough":  {ComboID: "121", KeyName: "F10"},
+		"toggle_window": {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"}, // 003：窗口实体隐藏/恢复
+		"move_up":       {ComboID: "38+164", KeyName: "Alt+↑"},
+		"move_down":     {ComboID: "40+164", KeyName: "Alt+↓"},
+		"move_left":     {ComboID: "37+164", KeyName: "Alt+←"},
+		"move_right":    {ComboID: "39+164", KeyName: "Alt+→"},
+		"scroll_up":     {ComboID: "33+164", KeyName: "Alt+PgUp"},
+		"scroll_down":   {ComboID: "34+164", KeyName: "Alt+PgDn"},
 	}
 }
 

@@ -80,6 +80,14 @@ func (s *Service) handleTrigger(action string) {
 	case "toggle":
 		logger.Println("切换可见性")
 		s.delegate.ToggleVisibility()
+	case "toggle_window":
+		// 003 Phase 2：切换窗口实体可见性（Ctrl+Shift+H）。
+		// 与 F9 toggle（GhostMode 防录屏隐身）正交，互不影响。
+		// HWND 为空等失败仅记录日志，安全降级（不 panic / 不退出）。
+		logger.Println("切换窗口可见性")
+		if _, err := s.delegate.ToggleWindowVisible(); err != nil {
+			logger.Printf("切换窗口可见性失败: %v", err)
+		}
 	case "clickthrough":
 		logger.Println("切换鼠标穿透")
 		s.delegate.ToggleClickThrough()

@@ -39,3 +39,29 @@ func (a *App) SetWindowAlwaysOnTop(alwaysOnTop bool) {
 		platform.SetWindowLevel(hwnd, platform.WindowLevelNormal)
 	}
 }
+
+// ==================== Window Visibility（003 Phase 1） ====================
+
+// HideWindow 隐藏主窗口（实体隐藏，非隐身/防录屏）。
+func (a *App) HideWindow() error {
+	return a.windowVisibility.Hide()
+}
+
+// ShowWindow 显示主窗口（实体显示）。
+func (a *App) ShowWindow() error {
+	return a.windowVisibility.Show()
+}
+
+// ToggleWindowVisible 切换主窗口显示/隐藏，返回切换后的状态字符串。
+func (a *App) ToggleWindowVisible() (string, error) {
+	state, err := a.windowVisibility.Toggle()
+	if err != nil {
+		return "", err
+	}
+	return state.String(), nil
+}
+
+// WindowVisible 返回主窗口当前是否可见。
+func (a *App) WindowVisible() bool {
+	return a.windowVisibility.IsVisible()
+}

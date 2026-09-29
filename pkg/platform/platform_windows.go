@@ -33,6 +33,7 @@ var (
 	procKeybdEvent                     = user32.NewProc("keybd_event")
 	procSetWindowCompositionAttribute  = user32.NewProc("SetWindowCompositionAttribute")
 	procRtlGetVersion                  = ntdll.NewProc("RtlGetVersion")
+	procShowWindow                     = user32.NewProc("ShowWindow")
 )
 
 // WindowHandle 窗口句柄类型（Windows 为 HWND）
@@ -73,8 +74,13 @@ const (
 	MOD_CONTROL = 0x0002
 	MOD_SHIFT   = 0x0004
 	MOD_WIN     = 0x0008
-	VK_OEM_3    = 0xC0 // `~` 键
-	VK_H        = 0x48
+
+	// ShowWindow 命令（Change 003：实体隐藏/显示）
+	SW_HIDE = 0
+	SW_SHOW = 5
+
+	VK_OEM_3 = 0xC0 // `~` 键
+	VK_H     = 0x48
 	VK_C        = 0x43
 	VK_T        = 0x54
 	VK_SHIFT    = 0x10
@@ -215,6 +221,20 @@ func SetDisplayAffinity(hwnd WindowHandle, hidden bool) error {
 		affinity = WDA_EXCLUDEFROMCAPTURE
 	}
 	return setWindowDisplayAffinity(uintptr(hwnd), uint32(affinity))
+}
+
+// ShowWindow 实体显示/隐藏窗口（Win32 ShowWindow 封装；Change 003）。
+// cmdShow 取值 platform.SW_HIDE / platform.SW_SHOW。
+// 注意：ShowWindow 返回值表示「窗口先前是否可见」，并非失败标志，故不据此报错。
+func ShowWindow(hwnd WindowHandle, cmdShow int) error {
+	if hwnd == 0 {
+		return syscall.Errno(0)
+	}
+	procShowWindow.Call(
+		uintptr(hwnd),
+		uintptr(cmdShow),
+	)
+	return nil
 }
 
 // RestoreFocus 恢复焦点

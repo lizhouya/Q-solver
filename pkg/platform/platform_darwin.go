@@ -270,6 +270,12 @@ func SetDisplayAffinity(hwnd WindowHandle, hidden bool) error {
 	return nil
 }
 
+// ShowWindow 实体显示/隐藏窗口（macOS 暂未实现，见 003 非目标 D-003-007）
+func ShowWindow(hwnd WindowHandle, cmdShow int) error {
+	logger.Println("[macOS] ShowWindow 未实现（003 首期仅支持 Windows）")
+	return nil
+}
+
 // RestoreFocus 恢复焦点
 func RestoreFocus(hwnd WindowHandle) error {
 	window := unsafe.Pointer(uintptr(hwnd))

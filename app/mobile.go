@@ -119,5 +119,6 @@ func (a *App) GetMobileOutputInfo() MobileInfo {
 	return MobileInfo{
 		Available: true,
 		URL:       a.mobileServer.URL(),
+		Port:      a.mobileServer.Port(),
 	}
 }

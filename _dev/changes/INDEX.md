@@ -9,6 +9,7 @@
 | `001` | mobile-output（解题结果手机同步镜像） | 已完成 | 2026-09-26 | `001-mobile-output/` |
 | `002` | remote-output-ui（远程端 Answer-first 双栏 UI + 会话内历史） | 已完成 | 2026-09-27 | `002-remote-output-ui/` |
 | `005` | 005-keepcontext-backend-wiring | 已完成 | 2026-10-13 | `005-keepcontext-backend-wiring/` |
+| `006` | mobile-sse-handshake（SSE 建连原子订阅） | 进行中 | 2026-10-13 | `006-mobile-sse-handshake/` |
 
 > 分配规则：新增变更时，找到表中最小的未使用编号（或 `最大编号+1`），创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -56,3 +57,19 @@
   - 复用 `trimChatHistory`
 - **提交状态**：Pending Commit
 - **Commit hash**：
+
+## Change 006
+
+- **名称**：`006-mobile-sse-handshake`
+- **类型**：Correctness Fix / Mobile Output
+- **状态**：Implementation Completed / Pending Commit
+- **摘要**：原子化 SSE subscriber 注册与初始 Snapshot 读取，消除建连窗口内唯一终态丢失风险。
+- **包含**：
+  - Bridge 原子返回 subscriber + initial Snapshot
+  - Server 在首次 Flush 前完成订阅注册
+  - 确定性首次 Flush 顺序测试
+  - 移除端到端测试的 100ms 人为等待
+- **协议变化**：无
+- **提交状态**：Pending Commit
+- **Commit 1**：功能代码 + 测试（待提交）
+- **Commit 2**：Audit + Change 文档 + INDEX（待提交）

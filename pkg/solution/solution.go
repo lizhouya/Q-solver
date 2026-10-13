@@ -82,8 +82,18 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 	currentUserMsg := llm.NewMultiPartMessage(llm.RoleUser, userParts)
 
 	var messagesToSend []llm.Message
-	messagesToSend = append(messagesToSend, llm.NewSystemMessage(systemPrompt.String()))
-	messagesToSend = append(messagesToSend, currentUserMsg)
+	if req.Config.KeepContext {
+		// 使用独立 slice，避免在请求成功前把当前 user 写入 history。
+		s.ensureSystemPrompt(systemPrompt.String())
+		s.trimChatHistory()
+		messagesToSend = make([]llm.Message, 0, len(s.chatHistory)+1)
+		messagesToSend = append(messagesToSend, s.chatHistory...)
+		messagesToSend = append(messagesToSend, currentUserMsg)
+	} else {
+		// OFF 请求不读取旧 history，并清除可能残留的上下文。
+		s.chatHistory = make([]llm.Message, 0)
+		messagesToSend = []llm.Message{llm.NewSystemMessage(systemPrompt.String()), currentUserMsg}
+	}
 
 	if cb.EmitEvent != nil {
 		cb.EmitEvent("solution-stream-start")
@@ -134,7 +144,11 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 		cb.EmitEvent("solution", response.Content)
 	}
 
-	s.chatHistory = []llm.Message{}
+	if req.Config.KeepContext {
+		// 仅在完整响应成功后保存本轮，失败分支不会留下不完整历史。
+		s.chatHistory = append(s.chatHistory, currentUserMsg, llm.NewAssistantMessage(response.Content))
+		s.trimChatHistory()
+	}
 	return true
 }
 

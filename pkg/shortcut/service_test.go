@@ -1,6 +1,7 @@
 package shortcut
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -13,10 +14,13 @@ type mockDelegate struct {
 	deleteScreenshotCalls   int
 	toggleVisibilityCalls   int
 	toggleClickThroughCalls int
+	clickThroughState       bool
+	clickThroughErr         error
 	toggleWindowCalls       int
 	moveCalls               []string
 	scrollCalls             []string
 	events                  []string
+	eventData               [][]interface{}
 }
 
 func (m *mockDelegate) TriggerSolve()            { m.solveCalls++ }
@@ -24,7 +28,10 @@ func (m *mockDelegate) TriggerScreenshot()       { m.screenshotCalls++ }
 func (m *mockDelegate) TriggerSend()             { m.sendCalls++ }
 func (m *mockDelegate) TriggerDeleteScreenshot() { m.deleteScreenshotCalls++ }
 func (m *mockDelegate) ToggleVisibility()        { m.toggleVisibilityCalls++ }
-func (m *mockDelegate) ToggleClickThrough()      { m.toggleClickThroughCalls++ }
+func (m *mockDelegate) ToggleClickThrough() (bool, error) {
+	m.toggleClickThroughCalls++
+	return m.clickThroughState, m.clickThroughErr
+}
 func (m *mockDelegate) ToggleWindowVisible() (string, error) {
 	m.toggleWindowCalls++
 	return "hidden", nil
@@ -35,6 +42,7 @@ func (m *mockDelegate) ScrollContent(direction string) {
 }
 func (m *mockDelegate) EmitEvent(eventName string, data ...interface{}) {
 	m.events = append(m.events, eventName)
+	m.eventData = append(m.eventData, data)
 }
 
 // noopSubscribe 空配置订阅回调，保证测试不依赖 ConfigManager。
@@ -158,4 +166,74 @@ func TestHandleRecordingCompleteConflict(t *testing.T) {
 	if got := s.GetShortcuts()["toggle_window"].ComboID; got != "72+160+162" {
 		t.Fatalf("冲突后 toggle_window 绑定被破坏：%s", got)
 	}
+}
+
+func assertSingleToast(t *testing.T, d *mockDelegate, want string) {
+	t.Helper()
+	if !reflect.DeepEqual(d.events, []string{"toast"}) {
+		t.Fatalf("应只发送一次 toast，实际事件 %v", d.events)
+	}
+	if len(d.eventData) != 1 || len(d.eventData[0]) != 1 {
+		t.Fatalf("toast payload 结构不正确：%v", d.eventData)
+	}
+	if got, ok := d.eventData[0][0].(string); !ok || got != want {
+		t.Fatalf("toast 文案应为 %q，实际 %v", want, d.eventData[0][0])
+	}
+}
+
+func TestClickThroughEnabledToastUsesReturnedState(t *testing.T) {
+	d := &mockDelegate{clickThroughState: true}
+	s := newTestService(d)
+
+	s.handleTrigger("clickthrough")
+
+	if d.toggleClickThroughCalls != 1 {
+		t.Fatalf("clickthrough 应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
+	}
+	assertSingleToast(t, d, "鼠标穿透：已开启")
+}
+
+func TestClickThroughDisabledToastUsesReturnedState(t *testing.T) {
+	d := &mockDelegate{clickThroughState: false}
+	s := newTestService(d)
+
+	s.handleTrigger("clickthrough")
+
+	if d.toggleClickThroughCalls != 1 {
+		t.Fatalf("clickthrough 应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
+	}
+	assertSingleToast(t, d, "鼠标穿透：已关闭")
+}
+
+func TestClickThroughFailureDoesNotEmitSuccessToast(t *testing.T) {
+	d := &mockDelegate{
+		clickThroughState: true,
+		clickThroughErr:   errors.New("platform failure"),
+	}
+	s := newTestService(d)
+
+	s.handleTrigger("clickthrough")
+
+	if d.toggleClickThroughCalls != 1 {
+		t.Fatalf("失败时 clickthrough 仍应只调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
+	}
+	assertSingleToast(t, d, "鼠标穿透切换失败")
+}
+
+func TestClickThroughCustomBindingStillUsesActionState(t *testing.T) {
+	d := &mockDelegate{clickThroughState: true}
+	initial := map[string]KeyBinding{
+		"clickthrough": {ComboID: "75+162", KeyName: "Ctrl+K"},
+	}
+	s := NewService(d, initial, noopSubscribe)
+
+	s.handleTrigger("clickthrough")
+
+	if got := s.GetShortcuts()["clickthrough"].KeyName; got != "Ctrl+K" {
+		t.Fatalf("测试前提：自定义绑定应为 Ctrl+K，实际 %s", got)
+	}
+	if d.toggleClickThroughCalls != 1 {
+		t.Fatalf("自定义快捷键下应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
+	}
+	assertSingleToast(t, d, "鼠标穿透：已开启")
 }

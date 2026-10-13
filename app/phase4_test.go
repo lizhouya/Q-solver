@@ -53,7 +53,7 @@ func (f *fakeDelegate) TriggerScreenshot()      {}
 func (f *fakeDelegate) TriggerSend()            {}
 func (f *fakeDelegate) TriggerDeleteScreenshot() {}
 func (f *fakeDelegate) ToggleVisibility()        {}
-func (f *fakeDelegate) ToggleClickThrough()      {}
+func (f *fakeDelegate) ToggleClickThrough() (bool, error) { return false, nil }
 func (f *fakeDelegate) MoveWindow(int, int)      {}
 func (f *fakeDelegate) ScrollContent(string)     {}
 func (f *fakeDelegate) ToggleWindowVisible() (string, error) { return "visible", nil }

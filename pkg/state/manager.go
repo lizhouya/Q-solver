@@ -4,6 +4,7 @@ import (
 	"Q-Solver/pkg/logger"
 	"Q-Solver/pkg/platform"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -182,21 +183,21 @@ func (sm *StateManager) ToggleVisibility() bool {
 	return sm.windowState.Visible
 }
 
-// ToggleClickThrough 切换鼠标穿透
-func (sm *StateManager) ToggleClickThrough() bool {
+// ToggleClickThrough 切换鼠标穿透，返回平台调用成功后的真实状态。
+func (sm *StateManager) ToggleClickThrough() (bool, error) {
 	sm.windowMu.Lock()
 	defer sm.windowMu.Unlock()
 
 	if sm.hwnd == 0 {
-		logger.Println("无法切换鼠标穿透：窗口句柄未初始化")
-		return sm.windowState.ClickThrough
+		err := fmt.Errorf("窗口句柄未初始化")
+		logger.Printf("无法切换鼠标穿透：%v\n", err)
+		return sm.windowState.ClickThrough, err
 	}
 
 	newState := !sm.windowState.ClickThrough
-	err := platform.SetClickThrough(sm.hwnd, newState)
-	if err != nil {
+	if err := platform.SetClickThrough(sm.hwnd, newState); err != nil {
 		logger.Printf("切换鼠标穿透失败: %v\n", err)
-		return sm.windowState.ClickThrough
+		return sm.windowState.ClickThrough, fmt.Errorf("设置鼠标穿透状态: %w", err)
 	}
 
 	sm.windowState.ClickThrough = newState
@@ -211,7 +212,7 @@ func (sm *StateManager) ToggleClickThrough() bool {
 		sm.emitEvent("click-through-state", newState)
 	}
 
-	return newState
+	return newState, nil
 }
 
 // RestoreFocus 恢复焦点

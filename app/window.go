@@ -7,9 +7,9 @@ func (a *App) ToggleVisibility() {
 	a.stateManager.ToggleVisibility()
 }
 
-// ToggleClickThrough 切换鼠标穿透
-func (a *App) ToggleClickThrough() {
-	a.stateManager.ToggleClickThrough()
+// ToggleClickThrough 切换鼠标穿透，返回平台调用成功后的真实状态。
+func (a *App) ToggleClickThrough() (bool, error) {
+	return a.stateManager.ToggleClickThrough()
 }
 
 // MoveWindow 移动窗口

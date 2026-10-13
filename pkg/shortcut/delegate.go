@@ -7,7 +7,7 @@ type ServiceDelegate interface {
 	TriggerSend()
 	TriggerDeleteScreenshot()
 	ToggleVisibility()
-	ToggleClickThrough()
+	ToggleClickThrough() (bool, error)
 	MoveWindow(dx, dy int)
 	ScrollContent(direction string)
 	// ToggleWindowVisible 切换窗口实体可见性（003 Phase 2）。

@@ -10,6 +10,7 @@
 | `002` | remote-output-ui（远程端 Answer-first 双栏 UI + 会话内历史） | 已完成 | 2026-09-27 | `002-remote-output-ui/` |
 | `005` | 005-keepcontext-backend-wiring | 已完成 | 2026-10-13 | `005-keepcontext-backend-wiring/` |
 | `006` | mobile-sse-handshake（SSE 建连原子订阅） | 进行中 | 2026-10-13 | `006-mobile-sse-handshake/` |
+| `007` | clickthrough-toggle-feedback（鼠标穿透切换反馈） | 进行中 | 2026-10-13 | `007-clickthrough-toggle-feedback/` |
 
 > 分配规则：新增变更时，找到表中最小的未使用编号（或 `最大编号+1`），创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -73,3 +74,20 @@
 - **提交状态**：Pending Commit
 - **Commit 1**：功能代码 + 测试（待提交）
 - **Commit 2**：Audit + Change 文档 + INDEX（待提交）
+
+## Change 007
+
+- **名称**：`007-clickthrough-toggle-feedback`
+- **类型**：UX Feedback / Correctness
+- **状态**：Implementation Completed / Pending Commit
+- **摘要**：鼠标穿透成功切换后，根据平台确认的真实新状态显示开启/关闭 Toast；失败时不显示成功文案。
+- **包含**：
+  - State/App/Shortcut 透传真实状态与错误
+  - 复用既有 `EmitEvent("toast", ...)` 通知链路
+  - 开启、关闭、失败、单次调用和自定义快捷键测试
+  - HWND 未初始化失败语义测试
+- **Frontend 变化**：无
+- **依赖/协议/配置变化**：无
+- **提交状态**：Pending Commit
+- **Windows 真机验收**：T-WIN-01～04 待人工执行
+

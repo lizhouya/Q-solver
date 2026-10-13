@@ -93,13 +93,22 @@ func (s *Service) handleTrigger(action string) {
 		enabled, err := s.delegate.ToggleClickThrough()
 		if err != nil {
 			logger.Printf("切换鼠标穿透失败: %v", err)
-			s.delegate.EmitEvent("toast", "鼠标穿透切换失败")
+			s.delegate.EmitEvent("toast", map[string]string{
+				"text": "鼠标穿透切换失败",
+				"type": "error",
+			})
 			return
 		}
 		if enabled {
-			s.delegate.EmitEvent("toast", "鼠标穿透：已开启")
+			s.delegate.EmitEvent("toast", map[string]string{
+				"text": "鼠标穿透：已开启",
+				"type": "success",
+			})
 		} else {
-			s.delegate.EmitEvent("toast", "鼠标穿透：已关闭")
+			s.delegate.EmitEvent("toast", map[string]string{
+				"text": "鼠标穿透：已关闭",
+				"type": "info",
+			})
 		}
 	case "move_up":
 		s.delegate.MoveWindow(0, -10)

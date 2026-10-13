@@ -262,8 +262,12 @@ onMounted(() => {
     if (tab) ui.activeTab = tab
   })
 
-  on('toast', (msg) => {
-    ui.showToast(msg)
+  on('toast', (payload) => {
+    if (payload && typeof payload === 'object' && typeof payload.text === 'string') {
+      ui.showToast(payload.text, payload.type)
+      return
+    }
+    ui.showToast(payload)
   })
 
   document.addEventListener('keydown', event => {

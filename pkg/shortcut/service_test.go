@@ -168,7 +168,7 @@ func TestHandleRecordingCompleteConflict(t *testing.T) {
 	}
 }
 
-func assertSingleToast(t *testing.T, d *mockDelegate, want string) {
+func assertSingleToast(t *testing.T, d *mockDelegate, wantText, wantType string) {
 	t.Helper()
 	if !reflect.DeepEqual(d.events, []string{"toast"}) {
 		t.Fatalf("应只发送一次 toast，实际事件 %v", d.events)
@@ -176,8 +176,18 @@ func assertSingleToast(t *testing.T, d *mockDelegate, want string) {
 	if len(d.eventData) != 1 || len(d.eventData[0]) != 1 {
 		t.Fatalf("toast payload 结构不正确：%v", d.eventData)
 	}
-	if got, ok := d.eventData[0][0].(string); !ok || got != want {
-		t.Fatalf("toast 文案应为 %q，实际 %v", want, d.eventData[0][0])
+	payload, ok := d.eventData[0][0].(map[string]string)
+	if !ok {
+		t.Fatalf("toast payload 应为 map[string]string，实际 %T", d.eventData[0][0])
+	}
+	if got := payload["text"]; got != wantText {
+		t.Fatalf("toast 文案应为 %q，实际 %q", wantText, got)
+	}
+	if got := payload["type"]; got != wantType {
+		t.Fatalf("toast type 应为 %q，实际 %q", wantType, got)
+	}
+	if len(payload) != 2 {
+		t.Fatalf("toast payload 应仅包含 text/type，实际 %v", payload)
 	}
 }
 
@@ -190,7 +200,7 @@ func TestClickThroughEnabledToastUsesReturnedState(t *testing.T) {
 	if d.toggleClickThroughCalls != 1 {
 		t.Fatalf("clickthrough 应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
 	}
-	assertSingleToast(t, d, "鼠标穿透：已开启")
+	assertSingleToast(t, d, "鼠标穿透：已开启", "success")
 }
 
 func TestClickThroughDisabledToastUsesReturnedState(t *testing.T) {
@@ -202,7 +212,7 @@ func TestClickThroughDisabledToastUsesReturnedState(t *testing.T) {
 	if d.toggleClickThroughCalls != 1 {
 		t.Fatalf("clickthrough 应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
 	}
-	assertSingleToast(t, d, "鼠标穿透：已关闭")
+	assertSingleToast(t, d, "鼠标穿透：已关闭", "info")
 }
 
 func TestClickThroughFailureDoesNotEmitSuccessToast(t *testing.T) {
@@ -217,7 +227,7 @@ func TestClickThroughFailureDoesNotEmitSuccessToast(t *testing.T) {
 	if d.toggleClickThroughCalls != 1 {
 		t.Fatalf("失败时 clickthrough 仍应只调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
 	}
-	assertSingleToast(t, d, "鼠标穿透切换失败")
+	assertSingleToast(t, d, "鼠标穿透切换失败", "error")
 }
 
 func TestClickThroughCustomBindingStillUsesActionState(t *testing.T) {
@@ -235,5 +245,5 @@ func TestClickThroughCustomBindingStillUsesActionState(t *testing.T) {
 	if d.toggleClickThroughCalls != 1 {
 		t.Fatalf("自定义快捷键下应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
 	}
-	assertSingleToast(t, d, "鼠标穿透：已开启")
+	assertSingleToast(t, d, "鼠标穿透：已开启", "success")
 }

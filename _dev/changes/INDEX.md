@@ -12,6 +12,7 @@
 | `006` | mobile-sse-handshake（SSE 建连原子订阅） | 进行中 | 2026-10-13 | `006-mobile-sse-handshake/` |
 | `007` | clickthrough-toggle-feedback（鼠标穿透切换反馈） | 进行中 | 2026-10-13 | `007-clickthrough-toggle-feedback/` |
 | `008` | toast-icon-compatibility（Change 007.1 Toast 图标兼容） | 进行中 | 2026-10-13 | `008-toast-icon-compatibility/` |
+| `009` | toast-semantic-feedback（Toast 类型语义传递） | 进行中 | 2026-10-13 | `009-toast-semantic-feedback/` |
 
 > 分配规则：新增变更时，找到表中最小的未使用编号（或 `最大编号+1`），创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -105,3 +106,14 @@
 - **视觉验收**：Windows WebView2 肉眼确认 `NEEDS_USER`
 - **提交状态**：Pending Commit Boundary；未暂存、未提交、未推送
 
+## Change 009
+
+- **名称**：`009-toast-semantic-feedback`
+- **类型**：Event Semantics / Backward Compatibility
+- **状态**：Implementation Completed / Pending Commit Boundary
+- **摘要**：为 ClickThrough Toast 传递 success/info/error 类型，并保留旧字符串 payload 兼容。
+- **允许范围**：`pkg/shortcut/service.go`、`pkg/shortcut/service_test.go`、`frontend/src/App.vue`
+- **视觉组件变化**：无，保留 Change 008 template/CSS
+- **依赖/配置变化**：无
+- **自动验证**：聚焦测试×50、全量 Go test/build、Frontend build、Wails debug build、diff-check 通过
+- **提交状态**：Pending Commit Boundary；未暂存、未提交、未推送

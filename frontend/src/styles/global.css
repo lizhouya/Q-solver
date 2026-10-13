@@ -105,10 +105,29 @@ body {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+.toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
 .toast.error .toast-icon { color: var(--color-error); }
 .toast.success .toast-icon { color: var(--color-success); }
 .toast.warning .toast-icon { color: var(--color-warning); }
 .toast.info .toast-icon { color: var(--color-info); }
+.toast.error .toast-icon::before,
+.toast.warning .toast-icon::before { content: "!"; }
+.toast.success .toast-icon::before { content: "✓"; }
+.toast.info .toast-icon::before { content: "i"; }
 
 /* ========================================
    Markdown Content Styles

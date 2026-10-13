@@ -27,7 +27,7 @@
 
   <div id="toast-container">
     <div v-for="(t, i) in ui.toasts" :key="t.id || i" class="toast" :class="[t.type, { show: t.show }]">
-      <Icon :name="toastIcon(t.type)" :size="14" class="toast-icon" />
+      <span class="toast-icon" aria-hidden="true"></span>
       <span>{{ t.text }}</span>
     </div>
   </div>
@@ -59,13 +59,6 @@ const settingsStore = useSettingsStore()
 const solution = useSolutionStore()
 
 let pendingSolveCallback = null
-
-function toastIcon(type) {
-  if (type === 'error') return 'x-circle'
-  if (type === 'success') return 'check-circle'
-  if (type === 'warning') return 'alert-triangle'
-  return 'info'
-}
 
 function cancelSolve() {
   ui.showResumeWarning = false

@@ -212,12 +212,12 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// 连接即拉取当前全量快照（seq 对齐，Step 2.2）
-	initial := s.bridge.GetState()
-	s.writeEvent(w, flusher, "snapshot", initial)
-
-	sub := s.bridge.Subscribe()
+	// 原子完成订阅注册与当前快照读取，避免两步之间发布的终态丢失。
+	sub, initial := s.bridge.Subscribe()
 	defer s.bridge.Unsubscribe(sub)
+
+	// 连接即拉取当前全量快照（seq 对齐，Step 2.2）
+	s.writeEvent(w, flusher, "snapshot", initial)
 
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()

@@ -120,13 +120,15 @@ func (b *Bridge) GetState() Snapshot {
 	return b.state
 }
 
-// Subscribe 注册一个新订阅者，返回接收快照的 buffered channel。
-func (b *Bridge) Subscribe() chan Snapshot {
-	ch := make(chan Snapshot, 64)
+// Subscribe 原子注册新订阅者并返回与注册时刻一致的当前快照。
+// 注册完成后的 Publish 要么已体现在 initial 中，要么会进入返回的 channel。
+func (b *Bridge) Subscribe() (ch chan Snapshot, initial Snapshot) {
+	ch = make(chan Snapshot, 64)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.subs[ch] = struct{}{}
-	return ch
+	initial = b.state
+	return ch, initial
 }
 
 // Unsubscribe 注销订阅者并关闭其 channel。
@@ -150,4 +152,3 @@ func (b *Bridge) broadcastLocked() {
 		}
 	}
 }
-

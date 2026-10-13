@@ -1,11 +1,14 @@
 package mobile
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -47,6 +50,67 @@ func TestBridgeEventSequence(t *testing.T) {
 	}
 }
 
+type subscriptionObserverWriter struct {
+	header     http.Header
+	bridge     *Bridge
+	firstFlush chan int
+	once       sync.Once
+}
+
+func (w *subscriptionObserverWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *subscriptionObserverWriter) WriteHeader(statusCode int) {}
+
+func (w *subscriptionObserverWriter) Write(data []byte) (int, error) {
+	return len(data), nil
+}
+
+func (w *subscriptionObserverWriter) Flush() {
+	w.bridge.mu.RLock()
+	count := len(w.bridge.subs)
+	w.bridge.mu.RUnlock()
+	w.once.Do(func() { w.firstFlush <- count })
+}
+
+func TestSSESubscribesBeforeInitialFlush(t *testing.T) {
+	b := NewBridge()
+	s, err := NewServer(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/sse?token="+s.connectToken(), nil).WithContext(ctx)
+	writer := &subscriptionObserverWriter{
+		header:     make(http.Header),
+		bridge:     b,
+		firstFlush: make(chan int, 1),
+	}
+	done := make(chan struct{})
+	go func() {
+		s.handleSSE(writer, req)
+		close(done)
+	}()
+
+	select {
+	case count := <-writer.firstFlush:
+		if count != 1 {
+			t.Fatalf("首次 Flush 时应已有 1 个订阅者，实际 %d", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("等待首次 SSE Flush 超时")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("取消请求后 SSE handler 未退出")
+	}
+}
+
 // TestSSEHandshakeAndPublish 端到端验证 SSE：token 校验 + 连接即快照 + 实时推送。
 func TestSSEHandshakeAndPublish(t *testing.T) {
 	b := NewBridge()
@@ -78,10 +142,7 @@ func TestSSEHandshakeAndPublish(t *testing.T) {
 		t.Fatalf("期望 text/event-stream, 得到 %s", ct)
 	}
 
-	// 等待 SSE handler 完成订阅注册（避免 start 事件在订阅前发出而丢失）
-	time.Sleep(100 * time.Millisecond)
-
-	// 发送一帧事件，应很快被收到
+	// 发送一帧事件；HTTP 响应可见前应已完成订阅注册，无需人为等待。
 	b.Publish("solution-stream-start")
 
 	done := make(chan struct{})
@@ -212,4 +273,3 @@ func getFreePort(t *testing.T) int {
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
 }
-

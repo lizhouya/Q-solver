@@ -8,6 +8,7 @@
 |---|---|---|---|---|
 | `001` | mobile-output（解题结果手机同步镜像） | 已完成 | 2026-09-26 | `001-mobile-output/` |
 | `002` | remote-output-ui（远程端 Answer-first 双栏 UI + 会话内历史） | 已完成 | 2026-09-27 | `002-remote-output-ui/` |
+| `005` | 005-keepcontext-backend-wiring | 已完成 | 2026-10-13 | `005-keepcontext-backend-wiring/` |
 
 > 分配规则：新增变更时，找到表中最小的未使用编号（或 `最大编号+1`），创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -40,3 +41,18 @@
 - 前三份文档（00/01/02）必须在**业务代码被修改之前**完成——它们是变更的"事前记录"。
 - `03` 之后的记录允许边做边补，但不得缺失；数字一旦分配不得改号。
 - 模板见 [`_template/`](_template/)，示例见 [`000-examples/`](000-examples/)。
+
+## Change 005
+
+- **名称**：`005-keepcontext-backend-wiring`
+- **类型**：Feature / Backend Fix
+- **状态**：Completed
+- **摘要**：Wire existing KeepContext implementation into Solver request history flow.
+- **包含**：
+  - `KeepContext=true` 携带历史上下文
+  - `KeepContext=false` 独立请求
+  - 成功后保存 User + Assistant history
+  - 失败轮不写入
+  - 复用 `trimChatHistory`
+- **提交状态**：Pending Commit
+- **Commit hash**：

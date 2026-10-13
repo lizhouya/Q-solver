@@ -11,6 +11,7 @@
 | `005` | 005-keepcontext-backend-wiring | 已完成 | 2026-10-13 | `005-keepcontext-backend-wiring/` |
 | `006` | mobile-sse-handshake（SSE 建连原子订阅） | 进行中 | 2026-10-13 | `006-mobile-sse-handshake/` |
 | `007` | clickthrough-toggle-feedback（鼠标穿透切换反馈） | 进行中 | 2026-10-13 | `007-clickthrough-toggle-feedback/` |
+| `008` | toast-icon-compatibility（Change 007.1 Toast 图标兼容） | 进行中 | 2026-10-13 | `008-toast-icon-compatibility/` |
 
 > 分配规则：新增变更时，找到表中最小的未使用编号（或 `最大编号+1`），创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -90,4 +91,17 @@
 - **依赖/协议/配置变化**：无
 - **提交状态**：Pending Commit
 - **Windows 真机验收**：T-WIN-01～04 待人工执行
+
+## Change 008（用户命名：Change 007.1）
+
+- **名称**：`008-toast-icon-compatibility`
+- **类型**：Frontend Compatibility / UX Presentation
+- **状态**：Implementation Completed / Pending Commit Boundary
+- **摘要**：将 Toast 前置 SVG 状态图标替换为 CSS 圆框与稳定字符，避免 Windows WebView2 中呈现为 `×`。
+- **允许范围**：`frontend/src/App.vue`、`frontend/src/styles/global.css`
+- **业务调用链变化**：无
+- **依赖/协议/配置变化**：无
+- **自动验证**：Frontend build、Go test/build、Wails debug build、diff-check 全部通过
+- **视觉验收**：Windows WebView2 肉眼确认 `NEEDS_USER`
+- **提交状态**：Pending Commit Boundary；未暂存、未提交、未推送
 

@@ -6,7 +6,6 @@ import (
 	"Q-Solver/pkg/logger"
 	"Q-Solver/pkg/platform"
 	"syscall"
-	"unsafe"
 )
 
 type Manager struct {
@@ -112,14 +111,14 @@ func (m *Manager) installHooks() {
 // 记录：heldKeys = {Alt, ~}
 // 判断：有快捷键是 Alt + ~ 的吗？ -> 有！
 // 结果：拦截（return 1，Chrome 收不到 ~）。
-func keyboardHookProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
+func keyboardHookProc(nCode int, wParam uintptr, lParam platform.HookParam) uintptr {
 	if globalManager == nil {
 		return 0
 	}
 	// 只有当 nCode >= 0 时才处理消息，否则直接放行
 	if nCode >= 0 {
-		// 将 lParam 指针转换为键盘钩子结构体
-		kbd := (*platform.KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+		// 在 callback 生命周期内复制键盘钩子结构体。
+		kbd := platform.ReadKeyboardHookStruct(lParam)
 		// 监听按下事件 (WM_KEYDOWN) 或 系统按键按下 (WM_SYSKEYDOWN，比如按住 Alt 时)
 		if wParam == platform.WM_KEYDOWN || wParam == platform.WM_SYSKEYDOWN {
 			globalManager.heldKeys[kbd.VkCode] = true
@@ -147,12 +146,12 @@ func keyboardHookProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
 	return platform.CallNextHookEx(globalManager.hHook, nCode, wParam, lParam)
 }
 
-func mouseHookProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
+func mouseHookProc(nCode int, wParam uintptr, lParam platform.HookParam) uintptr {
 	if globalManager == nil {
 		return 0
 	}
 	if nCode >= 0 {
-		mouseStruct := (*platform.MSLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+		mouseStruct := platform.ReadMouseHookStruct(lParam)
 		var vkCode uint32
 		isDown := false
 		isUp := false

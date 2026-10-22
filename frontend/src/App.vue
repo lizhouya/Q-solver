@@ -6,6 +6,8 @@
 
   <ScreenshotDock />
   <SettingsModal />
+  <QuestionBankPanel />
+  <QuestionBankExportModal />
 
   <Teleport to="body">
     <Transition name="overlay-fade">
@@ -44,6 +46,9 @@ import WelcomeView from './components/WelcomeView.vue'
 import SolveView from './components/SolveView.vue'
 import ScreenshotDock from './components/ScreenshotDock.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import QuestionBankPanel from './components/QuestionBankPanel.vue'
+import QuestionBankExportModal from './components/QuestionBankExportModal.vue'
+import { useQuestionBankStore } from './stores/questionbank'
 import ResizeHandle from './components/ResizeHandle.vue'
 import Icon from './components/Icon.vue'
 
@@ -57,6 +62,7 @@ import { initCodeBlockInteractions } from './utils/markdown-latex'
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
 const solution = useSolutionStore()
+const questionBank = useQuestionBankStore()
 
 let pendingSolveCallback = null
 
@@ -75,6 +81,11 @@ function continueSolve() {
 
 onMounted(() => {
   initCodeBlockInteractions()
+  questionBank.initialize()
+  on('question-bank-updated', async () => {
+    await questionBank.refresh()
+    if (questionBank.visible) await questionBank.loadSessions()
+  })
 
   api.getInitStatus().then(s => { ui.initStatus = s })
   on('init-status', (s) => { ui.initStatus = s })

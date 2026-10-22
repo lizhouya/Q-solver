@@ -26,6 +26,14 @@ export const useSettingsStore = defineStore('settings', () => {
     noCompression: false,
   })
 
+  const settingsLoaded = ref(false)
+  const settingsLoading = ref(false)
+  const settingsLoadError = ref('')
+  let backendSnapshot = {}
+  let loadPromise = null
+  let modelRequestVersion = 0
+  let connectionRequestVersion = 0
+
   const tempSettings = reactive({ ...settings })
   const shortcuts = reactive({})
   const tempShortcuts = reactive({})
@@ -96,13 +104,8 @@ export const useSettingsStore = defineStore('settings', () => {
     tempSettings.resumeContent = newVal || ''
   })
 
-  let themeInitialized = false
   watch(currentTheme, () => {
-    if (!themeInitialized) {
-      themeInitialized = true
-      return
-    }
-    saveSettingsSilent()
+    if (settingsLoaded.value) saveSettingsSilent()
   })
 
   function applyTransparency(opacity) {
@@ -144,26 +147,42 @@ export const useSettingsStore = defineStore('settings', () => {
     root.style.setProperty('--surface-card-hover-a', String(opacity * (isLight ? 0.86 : 0.88)))
   }
 
-  async function loadSettings() {
-    try {
-      const [backendConfig, categories] = await Promise.all([
-        api.getSettings(),
-        api.getDomainCategories(),
-      ])
-      if (categories) domainCategories.value = categories
-      applyConfig(backendConfig)
-      if (backendConfig.shortcuts) Object.assign(shortcuts, backendConfig.shortcuts)
-      if (backendConfig.theme) setTheme(backendConfig.theme)
-      if (settings.apiKey && (!settings.model || settings.model === 'auto')) {
-        await fetchModels(settings.apiKey)
-        if (ui.availableModels.length > 0 && !settings.model) {
-          settings.model = ui.availableModels[0]
-          tempSettings.model = ui.availableModels[0]
+  function loadSettings() {
+    if (loadPromise) return loadPromise
+    settingsLoading.value = true
+    settingsLoadError.value = ''
+    settingsLoaded.value = false
+    loadPromise = (async () => {
+      const configTask = (async () => {
+        try {
+          const config = await api.getSettings()
+          if (!config || typeof config !== 'object') throw new Error('invalid configuration')
+          backendSnapshot = { ...config }
+          applyConfig(config)
+          Object.assign(shortcuts, config.shortcuts || {})
+          Object.assign(tempShortcuts, shortcuts)
+          if (config.theme) setTheme(config.theme)
+          settingsLoaded.value = true
+        } catch (_) {
+          settingsLoadError.value = '配置读取失败，已阻止保存以保护原配置。请点击重新读取。'
+          ui.showToast(settingsLoadError.value, 'error')
         }
-      }
-    } catch (e) {
-      console.error('loadSettings error', e)
-    }
+      })()
+      const categoriesTask = (async () => {
+        try {
+          const categories = await api.getDomainCategories()
+          if (categories) domainCategories.value = categories
+        } catch (_) {
+          ui.showToast('场景列表加载失败，不影响 API 配置读取与保存', 'warning')
+        }
+      })()
+      await Promise.all([configTask, categoriesTask])
+      return settingsLoaded.value
+    })().finally(() => {
+      settingsLoading.value = false
+      loadPromise = null
+    })
+    return loadPromise
   }
 
   function applyConfig(config) {
@@ -189,34 +208,27 @@ export const useSettingsStore = defineStore('settings', () => {
     Object.assign(tempSettings, JSON.parse(JSON.stringify(settings)))
   }
 
-  async function fetchModels(apiKey) {
+  async function fetchModels(apiKey, baseURL = tempSettings.baseURL) {
     if (!apiKey) return false
+    const version = ++modelRequestVersion
     ui.isLoadingModels = true
     try {
-      const models = await api.getModels(apiKey)
-      if (models && models.length > 0) {
-        ui.availableModels = models
-        if (!tempSettings.model || !models.includes(tempSettings.model)) {
-          tempSettings.model = models[0]
-        }
+      const models = await api.getModels(apiKey, baseURL)
+      if (version !== modelRequestVersion || apiKey !== tempSettings.apiKey || baseURL !== tempSettings.baseURL) return false
+      ui.availableModels = models || []
+      if (models?.length > 0) {
+        if (!tempSettings.model || !models.includes(tempSettings.model)) tempSettings.model = models[0]
         return true
       }
-      ui.availableModels = []
+      ui.showToast('接口未返回模型，请检查服务商的模型列表支持情况', 'warning')
       return false
-    } catch (e) {
-      console.error('获取模型列表失败', e)
+    } catch (_) {
+      if (version !== modelRequestVersion || apiKey !== tempSettings.apiKey || baseURL !== tempSettings.baseURL) return false
       ui.availableModels = []
-      let errorMsg = '获取模型列表失败'
-      try {
-        const errObj = JSON.parse(e.message || e)
-        if (errObj.message) errorMsg = errObj.message
-      } catch (_) {
-        errorMsg = e.message || '获取模型列表失败'
-      }
-      ui.showToast(errorMsg, 'error')
+      ui.showToast('获取模型列表失败，请检查本次接口地址、API Key 和网络连接', 'error')
       return false
     } finally {
-      ui.isLoadingModels = false
+      if (version === modelRequestVersion) ui.isLoadingModels = false
     }
   }
 
@@ -232,33 +244,35 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function testConnection() {
-    if (!tempSettings.model) {
-      ui.showToast('请先选择模型', 'warning')
+    if (!tempSettings.apiKey || !tempSettings.model) {
+      ui.showToast('请先填写 API Key 并选择模型', 'warning')
       return
     }
+    const version = ++connectionRequestVersion
+    const { apiKey, baseURL, model } = tempSettings
+    const isCurrent = () => version === connectionRequestVersion && apiKey === tempSettings.apiKey && baseURL === tempSettings.baseURL && model === tempSettings.model
     ui.isTestingConnection = true
     ui.connectionStatus = null
     try {
-      const currentConfig = JSON.parse(JSON.stringify(settings))
-      settings.baseURL = tempSettings.baseURL
-      const result = await api.testConnection(tempSettings.apiKey, tempSettings.model)
-      Object.assign(settings, currentConfig)
+      const result = await api.testConnection(apiKey, baseURL, model)
+      if (!isCurrent()) return
       if (result === '') {
-        ui.connectionStatus = { type: 'success', icon: '✓', message: `模型 ${tempSettings.model} 连接成功` }
+        ui.connectionStatus = { type: 'success', icon: '✓', message: '本次模型连接成功' }
         ui.showToast('连接测试成功', 'success')
       } else {
-        ui.connectionStatus = { type: 'error', icon: '!', message: result }
+        ui.connectionStatus = { type: 'error', icon: '!', message: '连接测试失败，请检查接口地址、密钥和模型' }
         ui.showToast('连接测试失败', 'error')
       }
-    } catch (e) {
-      ui.connectionStatus = { type: 'error', icon: '!', message: e.message || '连接测试失败' }
+    } catch (_) {
+      if (isCurrent()) ui.connectionStatus = { type: 'error', icon: '!', message: '连接测试失败，请检查网络与接口配置' }
     } finally {
-      ui.isTestingConnection = false
+      if (version === connectionRequestVersion) ui.isTestingConnection = false
     }
   }
 
   function buildConfigToSave(sourceSettings, sourceShortcuts) {
     return {
+      ...backendSnapshot,
       apiKey: sourceSettings.apiKey,
       baseURL: sourceSettings.baseURL,
       model: sourceSettings.model,
@@ -280,42 +294,40 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function saveSettings() {
+  async function saveSettings({ close = true } = {}) {
+    if (!settingsLoaded.value || settingsLoading.value) {
+      ui.showToast('配置尚未成功加载，请先重新读取，未保存任何默认空值', 'warning')
+      return false
+    }
+    const draft = JSON.parse(JSON.stringify(tempSettings))
+    const draftShortcuts = JSON.parse(JSON.stringify(tempShortcuts))
+    const payload = buildConfigToSave(draft, draftShortcuts)
     try {
-      if (!tempSettings.model && tempSettings.apiKey) {
-        ui.showToast('正在自动获取模型...', 'info')
-        await fetchModels(tempSettings.apiKey)
-        if (!tempSettings.model && ui.availableModels.length > 0) {
-          tempSettings.model = ui.availableModels[0]
-        }
-      }
-
-      Object.assign(shortcuts, JSON.parse(JSON.stringify(tempShortcuts)))
-
-      const err = await api.syncSettings(JSON.stringify(buildConfigToSave(tempSettings, tempShortcuts)))
+      const err = await api.syncSettings(JSON.stringify(payload))
       if (err) {
-        ui.showToast(err, 'error')
-      } else {
-        ui.showToast('设置已保存', 'success')
-        Object.assign(settings, tempSettings)
-        resetStatus()
-        closeSettings()
+        ui.showToast('设置保存失败，原界面配置未变，请重试', 'error')
+        return false
       }
-    } catch (e) {
-      console.error('保存设置失败', e)
-      ui.showToast('保存失败', 'error')
+      backendSnapshot = payload
+      Object.assign(shortcuts, draftShortcuts)
+      Object.assign(settings, draft)
+      resetStatus()
+      ui.showToast('设置已保存', 'success')
+      if (close) closeSettings()
+      return true
+    } catch (_) {
+      ui.showToast('保存失败，请检查应用状态后重试', 'error')
+      return false
     }
   }
 
-  function openSettings() {
+  async function openSettings() {
     api.restoreFocus()
+    if (!settingsLoaded.value) await loadSettings()
     Object.assign(tempSettings, JSON.parse(JSON.stringify(settings)))
     Object.assign(tempShortcuts, JSON.parse(JSON.stringify(shortcuts)))
     ui.connectionStatus = null
     if (settings.resumeContent) resumeRawContent.value = settings.resumeContent
-    if (settings.apiKey && ui.availableModels.length === 0) {
-      fetchModels(settings.apiKey)
-    }
     ui.showSettings = true
   }
 
@@ -324,6 +336,10 @@ export const useSettingsStore = defineStore('settings', () => {
       ui.showToast('简历正在解析中，请稍候...', 'warning')
       return
     }
+    modelRequestVersion++
+    connectionRequestVersion++
+    ui.isLoadingModels = false
+    ui.isTestingConnection = false
     api.removeFocus()
     ui.showSettings = false
     if (recordingAction.value) api.stopRecordingKey()
@@ -377,15 +393,17 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function saveSettingsSilent() {
+    if (!settingsLoaded.value || settingsLoading.value) return false
     try {
-      await api.syncSettings(JSON.stringify(buildConfigToSave(settings, shortcuts)))
+      const err = await api.syncSettings(JSON.stringify(buildConfigToSave(settings, shortcuts)))
+      if (err) ui.showToast('主题设置保存失败', 'warning')
     } catch (e) {
-      console.error('静默保存失败', e)
+      ui.showToast('主题设置保存失败', 'warning')
     }
   }
 
   return {
-    settings, tempSettings,
+    settings, tempSettings, settingsLoaded, settingsLoading, settingsLoadError,
     shortcuts, tempShortcuts,
     domainCategories,
     resumeRawContent, isResumeParsing,

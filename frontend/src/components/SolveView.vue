@@ -79,7 +79,6 @@
               v-if="round.aiResponse && !solution.isLoading && !(idx === solution.currentRounds.length - 1 && solution.streamingHtml)"
               :content="round.aiResponse"
               :model="settingsStore.settings.model"
-              @export="solution.exportImage(solution.activeHistoryIndex)"
             />
           </div>
         </template>

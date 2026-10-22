@@ -145,8 +145,10 @@ func (a *App) solveInternal(ctx context.Context, screenshots []string) bool {
 		Screenshots: screenshots,
 	}
 
+	emit, finish := a.captureQuestion(ctx, cfg, screenshots, a.EmitEvent)
+	defer finish()
 	cb := solution.Callbacks{
-		EmitEvent: a.EmitEvent,
+		EmitEvent: emit,
 	}
 
 	return a.solver.Solve(ctx, req, cb)

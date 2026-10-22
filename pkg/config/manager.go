@@ -11,6 +11,7 @@ import (
 )
 
 type ConfigManager struct {
+	loaded      bool
 	config      Config
 	mu          sync.RWMutex
 	configPath  string
@@ -51,23 +52,25 @@ func (cm *ConfigManager) Load() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// 先设置默认值
-	cm.config = NewDefaultConfig()
-	// 从文件加载（AES 加密存储）
+	if cm.loaded {
+		return nil
+	}
+	cfg := NewDefaultConfig()
 	data, err := os.ReadFile(cm.configPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.Printf("加载配置文件失败 (使用默认配置): %v", err)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("无法读取配置文件，原配置未修改，请检查文件访问权限后重试")
+	}
+	if err == nil {
+		plain, decryptErr := decrypt(data)
+		if decryptErr != nil {
+			return fmt.Errorf("配置解密失败，原配置未修改，请检查配置文件后重试")
 		}
-	} else {
-		plain, err := decrypt(data)
-		if err != nil {
-			logger.Printf("解密配置文件失败 (使用默认配置): %v", err)
-		} else if err := json.Unmarshal(plain, &cm.config); err != nil {
-			logger.Printf("解析配置文件失败: %v", err)
+		if json.Unmarshal(plain, &cfg) != nil {
+			return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
 		}
 	}
-
+	cm.config = cfg
+	cm.loaded = true
 	logger.Println("配置已加载")
 	return nil
 }
@@ -75,6 +78,10 @@ func (cm *ConfigManager) Load() error {
 func (cm *ConfigManager) Save() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	if !cm.loaded {
+		return fmt.Errorf("配置尚未成功加载，已阻止保存以保护原配置")
+	}
 
 	plain, err := json.MarshalIndent(cm.config, "", "  ")
 	if err != nil {
@@ -100,6 +107,9 @@ func (cm *ConfigManager) Get() Config {
 
 // UpdateFromJSON 从前端 JSON 全量更新配置
 func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
+	if err := cm.Load(); err != nil {
+		return err
+	}
 	var newConfig Config
 	if err := json.Unmarshal([]byte(jsonStr), &newConfig); err != nil {
 		return fmt.Errorf("解析配置 JSON 失败: %w", err)
@@ -124,6 +134,9 @@ func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
 // Patch 部分更新配置字段（避免全量序列化/反序列化的开销）
 // patchFn 接收当前配置指针，直接修改需要变更的字段
 func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
+	if err := cm.Load(); err != nil {
+		return err
+	}
 	cm.mu.Lock()
 	cm.oldConfig = cm.config
 	patchFn(&cm.config)

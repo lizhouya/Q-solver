@@ -1,11 +1,17 @@
+import * as AppBindings from '../../wailsjs/go/app/App'
 import {
   CancelRunningTask,
+  GetQuestionBankStatus,
+  SelectQuestionBankOutput,
+  ListQuestionBankSessions,
+  OpenQuestionBankSession,
+  SaveQuestionBankSession,
+  CancelQuestionBankOrganizing,
   CheckScreenCapturePermission,
   ClearResume,
   GetDomainCategories,
   GetInitStatus,
   GetMobileOutputInfo,
-  GetModels,
   GetScreenshotPreview,
   GetSettings,
   MoveWindow,
@@ -20,7 +26,6 @@ import {
   SetWindowAlwaysOnTop,
   StartRecordingKey,
   StopRecordingKey,
-  TestConnection,
   ToggleClickThrough,
   ToggleVisibility,
   TriggerSolve,
@@ -33,13 +38,38 @@ import {
 
 import { Quit } from '../../wailsjs/runtime/runtime'
 
+// 新接口与生成代码可能分批更新：优先使用 binding，缺失时回退到 Wails bridge。
+function callApp(method, ...args) {
+  const binding = AppBindings[method]
+  if (typeof binding === 'function') return binding(...args)
+
+  const bridgeMethod = globalThis.window?.go?.app?.App?.[method]
+  if (typeof bridgeMethod === 'function') return bridgeMethod(...args)
+  return Promise.reject(new Error(`Wails API ${method} 尚未生成`))
+}
+
 export const api = {
+  getQuestionBankPreferences: () => callApp('GetQuestionBankPreferences'),
+  updateQuestionBankPreferences: (preferences) => callApp('UpdateQuestionBankPreferences', preferences),
+  getQuestionBankStatus: () => GetQuestionBankStatus(),
+  selectQuestionBankOutput: () => SelectQuestionBankOutput(),
+  splitQuestionBankSegment: () => callApp('SplitQuestionBankSegment'),
+  discardQuestionBankSegment: (confirmed) => callApp('DiscardQuestionBankSegment', confirmed),
+  exportCurrentQuestionBankSegment: () => callApp('ExportCurrentQuestionBankSegment'),
+  exportQuestionBankSession: (id) => callApp('ExportQuestionBankSession', id),
+  getQuestionBankExportDraft: (id) => callApp('GetQuestionBankExportDraft', id),
+  selectQuestionBankExportDirectory: (current) => callApp('SelectQuestionBankExportDirectory', current),
+  exportQuestionBankSegment: (request) => callApp('ExportQuestionBankSegment', request),
+  listQuestionBankSessions: () => ListQuestionBankSessions(),
+  openQuestionBankSession: (id) => OpenQuestionBankSession(id),
+  saveQuestionBankSession: () => SaveQuestionBankSession(),
+  cancelQuestionBankOrganizing: () => CancelQuestionBankOrganizing(),
   getSettings: () => GetSettings(),
   syncSettings: (json) => UpdateSettings(json),
   updateSettings: (json) => UpdateSettings(json),
 
-  getModels: (apiKey) => GetModels(apiKey),
-  testConnection: (apiKey, model) => TestConnection(apiKey, model),
+  getModels: (apiKey, baseURL) => callApp('GetModelsForConnection', apiKey, baseURL),
+  testConnection: (apiKey, baseURL, model) => callApp('TestConnectionForConnection', apiKey, baseURL, model),
 
   triggerSolve: () => TriggerSolve(),
   triggerScreenshot: () => TriggerScreenshot(),
@@ -67,6 +97,7 @@ export const api = {
   getInitStatus: () => GetInitStatus(),
   getDomainCategories: () => GetDomainCategories(),
   getMobileOutputInfo: () => GetMobileOutputInfo(),
+  retryMobileOutput: () => callApp('RetryMobileOutput'),
 
   getScreenshotPreview: (q, s, g, n, m) => GetScreenshotPreview(q, s, g, n, m),
   checkScreenCapturePermission: () => CheckScreenCapturePermission(),

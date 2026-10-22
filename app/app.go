@@ -14,12 +14,15 @@ import (
 	"Q-Solver/pkg/tray"
 	"Q-Solver/pkg/window"
 	"context"
+	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
 	ctx context.Context
+
+	questionBank *questionBankService
 
 	configManager *config.ConfigManager
 	stateManager  *state.StateManager
@@ -31,9 +34,12 @@ type App struct {
 	screenService   *screen.Service
 	solver          *solution.Solver
 
-	// Mobile Output（001 变更）：事件镜像 + 局域网 SSE 服务
-	mobileBridge *mobile.Bridge
-	mobileServer *mobile.Server
+	// Mobile Output（001/012 变更）：事件镜像 + 可重试的局域网 SSE 服务。
+	mobileMu               sync.RWMutex
+	mobileBridge           *mobile.Bridge
+	mobileServer           *mobile.Server
+	mobileStatus           string
+	mobileConfigSubscribed bool
 
 	// Window Visibility（003 Phase 1）：窗口实体可见性管理器
 	windowVisibility *window.WindowVisibilityManager
@@ -50,6 +56,7 @@ func NewApp() *App {
 
 	app := &App{
 		configManager: configManager,
+		questionBank:  &questionBankService{},
 		stateManager:  state.NewStateManager(),
 		taskManager:   task.NewTaskCoordinator(),
 		screenService: screen.NewService(),
@@ -73,10 +80,11 @@ func (a *App) setupTray() {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-
 	if err := a.configManager.Load(); err != nil {
 		logger.Printf("加载配置失败: %v", err)
 	}
+
+	a.loadQuestionBank()
 
 	cfg := a.configManager.Get()
 	if cfg.WindowWidth > 0 && cfg.WindowHeight > 0 {
@@ -123,8 +131,8 @@ func (a *App) onConfigChanged(newConfig config.Config, oldConfig config.Config) 
 		a.solver.ClearHistory()
 	}
 
-	if a.mobileBridge != nil {
-		a.mobileBridge.SetModel(newConfig.Model)
+	if bridge := a.mobileBridgeForUse(); bridge != nil {
+		bridge.SetModel(newConfig.Model)
 	}
 
 	// Phase 4：OutputMode 从非 mobile → mobile 时自动隐藏桌面窗口
@@ -189,6 +197,7 @@ func (a *App) applyOutputModeWindowPolicy(previousMode, newMode string) {
 }
 
 func (a *App) OnShutdown(ctx context.Context) {
+	a.shutdownQuestionBank()
 	if a.shortcutService != nil {
 		a.shortcutService.Stop()
 	}

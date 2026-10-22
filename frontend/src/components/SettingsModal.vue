@@ -12,6 +12,7 @@
           <div class="tab" :class="{ active: ui.activeTab === 'model' }" @click="ui.activeTab = 'model'">模型</div>
           <div class="tab" :class="{ active: ui.activeTab === 'screenshot' }" @click="ui.activeTab = 'screenshot'">截图</div>
           <div class="tab" :class="{ active: ui.activeTab === 'output' }" @click="ui.activeTab = 'output'">输出</div>
+          <div class="tab" :class="{ active: ui.activeTab === 'questionbank' }" @click="ui.activeTab = 'questionbank'">题库</div>
           <div class="tab" :class="{ active: ui.activeTab === 'resume' }" @click="ui.activeTab = 'resume'">简历</div>
           <div class="tab" :class="{ active: ui.activeTab === 'api' }" @click="ui.activeTab = 'api'">API</div>
         </div>
@@ -129,13 +130,20 @@
               </label>
             </div>
             <p class="hint-text">mobile 模式下，解题答案只推送到同一局域网内的手机浏览器，电脑不会渲染。</p>
+            <p class="hint-text output-mode-state">当前生效：<b>{{ settingsStore.settings.outputMode }}</b></p>
+            <p v-if="mobileModeDirty" class="hint-text warning-hint">本次选择 <b>{{ settingsStore.tempSettings.outputMode }}</b> 尚未保存；保存后才改变答案与滚动路由。</p>
           </div>
 
           <div class="form-group">
             <label>手机连接入口</label>
             <div v-if="mobileInfo.loading" class="empty-hint">连接信息加载中…</div>
+            <div v-else-if="mobileInfo.readError" class="mobile-unavailable">
+              <p class="hint-text warning-hint">⚠️ 无法读取 Mobile 服务状态。这不代表端口冲突，可重新读取。</p>
+              <button class="btn-secondary mobile-retry" :disabled="mobileInfo.retrying" @click="refreshMobileInfo">重新读取</button>
+            </div>
             <div v-else-if="!mobileInfo.available" class="mobile-unavailable">
-              <p class="hint-text">⚠️ Mobile 服务未就绪（端口冲突或被占用时会自动降级，不影响桌面功能）。</p>
+              <p class="hint-text">⚠️ {{ mobileStatusMessage }}</p>
+              <button v-if="mobileInfo.retryable" class="btn-secondary mobile-retry" :disabled="mobileInfo.retrying" @click="retryMobileOutput">{{ mobileInfo.retrying ? '重试中…' : '重试 Mobile 服务' }}</button>
             </div>
             <div v-else class="mobile-info">
               <div class="mobile-url-row">
@@ -150,6 +158,45 @@
               <p class="hint-text">仅局域网可访问，不含外网。当前端口 <b>{{ mobileInfo.port }}</b>。</p>
             </div>
           </div>
+        </div>
+
+        <div v-show="ui.activeTab === 'questionbank'" class="tab-pane questionbank-tab">
+          <div class="form-group">
+            <label>默认题库目录</label>
+            <div class="questionbank-path-row">
+              <code class="questionbank-path">{{ questionBank.tempPreferences.archiveDir || '尚未选择' }}</code>
+              <button
+                class="btn-secondary"
+                :disabled="questionBank.preferenceWorking || savingAll"
+                @click="questionBank.selectOutput"
+              >选择目录</button>
+            </div>
+            <p class="hint-text">每次打开导出窗口时默认使用这里；可在窗口中临时修改，且不会写回长期偏好。请选择已存在、可写且位于源码仓库外的目录。</p>
+          </div>
+
+          <div class="form-group questionbank-organize-card">
+            <label class="questionbank-switch">
+              <input
+                v-model="questionBank.tempPreferences.autoOrganize"
+                type="checkbox"
+                :disabled="questionBank.preferenceWorking || savingAll"
+              />
+              <span>
+                <strong>默认启用模型整理</strong>
+                <small>仅作为导出窗口的默认值；每次都可以单独开关。</small>
+              </span>
+            </label>
+            <div class="questionbank-data-notice" :class="{ enabled: questionBank.tempPreferences.autoOrganize }">
+              <Icon name="alert-triangle" :size="15" />
+              <p>
+                只有在导出窗口中保持开启并确认提交后，才会把该分段的截图和原答案发送给已配置的模型服务商，可能产生额外调用费用；打开或取消窗口不会上传内容，也不会携带简历或其他历史会话。
+                当前模型：<strong>{{ settingsStore.tempSettings.model || '未配置' }}</strong>
+              </p>
+            </div>
+          </div>
+
+          <p v-if="questionBank.error" class="questionbank-error" role="alert">{{ questionBank.error }}</p>
+          <p v-else-if="questionBank.preferencesDirty" class="hint-text" role="status">题库偏好尚未保存；点击下方“保存”后与其他设置一起提交。</p>
         </div>
 
         <div v-if="ui.activeTab === 'resume'" class="tab-pane">
@@ -172,17 +219,22 @@
         </div>
       </div>
 
+      <div v-if="settingsStore.settingsLoadError" class="form-group" role="alert">
+        <p class="hint-text warning-hint">{{ settingsStore.settingsLoadError }}</p>
+        <button class="btn-secondary" :disabled="settingsStore.settingsLoading" @click="settingsStore.loadSettings">重新读取配置</button>
+      </div>
       <div class="modal-footer">
-        <button class="btn-primary" @click="settingsStore.saveSettings">保存</button>
+        <button class="btn-primary" :disabled="savingAll || !settingsStore.settingsLoaded || settingsStore.settingsLoading" @click="saveAllSettings">{{ savingAll ? '保存中…' : '保存' }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useUIStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
+import { useQuestionBankStore } from '../stores/questionbank'
 import { api } from '../services/api'
 import ResumeImport from './ResumeImport.vue'
 import ProviderSelect from './ProviderSelect.vue'
@@ -193,23 +245,120 @@ import Icon from './Icon.vue'
 
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
+const questionBank = useQuestionBankStore()
+const savingAll = ref(false)
 
-// Mobile Output 连接信息（001）——打开设置时拉取
-const mobileInfo = reactive({ loading: true, available: false, url: '', port: 0 })
+watch(() => ui.showSettings, (visible) => {
+  if (!visible) return
+  questionBank.beginPreferenceEdit()
+  refreshMobileInfo()
+})
 
-function refreshMobileInfo() {
+watch(() => ui.activeTab, (tab) => {
+  if (ui.showSettings && tab === 'output') refreshMobileInfo()
+})
+
+async function saveAllSettings() {
+  if (savingAll.value) return
+  savingAll.value = true
+  try {
+    let preferencesSaved = true
+    if (questionBank.preferencesDirty) {
+      try { preferencesSaved = await questionBank.savePreferences() } catch (_) { preferencesSaved = false }
+    }
+    const settingsSaved = await settingsStore.saveSettings({ close: false })
+    if (!preferencesSaved) {
+      ui.showToast(settingsSaved ? 'API 等常规设置已保存，但题库偏好保存失败，请检查题库页' : '常规设置与题库偏好均未保存，请分别检查', 'warning')
+    } else if (settingsSaved) {
+      settingsStore.closeSettings()
+    }
+  } finally {
+    savingAll.value = false
+  }
+}
+
+// Mobile Output 连接信息：服务状态与尚未保存的 outputMode 草稿彼此独立。
+const mobileInfo = reactive({
+  loading: false,
+  readError: false,
+  available: false,
+  url: '',
+  port: 0,
+  status: 'not_started',
+  retryable: false,
+  retrying: false,
+})
+let mobileInfoRequestVersion = 0
+
+const mobileModeDirty = computed(() => (
+  settingsStore.tempSettings.outputMode !== settingsStore.settings.outputMode
+))
+
+const mobileStatusMessage = computed(() => {
+  switch (mobileInfo.status) {
+    case 'port_unavailable':
+      return 'Mobile 服务端口当前不可用；答案与滚动会安全回退到电脑端。'
+    case 'initialization_failed':
+      return 'Mobile 服务初始化失败；桌面功能不受影响。'
+    case 'stopped':
+      return 'Mobile 服务已停止，请重启应用后再试。'
+    case 'not_started':
+      return 'Mobile 服务尚未启动；可尝试重新启动服务。'
+    default:
+      return 'Mobile 服务当前不可用；答案与滚动会安全回退到电脑端。'
+  }
+})
+
+function applyMobileInfo(info) {
+  mobileInfo.available = info?.available === true
+  mobileInfo.url = mobileInfo.available ? (info?.url || '') : ''
+  mobileInfo.port = mobileInfo.available ? Number(info?.port || 0) : 0
+  mobileInfo.status = info?.status || (mobileInfo.available ? 'ready' : 'not_started')
+  mobileInfo.retryable = info?.retryable === true
+  mobileInfo.readError = false
+}
+
+async function refreshMobileInfo() {
+  if (mobileInfo.retrying) return
+  const version = ++mobileInfoRequestVersion
   mobileInfo.loading = true
-  api.getMobileOutputInfo()
-    .then((info) => {
-      mobileInfo.available = !!info?.available
-      mobileInfo.url = info?.url || ''
-      mobileInfo.port = info?.port || 0
-    })
-    .catch(() => {
-      mobileInfo.available = false
-      mobileInfo.url = ''
-    })
-    .finally(() => { mobileInfo.loading = false })
+  mobileInfo.readError = false
+  try {
+    const info = await api.getMobileOutputInfo()
+    if (version === mobileInfoRequestVersion) applyMobileInfo(info)
+  } catch (_) {
+    if (version !== mobileInfoRequestVersion) return
+    mobileInfo.available = false
+    mobileInfo.url = ''
+    mobileInfo.port = 0
+    mobileInfo.readError = true
+    mobileInfo.retryable = false
+  } finally {
+    if (version === mobileInfoRequestVersion) mobileInfo.loading = false
+  }
+}
+
+async function retryMobileOutput() {
+  if (mobileInfo.retrying) return
+  const version = ++mobileInfoRequestVersion
+  mobileInfo.retrying = true
+  mobileInfo.readError = false
+  try {
+    const info = await api.retryMobileOutput()
+    if (version !== mobileInfoRequestVersion) return
+    applyMobileInfo(info)
+    ui.showToast(info?.available ? 'Mobile 服务已恢复' : 'Mobile 服务仍不可用，请检查端口占用', info?.available ? 'success' : 'warning')
+  } catch (_) {
+    if (version !== mobileInfoRequestVersion) return
+    mobileInfo.available = false
+    mobileInfo.url = ''
+    mobileInfo.port = 0
+    mobileInfo.readError = true
+    mobileInfo.retryable = false
+    ui.showToast('重试 Mobile 服务失败', 'error')
+  } finally {
+    mobileInfo.retrying = false
+  }
 }
 
 function copyMobileUrl() {
@@ -219,12 +368,9 @@ function copyMobileUrl() {
       ui.showToast('连接地址已复制', 'success')
     })
   } else {
-    // 降级：选中便于手动复制
     document.querySelector('.mobile-url')?.select()
   }
 }
-
-onMounted(() => refreshMobileInfo())
 
 const screenshotConfig = computed({
   get: () => ({
@@ -245,6 +391,8 @@ const screenshotConfig = computed({
 </script>
 
 <style scoped>
+.output-mode-state { margin-top: var(--sp-2); }
+.mobile-retry { margin-top: var(--sp-2); }
 .modal {
   position: fixed;
   inset: 0;
@@ -307,6 +455,8 @@ const screenshotConfig = computed({
 .tabs {
   display: flex;
   gap: var(--sp-1);
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .tab {
@@ -510,6 +660,94 @@ const screenshotConfig = computed({
 }
 
 .warning-hint { color: var(--color-warning); }
+
+.questionbank-tab { display: block; }
+.questionbank-path-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+}
+.questionbank-path {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.btn-secondary {
+  flex-shrink: 0;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.btn-secondary:hover:not(:disabled) { background: var(--surface-card-hover); }
+.btn-secondary:disabled,
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.settings-text-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.settings-text-input:focus,
+.btn-secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.questionbank-organize-card {
+  padding: var(--sp-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+.form-group .questionbank-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: 0;
+  cursor: pointer;
+}
+.questionbank-switch input { margin-top: 3px; accent-color: var(--accent); }
+.questionbank-switch span { display: flex; flex-direction: column; gap: 4px; }
+.questionbank-switch strong { color: var(--text-primary); font-size: var(--text-sm); }
+.questionbank-switch small { color: var(--text-muted); font-size: var(--text-xs); font-weight: 400; line-height: 1.5; }
+.questionbank-data-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--surface-input);
+}
+.questionbank-data-notice.enabled {
+  border-color: var(--warning-border);
+  color: var(--color-warning);
+  background: var(--warning-bg);
+}
+.questionbank-data-notice p { margin: 0; font-size: var(--text-xs); line-height: 1.65; }
+.questionbank-error {
+  padding: var(--sp-3);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-sm);
+  background: var(--error-bg);
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
 
 /* ---- 001 · 输出模式 + 手机连接 ---- */
 .output-mode-grid {

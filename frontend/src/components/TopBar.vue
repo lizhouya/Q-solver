@@ -24,6 +24,25 @@
 
         <div class="bar-divider" />
 
+        <div
+          class="scroll-control-group"
+          title="点击箭头，或将鼠标放在这里滚动滑轮；按已保存的输出模式控制答案"
+          @wheel="handleScrollWheel"
+        >
+          <button class="bar-btn" @click="scrollContent('up')" title="向上滚动答案">
+            <Icon name="chevron-up" :size="15" />
+          </button>
+          <button class="bar-btn" @click="scrollContent('down')" title="向下滚动答案">
+            <Icon name="chevron-down" :size="15" />
+          </button>
+        </div>
+
+        <div class="bar-divider" />
+
+        <button class="bar-btn bank-btn" :class="{ recording: questionBank.recording }" @click="questionBank.open" title="管理当前题库分段、历史和导出结果">
+          <span>{{ questionBank.label }}</span>
+        </button>
+
         <ThemeToggle />
 
         <button class="bar-btn" @click="$emit('openSettings')" title="设置"
@@ -81,6 +100,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useUIStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
+import { useQuestionBankStore } from '../stores/questionbank'
+import { api } from '../services/api'
 import Icon from './Icon.vue'
 import ThemeToggle from './ThemeToggle.vue'
 
@@ -88,6 +109,7 @@ defineEmits(['openSettings'])
 
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
+const questionBank = useQuestionBankStore()
 
 const statusClass = computed(() => {
   const text = settingsStore.statusText || ''
@@ -133,6 +155,49 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
 })
 
+function scrollContent(direction) {
+  api.scrollContent(direction).catch((error) => {
+    ui.showToast(`滚动失败：${error?.message || String(error)}`, 'error')
+  })
+}
+
+const wheelThreshold = 40
+const wheelCooldown = 140
+const wheelIdleReset = 300
+let wheelAccumulator = 0
+let lastWheelDispatch = 0
+let lastWheelEvent = 0
+
+function normalizedWheelDelta(event) {
+  if (event.deltaMode === 1) return event.deltaY * 16
+  if (event.deltaMode === 2) return event.deltaY * Math.max(window.innerHeight, 1)
+  return event.deltaY
+}
+
+function handleScrollWheel(event) {
+  const vertical = normalizedWheelDelta(event)
+  if (!vertical || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+
+  event.preventDefault()
+  const now = Date.now()
+  if (now - lastWheelEvent > wheelIdleReset) wheelAccumulator = 0
+  lastWheelEvent = now
+  if (now - lastWheelDispatch < wheelCooldown) {
+    wheelAccumulator = 0
+    return
+  }
+  if (wheelAccumulator && Math.sign(wheelAccumulator) !== Math.sign(vertical)) {
+    wheelAccumulator = 0
+  }
+  wheelAccumulator += vertical
+  if (Math.abs(wheelAccumulator) < wheelThreshold) return
+
+  const direction = wheelAccumulator < 0 ? 'up' : 'down'
+  wheelAccumulator = 0
+  lastWheelDispatch = now
+  scrollContent(direction)
+}
+
 const showSettingsTip = ref(false)
 const settingsBtnRef = ref(null)
 const settingsTooltipStyle = reactive({ top: '0px', left: '0px' })
@@ -157,6 +222,8 @@ function showSettingsTooltip() {
 </script>
 
 <style scoped>
+.bar-btn.bank-btn { font-size: 11px; width: auto; padding-inline: 7px; white-space: nowrap; }
+.bank-btn.recording { color: var(--accent); }
 .top-bar-wrapper {
   align-self: center;
   padding: 44px var(--sp-4) var(--sp-2);
@@ -239,6 +306,25 @@ function showSettingsTooltip() {
   color: var(--text-muted);
   line-height: 1;
 }
+.scroll-control-group {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  outline: 1px solid transparent;
+  transition: outline-color var(--duration-fast) ease, background var(--duration-fast) ease;
+}
+.scroll-control-group:hover {
+  background: var(--surface-card);
+  outline-color: var(--border-subtle);
+}
+.scroll-control-group .bar-btn { border-radius: 0; }
+.scroll-control-group .bar-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.scroll-control-group .bar-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
 .bar-divider {
   width: 1px;
   height: 14px;

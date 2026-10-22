@@ -57,7 +57,8 @@ func main() {
 				Message: "",
 			},
 		},
-		OnShutdown: app.OnShutdown,
+		OnShutdown:    app.OnShutdown,
+		OnBeforeClose: app.BeforeClose,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "6c201f7f-17c8-4029-8000-2f9035fea412",
 			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {

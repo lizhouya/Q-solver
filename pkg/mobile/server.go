@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -21,20 +22,23 @@ var webFS embed.FS
 // DefaultPort 是移动端 SSE 服务默认监听端口（局域网）。
 const DefaultPort = 38511
 
+// ErrPortUnavailable 表示固定监听端口当前不可用，供 App 映射为稳定状态码。
+var ErrPortUnavailable = errors.New("mobile port unavailable")
+
 // Server 是一个本地 HTTP + SSE 服务，供同一局域网内的手机浏览器接收解题快照。
 // 生命周期与 Wails App 绑定（App.Startup 启动 / App.OnShutdown 停止）。
 // 约束二：Server 属于附加能力，任一启动失败仅上报，绝不影响 Q-Solver 主功能。
 type Server struct {
 	bridge *Bridge
 
-	mu      sync.Mutex
-	httpSrv *http.Server
+	mu       sync.Mutex
+	httpSrv  *http.Server
 	listener net.Listener
-	port    int    // 实际生效端口
-	url     string // 接入 URL http://<lan-ip>:<port>/?token=xxx
-	token   string // 随机 session token（内存态，不落盘不打印）
-	lanIP   string
-	started bool
+	port     int    // 实际生效端口
+	url      string // 接入 URL http://<lan-ip>:<port>/?token=xxx
+	token    string // 随机 session token（内存态，不落盘不打印）
+	lanIP    string
+	started  bool
 }
 
 // NewServer 创建 SSE 服务实例，绑定到给定 Bridge。
@@ -114,7 +118,7 @@ func (s *Server) Start() error {
 
 	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.port))
 	if err != nil {
-		return fmt.Errorf("端口 %d 监听失败: %w", s.port, err)
+		return fmt.Errorf("%w: 端口 %d 监听失败: %v", ErrPortUnavailable, s.port, err)
 	}
 
 	s.httpSrv = srv
@@ -216,7 +220,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	sub, initial := s.bridge.Subscribe()
 	defer s.bridge.Unsubscribe(sub)
 
-	// 连接即拉取当前全量快照（seq 对齐，Step 2.2）
+	// 连接即拉取当前全量快照。首帧只同步 ControlSeq，绝不重放旧的一次性控制。
+	initial.Control = ""
 	s.writeEvent(w, flusher, "snapshot", initial)
 
 	heartbeat := time.NewTicker(sseHeartbeatInterval)

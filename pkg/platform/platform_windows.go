@@ -14,26 +14,26 @@ var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	ntdll    = syscall.NewLazyDLL("ntdll.dll")
 
-	procFindWindowW                    = user32.NewProc("FindWindowW")
-	procSetWindowDisplayAffinity       = user32.NewProc("SetWindowDisplayAffinity")
-	procGetWindowLongW                 = user32.NewProc("GetWindowLongW")
-	procSetWindowLongW                 = user32.NewProc("SetWindowLongW")
-	procRegisterHotKey                 = user32.NewProc("RegisterHotKey")
-	procUnregisterHotKey               = user32.NewProc("UnregisterHotKey")
-	procGetMessageW                    = user32.NewProc("GetMessageW")
-	procSetWindowsHookExW              = user32.NewProc("SetWindowsHookExW")
-	procUnhookWindowsHookEx            = user32.NewProc("UnhookWindowsHookEx")
-	procCallNextHookEx                 = user32.NewProc("CallNextHookEx")
-	procGetModuleHandleW               = kernel32.NewProc("GetModuleHandleW")
-	procSetWindowPos                   = user32.NewProc("SetWindowPos")
-	procSetLayeredWindowAttributes     = user32.NewProc("SetLayeredWindowAttributes")
-	procGetAsyncKeyState               = user32.NewProc("GetAsyncKeyState")
-	procEnumWindows                    = user32.NewProc("EnumWindows")
-	procGetWindowThreadProcessId       = user32.NewProc("GetWindowThreadProcessId")
-	procKeybdEvent                     = user32.NewProc("keybd_event")
-	procSetWindowCompositionAttribute  = user32.NewProc("SetWindowCompositionAttribute")
-	procRtlGetVersion                  = ntdll.NewProc("RtlGetVersion")
-	procShowWindow                     = user32.NewProc("ShowWindow")
+	procFindWindowW                   = user32.NewProc("FindWindowW")
+	procSetWindowDisplayAffinity      = user32.NewProc("SetWindowDisplayAffinity")
+	procGetWindowLongW                = user32.NewProc("GetWindowLongW")
+	procSetWindowLongW                = user32.NewProc("SetWindowLongW")
+	procRegisterHotKey                = user32.NewProc("RegisterHotKey")
+	procUnregisterHotKey              = user32.NewProc("UnregisterHotKey")
+	procGetMessageW                   = user32.NewProc("GetMessageW")
+	procSetWindowsHookExW             = user32.NewProc("SetWindowsHookExW")
+	procUnhookWindowsHookEx           = user32.NewProc("UnhookWindowsHookEx")
+	procCallNextHookEx                = user32.NewProc("CallNextHookEx")
+	procGetModuleHandleW              = kernel32.NewProc("GetModuleHandleW")
+	procSetWindowPos                  = user32.NewProc("SetWindowPos")
+	procSetLayeredWindowAttributes    = user32.NewProc("SetLayeredWindowAttributes")
+	procGetAsyncKeyState              = user32.NewProc("GetAsyncKeyState")
+	procEnumWindows                   = user32.NewProc("EnumWindows")
+	procGetWindowThreadProcessId      = user32.NewProc("GetWindowThreadProcessId")
+	procKeybdEvent                    = user32.NewProc("keybd_event")
+	procSetWindowCompositionAttribute = user32.NewProc("SetWindowCompositionAttribute")
+	procRtlGetVersion                 = ntdll.NewProc("RtlGetVersion")
+	procShowWindow                    = user32.NewProc("ShowWindow")
 )
 
 // WindowHandle 窗口句柄类型（Windows 为 HWND）
@@ -79,14 +79,14 @@ const (
 	SW_HIDE = 0
 	SW_SHOW = 5
 
-	VK_OEM_3 = 0xC0 // `~` 键
-	VK_H     = 0x48
-	VK_C        = 0x43
-	VK_T        = 0x54
-	VK_SHIFT    = 0x10
-	VK_CONTROL  = 0x11
-	VK_MENU     = 0x12 // Alt
-	WM_HOTKEY   = 0x0312
+	VK_OEM_3   = 0xC0 // `~` 键
+	VK_H       = 0x48
+	VK_C       = 0x43
+	VK_T       = 0x54
+	VK_SHIFT   = 0x10
+	VK_CONTROL = 0x11
+	VK_MENU    = 0x12 // Alt
+	WM_HOTKEY  = 0x0312
 
 	WH_KEYBOARD_LL = 13
 	WH_MOUSE_LL    = 14 // 添加鼠标钩子ID
@@ -147,6 +147,19 @@ type MSLLHOOKSTRUCT struct {
 	Flags       uint32
 	Time        uint32
 	DwExtraInfo uintptr
+}
+
+// HookParam 是 Windows hook callback 生命周期内有效的原生 lParam 指针。
+type HookParam unsafe.Pointer
+
+// ReadKeyboardHookStruct 在 hook callback 生命周期内复制键盘原生结构。
+func ReadKeyboardHookStruct(lParam HookParam) KBDLLHOOKSTRUCT {
+	return *(*KBDLLHOOKSTRUCT)(lParam)
+}
+
+// ReadMouseHookStruct 在 hook callback 生命周期内复制鼠标原生结构。
+func ReadMouseHookStruct(lParam HookParam) MSLLHOOKSTRUCT {
+	return *(*MSLLHOOKSTRUCT)(lParam)
 }
 
 // RTL_OSVERSIONINFOW 系统版本信息结构体
@@ -336,12 +349,12 @@ func UnhookWindowsHookEx(hhk uintptr) bool {
 }
 
 // CallNextHookEx 调用下一个钩子
-func CallNextHookEx(hhk uintptr, nCode int, wParam uintptr, lParam uintptr) uintptr {
+func CallNextHookEx(hhk uintptr, nCode int, wParam uintptr, lParam HookParam) uintptr {
 	ret, _, _ := procCallNextHookEx.Call(
 		hhk,
 		uintptr(nCode),
 		wParam,
-		lParam,
+		uintptr(lParam),
 	)
 	return ret
 }

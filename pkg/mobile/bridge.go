@@ -15,11 +15,13 @@ import (
 //   - solution                  → 完成，Answer = 最终正文
 //   - solution-error            → 出错，Error
 type Bridge struct {
-	mu      sync.RWMutex
-	state   Snapshot
-	model   string
-	subs    map[chan Snapshot]struct{}
-	seq     int
+	mu         sync.RWMutex
+	state      Snapshot
+	model      string
+	hints      []ShortcutHint
+	subs       map[chan Snapshot]struct{}
+	seq        int
+	controlSeq int
 }
 
 // NewBridge 创建事件接入桥。
@@ -38,14 +40,34 @@ func (b *Bridge) SetModel(model string) {
 	b.state.Payload.Model = model
 }
 
+// SetHints 更新手机端可重放的快捷键提示。
+// 调用方只能传入动作标签和显示名；本方法复制切片，避免外部后续修改快照内容。
+func (b *Bridge) SetHints(hints []ShortcutHint) {
+	clean := make([]ShortcutHint, 0, len(hints))
+	for _, hint := range hints {
+		if hint.Label == "" || hint.KeyName == "" {
+			continue
+		}
+		clean = append(clean, ShortcutHint{Label: hint.Label, KeyName: hint.KeyName})
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if hintsEqual(b.hints, clean) {
+		return
+	}
+	b.hints = clean
+	b.state.Hints = cloneHints(clean)
+	b.broadcastLocked(false)
+}
+
 // Reset 清空当前解题状态，回到空闲（供下一次解题开始）。
 func (b *Bridge) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.seq++
-	b.state = Snapshot{Seq: b.seq, Ts: nowMillis(), Status: StatusIdle, Stage: StageContent}
-	b.state.Payload.Model = b.model
-	b.broadcastLocked()
+	b.state = b.baseSnapshot(StatusIdle, StageContent)
+	b.broadcastLocked(false)
 }
 
 // Publish 处理一条桌面解题输出事件。
@@ -56,8 +78,7 @@ func (b *Bridge) Publish(event string, data ...interface{}) {
 	switch event {
 	case "solution-stream-start":
 		b.seq++
-		b.state = Snapshot{Seq: b.seq, Ts: nowMillis(), Status: StatusWaiting, Stage: StageThinking}
-		b.state.Payload.Model = b.model
+		b.state = b.baseSnapshot(StatusWaiting, StageThinking)
 
 	case "solution-stream-thinking":
 		b.applyStreamBody(&b.state.Payload.Analysis, data)
@@ -101,7 +122,26 @@ func (b *Bridge) Publish(event string, data ...interface{}) {
 		return
 	}
 
-	b.broadcastLocked()
+	// 每个业务事件的快照都使用最新序号，供浏览器与控制帧区分。
+	b.state.Seq = b.seq
+	b.broadcastLocked(false)
+}
+
+// PublishControl 广播一次手机端滚动控制。
+// 仅接受 up/down；控制序号独立于解题 Seq，并在广播后立即清空 Control，避免后续快照重放。
+func (b *Bridge) PublishControl(direction string) bool {
+	if direction != "up" && direction != "down" {
+		return false
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.controlSeq++
+	b.state.ControlSeq = b.controlSeq
+	b.state.Control = direction
+	b.broadcastLocked(true)
+	b.state.Control = ""
+	return true
 }
 
 func (b *Bridge) applyStreamBody(dst *string, data []interface{}) {
@@ -117,7 +157,7 @@ func (b *Bridge) applyStreamBody(dst *string, data []interface{}) {
 func (b *Bridge) GetState() Snapshot {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return b.state
+	return cloneSnapshot(b.state)
 }
 
 // Subscribe 原子注册新订阅者并返回与注册时刻一致的当前快照。
@@ -127,7 +167,7 @@ func (b *Bridge) Subscribe() (ch chan Snapshot, initial Snapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.subs[ch] = struct{}{}
-	initial = b.state
+	initial = cloneSnapshot(b.state)
 	return ch, initial
 }
 
@@ -141,14 +181,92 @@ func (b *Bridge) Unsubscribe(ch chan Snapshot) {
 	}
 }
 
-// broadcastLocked 向全部订阅者广播当前快照（非阻塞，慢消费者丢帧）。
+// baseSnapshot 构造新解题快照，同时保留可重放提示和独立控制序号。
 // 调用前必须持有 b.mu。
-func (b *Bridge) broadcastLocked() {
-	snapshot := b.state
+func (b *Bridge) baseSnapshot(status, stage string) Snapshot {
+	return Snapshot{
+		Seq:        b.seq,
+		Ts:         nowMillis(),
+		Status:     status,
+		Stage:      stage,
+		Payload:    Payload{Model: b.model},
+		Hints:      cloneHints(b.hints),
+		ControlSeq: b.controlSeq,
+	}
+}
+
+func hintsEqual(left, right []ShortcutHint) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneHints(hints []ShortcutHint) []ShortcutHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	return append([]ShortcutHint(nil), hints...)
+}
+
+func cloneSnapshot(snapshot Snapshot) Snapshot {
+	snapshot.Hints = cloneHints(snapshot.Hints)
+	return snapshot
+}
+
+// broadcastLocked 向全部订阅者广播当前快照且不阻塞解题主流程。
+// 控制帧在队列满时替换积压的全量业务快照，避免滚动命令被静默丢弃；
+// 流式中间帧可丢弃；done/error 必须排队，因为后续可能不再有业务帧。
+// 调用前必须持有 b.mu。
+func (b *Bridge) broadcastLocked(control bool) {
+	snapshot := cloneSnapshot(b.state)
 	for ch := range b.subs {
 		select {
 		case ch <- snapshot:
-		default: // 消费者过慢时丢弃这一帧，避免阻塞解题主流程
+			continue
+		default:
+		}
+		if !control {
+			if snapshot.Status != StatusDone && snapshot.Status != StatusError {
+				continue
+			}
+			// 终态取代过时业务快照，同时保留尚未发送的滚动命令。
+			pending := make([]Snapshot, 0, cap(ch))
+			for len(ch) > 0 {
+				select {
+				case queued := <-ch:
+					if queued.Control != "" {
+						pending = append(pending, queued)
+					}
+				default:
+				}
+			}
+			// 极端全控制积压时保留最新命令，为最终答案预留一格。
+			if len(pending) >= cap(ch) {
+				pending = pending[len(pending)-cap(ch)+1:]
+			}
+			for _, queued := range pending {
+				ch <- queued
+			}
+			ch <- snapshot
+			continue
+		}
+		for {
+			select {
+			case <-ch:
+				continue
+			default:
+			}
+			break
+		}
+		select {
+		case ch <- snapshot:
+		default:
 		}
 	}
 }

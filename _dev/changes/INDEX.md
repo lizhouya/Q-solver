@@ -21,7 +21,7 @@
 | `013` | question-bank-export-dialog（题库导出弹窗与试卷格式） | 进行中 | 2026-10-20 | `013-question-bank-export-dialog/` |
 | `014` | api-settings-recovery（API 配置加载与接入修复） | 自动验证完成 / 待人工验收 / 未提交 | 2026-10-22 | `014-api-settings-recovery/` |
 
-| `015` | rc-release（RC 整理与发布） | 已授权 / 发布准备中 | 2026-10-22 | `015-rc-release/` |
+| `015` | rc-release（RC 整理与发布） | RC1 CI 失败 / RC2 本地回修完成 / 待远端验证 | 2026-10-22 | `015-rc-release/` |
 
 > 分配规则：新增变更时，交叉核对本表、实际目录及历史记录，取最小未用三位编号；已使用编号不得因索引遗漏而复用。创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 

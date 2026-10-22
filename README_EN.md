@@ -27,9 +27,9 @@
 
 ## Current Prerelease
 
-**[v1.1.0-rc.1 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.1)** includes question-bank, API settings, and live-sync fixes. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
+**[v1.1.0-rc.2 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.2)** includes question-bank, API settings, and live-sync fixes. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
 
-This is not a stable release: local race testing remains blocked and some manual acceptance checks are pending; macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.1.md).
+This is not a stable release: local race testing remains blocked and some manual acceptance checks are pending; macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.2.md).
 
 ## What This Is
 

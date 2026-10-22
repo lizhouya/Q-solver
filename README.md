@@ -27,9 +27,9 @@
 
 ## 当前预发布版本
 
-**[v1.1.0-rc.1 — 个人 fork 预发布](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.1)** 包含题库、API 配置与实时同步修复。请从个人 fork 的 Release 下载，而非下方历史上游链接。升级前正常退出旧实例并备份自己的配置/题库；本地统一入口为 `build/bin/Q-Solver.exe`，旧验证版保存在其 `archive/` 子目录。
+**[v1.1.0-rc.2 — 个人 fork 预发布](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.2)** 包含题库、API 配置与实时同步修复。请从个人 fork 的 Release 下载，而非下方历史上游链接。升级前正常退出旧实例并备份自己的配置/题库；本地统一入口为 `build/bin/Q-Solver.exe`，旧验证版保存在其 `archive/` 子目录。
 
-本版本不是稳定版：race 环境阻塞及部分人工验收仍未完成；macOS 附件未经人工 GUI 验证。详见 [变更日志](CHANGELOG.md) 与 [发布说明](_dev/releases/v1.1.0-rc.1.md)。
+本版本不是稳定版：race 环境阻塞及部分人工验收仍未完成；macOS 附件未经人工 GUI 验证。详见 [变更日志](CHANGELOG.md) 与 [发布说明](_dev/releases/v1.1.0-rc.2.md)。
 
 ## 这是什么
 

@@ -116,9 +116,13 @@ func (s *Server) Start() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.port))
+	requestedPort := s.port
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", requestedPort))
 	if err != nil {
-		return fmt.Errorf("%w: 端口 %d 监听失败: %v", ErrPortUnavailable, s.port, err)
+		return fmt.Errorf("%w: 端口 %d 监听失败: %v", ErrPortUnavailable, requestedPort, err)
+	}
+	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
+		s.port = tcpAddr.Port
 	}
 
 	s.httpSrv = srv

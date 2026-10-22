@@ -426,6 +426,10 @@ func TestOneOffExportDirectoryDoesNotMoveRecoveryRecords(t *testing.T) {
 	}
 	recoveryManifest := filepath.Join(s.Root(), "_记录", target, "session.json")
 	destination := t.TempDir()
+	resolvedDestination, err := filepath.EvalSymlinks(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result, err := s.ExportSession(target, ExportOptions{
 		Name:      "自定义位置",
 		Directory: destination,
@@ -434,7 +438,7 @@ func TestOneOffExportDirectoryDoesNotMoveRecoveryRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Dir(result.Directory) != destination {
+	if filepath.Dir(result.Directory) != resolvedDestination {
 		t.Fatalf("未使用本次目录: %s", result.Directory)
 	}
 	if _, err = os.Stat(recoveryManifest); err != nil {

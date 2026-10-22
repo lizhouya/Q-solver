@@ -278,8 +278,12 @@ func TestQuestionBankExportRequestUsesOneOffOptions(t *testing.T) {
 	finish()
 	current, _ := store.Snapshot()
 	destination := t.TempDir()
+	resolvedDestination, err := filepath.EvalSymlinks(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	err := a.ExportQuestionBankSegment(QuestionBankExportRequest{
+	err = a.ExportQuestionBankSegment(QuestionBankExportRequest{
 		SessionID:    current.ID,
 		Company:      "本次单位",
 		Type:         "行测",
@@ -292,7 +296,7 @@ func TestQuestionBankExportRequestUsesOneOffOptions(t *testing.T) {
 	}
 	a.questionBank.workers.Wait()
 	status := a.GetQuestionBankStatus()
-	if filepath.Dir(status.LastExport.Directory) != destination {
+	if filepath.Dir(status.LastExport.Directory) != resolvedDestination {
 		t.Fatalf("本次目录未生效: %+v", status.LastExport)
 	}
 	if status.LastExport.Markdown != "" {

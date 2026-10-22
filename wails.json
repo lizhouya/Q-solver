@@ -9,10 +9,10 @@
   "info": {
     "companyName": "Q-Solver Open Source",
     "productName": "Q-Solver",
-    "productVersion": "1.1.0.1",
+    "productVersion": "1.1.0.2",
     "copyright": "Copyright 2026 Q-Solver contributors.",
     "comments": "Desktop AI assistant for screenshot-based problem solving",
-    "fileVersion": "1.1.0.1",
+    "fileVersion": "1.1.0.2",
     "fileDescription": "Q-Solver Desktop Application"
   }
 }

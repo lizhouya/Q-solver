@@ -14,3 +14,9 @@
 ## 回退与边界
 
 不 reset/clean、不 force push、不覆盖既有 Tag。提交异常停止并报告；已发布版本问题通过新版本修复，删除 Release/Tag 须另行确认。旧 EXE 和数据不删除，规则例外仅本次有效。
+
+## 首次远端运行失败后的回修计划
+
+首次远端 workflow `39774286851` 的三平台 Wails 构建均成功，但回归测试均失败，Release job 因依赖失败而跳过。失败不是业务导出目录失效：`validateArchiveRoot` 会解析 macOS `/var`→`/private/var` 和 Windows 8.3→长路径，而两处测试直接比较未规范化字符串。另有 Apple Silicon runner 在“探测空闲端口后关闭、随后重绑”窗口中被抢占，属于测试 TOCTOU。
+
+回修只做以下最小改动：路径断言先 `filepath.EvalSymlinks`；Mobile Server 在测试传入端口 `0` 时接受内核分配并回写实际端口，测试不再预探测后重绑。随后重跑三处定向测试、Go 全量测试、vet、build、Node/Vite、Wails 和 actionlint。已公开 `v1.1.0-rc.1` 不移动、不删除；修复提交推送后需使用新的 RC Tag，不能让附件源码与 Tag 不一致。

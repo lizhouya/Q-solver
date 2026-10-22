@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -247,7 +246,7 @@ func TestSSEInitialSnapshotOnlySyncsControlSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.port = getFreePort(t)
+	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatalf("启动失败: %v", err)
 	}
@@ -288,8 +287,7 @@ func TestSSEHandshakeAndPublish(t *testing.T) {
 	}
 
 	// 找一个空闲端口供测试（避免 38511 冲突）
-	freePort := getFreePort(t)
-	s.port = freePort
+	s.port = 0
 
 	if err := s.Start(); err != nil {
 		t.Fatalf("启动失败: %v", err)
@@ -351,7 +349,7 @@ func TestSSEHandshakeAndPublish(t *testing.T) {
 func TestUnauthorizedSSE(t *testing.T) {
 	b := NewBridge()
 	s, _ := NewServer(b)
-	s.port = getFreePort(t)
+	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +371,7 @@ func TestUnauthorizedSSE(t *testing.T) {
 func TestIndexHTML(t *testing.T) {
 	b := NewBridge()
 	s, _ := NewServer(b)
-	s.port = getFreePort(t)
+	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +417,7 @@ func TestIndexHTML(t *testing.T) {
 func TestHealth(t *testing.T) {
 	b := NewBridge()
 	s, _ := NewServer(b)
-	s.port = getFreePort(t)
+	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -434,16 +432,6 @@ func TestHealth(t *testing.T) {
 	if !strings.Contains(string(body), `"ok":true`) {
 		t.Fatalf("健康检查异常: %s", body)
 	}
-}
-
-// getFreePort 用 net.Listen 探测临时空闲端口。
-func getFreePort(t *testing.T) int {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
 }
 
 // 真实 Bridge 的业务帧必须逐帧增序；不能只用手造递增序号验证浏览器。

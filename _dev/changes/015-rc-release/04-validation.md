@@ -27,3 +27,20 @@
 ## 尚待远端验证
 
 Tag 推送后必须等待 Windows、macOS arm64、macOS amd64 和 Release 四个 job。最终发布成功以远端 workflow、Release `prerelease=true`、`make_latest=false`、Tag 目标和四个附件实际核对结果为准；本地通过不能代替该结果。
+
+## 首次远端 workflow 结果
+
+手动以 Tag ref 触发的 workflow `39774286851`：Windows、macOS Intel、macOS Apple Silicon 的 Wails `Build App` 均 PASS；三平台在 `Regression Tests` FAIL，Release 被跳过，未创建 GitHub Release。共同失败为两处一次性导出目录测试直接比较路径字符串，未考虑系统路径别名；Apple Silicon 另出现临时端口探测后的重绑竞争。该运行不得记为发布成功。修复验证和后续 Tag 状态将在新提交中追加。
+
+## RC2 本地回修验证
+
+- CI 失败相关包 `go test ./app ./pkg/questionbank ./pkg/mobile -count=10`：PASS。
+- `GOTOOLCHAIN=go1.25.13 go test ./... -count=1`：PASS。
+- `go vet ./...`、`go build ./...`：PASS。
+- 设置回归、Mobile DOM 回归：PASS。
+- Vite 生产构建：PASS，仍有既有 818.21 kB chunk 警告。
+- Wails `v2.11.0` + Go `1.25.13` Windows amd64 生产构建：PASS。
+- `actionlint`、`git diff --check`：PASS。
+- RC2 本地 SHA-256：`5dcabb17933bfa9ab4dc15f289b4b8e50af99879c316b58831b09bbb4e39aa11`。
+
+以上只完成本地回修验证；即使完成本地修复提交，在分支推送、RC2 Tag 和远端四个 job 实际通过前，也不宣称 RC2 已发布。

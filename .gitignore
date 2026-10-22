@@ -41,3 +41,7 @@ _dev/**/*.tmp
 _dev/**/node_modules/
 _dev/**/.env
 _dev/**/.env.*
+
+# 一次性本地迁移证据（大型快照与机器路径）
+_dev/changes/011-job-workspace-layout/evidence/
+_dev/changes/011-job-workspace-layout/migration-manifest.json

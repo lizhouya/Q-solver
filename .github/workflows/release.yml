@@ -39,18 +39,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin/wails.exe
-          key: ${{ runner.os }}-wails-v2
+          key: ${{ runner.os }}-wails-v2.11.0
 
       - name: Install Wails
         if: steps.cache-wails.outputs.cache-hit != 'true'
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install Frontend Dependencies
         working-directory: ./frontend
         run: npm ci
 
       - name: Build App
-        run: wails build -ldflags "-s -w" -tags prod
+        run: wails build -ldflags "-s -w" -tags prod -nosyncgomod -m
+
+      - name: Regression Tests
+        run: |
+          go test ./... -count=1
+          if [ $? -ne 0 ]; then exit 1; fi
+          go vet ./...
+          if [ $? -ne 0 ]; then exit 1; fi
+          node frontend/settings_regression_test.mjs
+          if [ $? -ne 0 ]; then exit 1; fi
+          node pkg/mobile/web_dom_test.mjs
+        shell: bash
 
       - name: Rename Artifact
         run: |
@@ -98,18 +109,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin/wails
-          key: ${{ runner.os }}-wails-v2
+          key: ${{ runner.os }}-wails-v2.11.0
 
       - name: Install Wails
         if: steps.cache-wails.outputs.cache-hit != 'true'
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install Frontend Dependencies
         working-directory: ./frontend
         run: npm ci
 
       - name: Build App
-        run: wails build -ldflags "-s -w" -tags prod
+        run: wails build -ldflags "-s -w" -tags prod -platform darwin/arm64 -nosyncgomod -m
+
+      - name: Regression Tests
+        run: |
+          go test ./... -count=1
+          if [ $? -ne 0 ]; then exit 1; fi
+          go vet ./...
+          if [ $? -ne 0 ]; then exit 1; fi
+          node frontend/settings_regression_test.mjs
+          if [ $? -ne 0 ]; then exit 1; fi
+          node pkg/mobile/web_dom_test.mjs
+        shell: bash
 
       - name: Rename Artifact
         run: |
@@ -162,18 +184,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/bin/wails
-          key: ${{ runner.os }}-wails-v2-amd64
+          key: ${{ runner.os }}-wails-v2.11.0-amd64
 
       - name: Install Wails
         if: steps.cache-wails.outputs.cache-hit != 'true'
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install Frontend Dependencies
         working-directory: ./frontend
         run: npm ci
 
       - name: Build App
-        run: wails build -ldflags "-s -w" -tags prod -platform darwin/amd64
+        run: wails build -ldflags "-s -w" -tags prod -platform darwin/amd64 -nosyncgomod -m
+
+      - name: Regression Tests
+        run: |
+          go test ./... -count=1
+          if [ $? -ne 0 ]; then exit 1; fi
+          go vet ./...
+          if [ $? -ne 0 ]; then exit 1; fi
+          node frontend/settings_regression_test.mjs
+          if [ $? -ne 0 ]; then exit 1; fi
+          node pkg/mobile/web_dom_test.mjs
+        shell: bash
 
       - name: Rename Artifact
         run: |
@@ -212,6 +245,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
         with:
@@ -230,10 +266,25 @@ jobs:
           name: q-solver-macos-amd64
           path: artifacts/macos-amd64
 
+      - name: Checksums
+        run: |
+          cd artifacts
+          {
+            (cd windows && sha256sum q-solver-windows-amd64.exe)
+            (cd macos-arm64 && sha256sum q-solver-macos-arm64.zip)
+            (cd macos-amd64 && sha256sum q-solver-macos-amd64.zip)
+          } > SHA256SUMS
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
+          name: Q-Solver ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: false
+          body_path: _dev/releases/${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
           files: |
+            artifacts/SHA256SUMS
             artifacts/windows/q-solver-windows-amd64.exe
             artifacts/macos-arm64/q-solver-macos-arm64.zip
             artifacts/macos-amd64/q-solver-macos-amd64.zip

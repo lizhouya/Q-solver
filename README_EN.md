@@ -25,9 +25,17 @@
 
 ---
 
+## Current Prerelease
+
+**[v1.1.0-rc.1 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.1)** includes question-bank, API settings, and live-sync fixes. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
+
+This is not a stable release: local race testing remains blocked and some manual acceptance checks are pending; macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.1.md).
+
 ## What This Is
 
 Q-Solver is an AI desktop problem-solving assistant.
+
+This repository is the personal [lizhouya/Q-solver fork](https://github.com/lizhouya/Q-solver) of [jym66/Q-solver](https://github.com/jym66/Q-solver). The question-bank feature below is a fork extension, not a claim about upstream releases. The CC BY-NC 4.0 non-commercial license still applies.
 
 When you see a question, a code error, a formula, a chart, or English content on screen, you do not need to switch tabs and copy-paste everything into a chatbot. Just take a screenshot and send it straight to your model for analysis.
 
@@ -99,11 +107,57 @@ Its core strengths are:
 
 ---
 
+## Question-bank archiving (personal fork)
+
+Question-bank records are independent of frontend history, `KeepContext`, and desktop/mobile output routing. Normal solving does not require manually starting a session:
+
+1. In **Settings → Question Bank**, choose a default archive directory **outside the Git repository**. Settings only retain the default directory and default model-organization toggle; organization, type, and question-bank name are per-export fields.
+2. The first solve lazily creates the current segment. Later solves append to it. The top-bar label “N submissions in this segment” counts solve submissions, not extracted questions; one submission may contain multiple questions.
+3. Clicking **Export question bank** beside an answer first opens a confirmation dialog. For that export you can edit the organization, question type, name, temporary destination, and model-organization choice. Opening or canceling the dialog does not seal the segment, upload content, or call the model.
+4. The suggested name uses `organization_type`. Without an organization it uses a stable number such as `笔试_20261020_01_综合笔试`. Once you edit the name manually, later organization/type changes do not overwrite it.
+5. With model organization off, export is local-only and creates `原始记录.md` plus `assets/`. With it on, content is sent only after confirmation; screenshots and original answers are processed record by record to extract stems, broad categories, specific types, reference answers, knowledge points, and solution notes. This may cost extra API calls, but never sends the resume, full configuration, chat history, or solving persona, and never overwrites the original answer.
+6. **End segment** only seals the current segment; the next solve creates a new one automatically. A successful export also seals it. **Clear segment** is a soft clear: source files remain on disk, but the segment is excluded from export.
+7. **Re-export…** in the Question Bank panel opens the same dialog for a historical segment without switching the writable segment. Repeated exports use suffixes such as `_02` and `_03` and never overwrite prior versions.
+
+Recommended layout; see [Change 011](_dev/changes/011-job-workspace-layout/06-notes.md) for migration details:
+
+```text
+求职_AI/
+├─ 求职笔试/
+│  └─ Q-Solver/
+├─ 求职网申/
+└─ 输出/
+   ├─ 求职笔试/
+   │  └─ 题库/                            # Default ArchiveDir from Settings
+   │     ├─ _记录/<segment-id>/            # Durable source records for recovery/re-export
+   │     │  ├─ session.json
+   │     │  └─ assets/
+   │     └─ <date_time_question-bank-name>[_02]/
+   │        ├─ <question-bank-name>.md     # Image-free exam, then reference answers and notes
+   │        ├─ 原始记录.md                 # Every screenshot reference and full original answer
+   │        └─ assets/
+   └─ 求职网申/
+```
+
+- Once the default directory is configured, the first solve starts recording automatically. History that was never recorded or has already been lost cannot be reconstructed. Archiving is not limited to the model's last ten conversation rounds.
+- A submission may contain multiple questions. Source records preserve submission order; each organized question links back to its source submission. Failed, canceled, interrupted, or missing answers are labeled explicitly.
+- The organized paper contains no images and is arranged as questions followed by reference answers and explanations. Screenshots remain only in `原始记录.md` and `assets/`. Extracted content requires human review and is not an official answer key.
+- If model organization fails or is canceled, the original draft and any successfully organized records are still exported; unstructured submissions are listed in the paper.
+- The latest active segment is recovered after restart. Legacy `会话记录` directories and v1 manifests remain readable but are not moved, deleted, or overwritten automatically.
+- Exported files are local plaintext and may contain private screenshots. Relevant screenshots and answers are sent to the configured provider only after model organization is enabled and the export dialog is submitted.
+- Question-bank preferences live in a separate user-level `Q-Solver/questionbank-settings.json` and cover defaults plus migration compatibility, not credentials or per-export metadata.
+
+**Scenes:** Existing Settings allow manual scene selection for subsequent requests; already-sent requests are not regenerated. Prior dialogue may still influence answers with `KeepContext` on. Automatic scene switching is **not implemented** in this change. See the [feasibility audit](_dev/audits/010-question-bank-and-scenes.md).
+
+Other exam tools can later have their own sibling directories alongside Q-Solver, without sharing its repository. The categorized output directories remain outside the repository.
+
+---
+
 ## Quick Start
 
 ### Option 1: Download the App
 
-Download the latest release for your system from [Releases](https://github.com/jym66/Q-solver/releases).
+[Upstream releases](https://github.com/jym66/Q-solver/releases) provide the official app and may not include fork extensions. Build this fork's development branch for the question-bank feature; do not confuse upstream and personal releases.
 
 > [!NOTE]
 > If macOS blocks the app on first launch, run:
@@ -123,8 +177,9 @@ Requirements:
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-git clone https://github.com/jym66/Q-solver.git
-cd Q-Solver
+git clone --branch dev/qsolver-custom https://github.com/lizhouya/Q-solver.git
+cd Q-solver
+npm --prefix frontend ci
 
 wails dev
 ```
@@ -149,6 +204,10 @@ Recommended first-run flow:
 6. In the `Screenshot` tab, adjust screenshot settings if needed
 7. Go back to the main window and start solving
 
+If configuration loading fails, use **Reload configuration**; saving is temporarily blocked to protect the existing file from empty defaults. Scene-list failures do not block API configuration loading. Unchanged question-bank preferences are not saved, and question-bank failures are reported separately from ordinary settings.
+
+After changing provider or endpoint, explicitly refresh the model list in the Model tab. Refresh and connection tests use the current draft endpoint and API key without requiring a save first. Startup, opening Settings, and saving do not automatically fetch models. An explicit connection test sends a request to the selected provider and may incur charges.
+
 ---
 
 ## Shortcuts
@@ -165,6 +224,14 @@ Default shortcuts:
 | Scroll content | `Alt + PgUp / PgDn` | `Cmd + Option + Shift + Arrow Keys` |
 
 > macOS currently uses fixed shortcuts. Windows supports recording and adjusting shortcuts in settings.
+> The mobile view shows the shortcuts that are actually configured. **Scroll content** follows the saved `desktop`, `mobile`, or `dual` output route and safely falls back to the desktop when the mobile service is unavailable.
+
+### Mobile connection and scrolling
+
+- Open **Settings → Output** to view the phone connection entry. The page refreshes service status whenever Settings opens or the Output tab is selected. Read failures, not-started service, unavailable port, and ready service are reported separately, and retryable failures can be recovered in place.
+- Selecting an output-mode card is only a draft until you click **Save**. The page also shows the currently active mode so an unsaved `mobile` selection cannot be mistaken for an active route.
+- The up/down arrows in the top bar scroll answer content. You can click them, use the saved global shortcuts, or place the pointer over the two-arrow control group and use the mouse wheel. Wheel handling does not take over Settings, the normal answer-reading area, or other system areas.
+- While the phone is showing a historical answer, desktop scroll commands only move the current phone page; they do not switch the selection back to the latest answer. Reconnecting also does not replay an old scroll command.
 
 ---
 

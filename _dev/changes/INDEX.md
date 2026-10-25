@@ -22,6 +22,14 @@
 | `014` | api-settings-recovery（API 配置加载与接入修复） | 自动验证完成 / 待人工验收 / 未提交 | 2026-10-22 | `014-api-settings-recovery/` |
 
 | `015` | rc-release（RC 整理与发布） | RC1 CI 失败 / RC2 本地回修完成 / 待远端验证 | 2026-10-22 | `015-rc-release/` |
+| `016` | mobile-stable-link（固定同步链接与同步端清屏） | 自动验证与用户确认的 GUI 人工验收完成 / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-22 | `016-mobile-stable-link/` |
+| `017` | question-bank-history（题库历史浏览与归档元数据） | 实现与普通自动验证完成 / GUI 待验收 / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-23 | `017-question-bank-history/` |
+| `018` | question-bank-continuation（题库历史分段真正续接） | 实现与普通自动验证完成 / GUI 待验收 / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-23 | `018-question-bank-continuation/` |
+| `019` | screenshot-fold-answer-summary（主界面截图折叠与多图多题答案汇总） | 普通自动验证完成 / GUI 与真实模型待验收 / race 与归档 BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-23 | `019-screenshot-fold-answer-summary/` |
+| `020` | round-history-selection（历史记录按轮展示与单轮选择） | 普通自动验证与验证程序归档完成 / GUI 待验收 / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-23 | `020-round-history-selection/` |
+| `021` | start-next-exam（开始下一套笔试） | 普通自动验证与统一归档完成 / GUI NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `021-start-next-exam/` |
+| `022` | answer-copy-numbering-sync（答案复制与分段题号同步） | 普通自动验证与统一归档完成 / GUI 与真实模型 NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `022-answer-copy-numbering-sync/` |
+| `023` | numbered-answer-copy（复制题号＋答案） | 普通自动验证与归档完成 / GUI 用户确认通过 / 已纳入整合提交 / 不发布 | 2026-10-25 | `023-numbered-answer-copy/` |
 
 > 分配规则：新增变更时，交叉核对本表、实际目录及历史记录，取最小未用三位编号；已使用编号不得因索引遗漏而复用。创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -182,3 +190,95 @@
 - 最新本地交付：build/bin/Q-Solver-sync-fix.exe（含 Change 014 API 修复），旧 EXE 保留。状态仍为待人工复验、未提交、未关闭。
 
 - **2026-10-22 用户确认**：Change 012 的跨电脑实时显示（无需逐题刷新）、答题电脑控制同步端滚动人工验收通过；其他未明确验证项目不变，未提交、未关闭。
+
+## Change 016
+
+- **名称**：mobile-stable-link（固定同步链接与同步端清屏）。
+- **状态**：原实现及 2026-10-23 补充修复的普通自动验证完成；用户已确认 Windows GUI 人工验收通过；race 运行环境 BLOCKED；未提交、未推送、未发布。
+- **档案**：[016-mobile-stable-link](016-mobile-stable-link/00-request.md)。
+- **范围**：可选固定 Mobile Token、专用加密双槽状态、链接重置与活动 SSE 撤销、`sessionId + clearSeq` 清屏协议、旧任务代际过滤、设置页与 TopBar 双入口；补充修复状态面板层级，并新增 Windows 可录制左 `Shift+C` 清屏请求。
+- **安全边界**：Token 不进入普通 Config、Snapshot、日志、文档或浏览器存储；固定端口不保证 IP 永久不变；Clear 不删除桌面、题库、截图、导出或模型上下文。
+- **自动验证**：Mobile 专用状态、Bridge/Server、App 命令、浏览器 DOM、共享 store、Windows 快捷键默认值/旧空绑定纠偏/录制运行态/事件、Go 全量/vet/build、Vite、Wails 生产构建、归档哈希和 diff-check 通过；race 启动阶段 `0xc0000139`，标记 BLOCKED。
+- **人工验收**：用户已确认最终验证版的确认层无遮挡、左 `Shift+C` 单例与防重、快捷键重新录制、清屏后刷新/重连为空、下一题同步及桌面/题库/截图/导出/模型上下文保留通过；race 仍 BLOCKED，Change 未关闭。
+
+
+## Change 017
+
+- **名称**：question-bank-history（题库历史浏览与归档元数据）。
+- **状态**：业务实现、普通自动验证、正式 bindings 和独立验证构建完成；Windows GUI 人工验收待执行；race 因 `0xc0000139` BLOCKED；未提交、未推送、未发布。
+- **档案**：[017-question-bank-history](017-question-bank-history/00-request.md)。
+- **范围**：软清空成功后重置桌面实时历史；最近 20 段只读详情与安全图片读取；招聘单位、出题方和题型权威元数据；复用模型整理生成待核对候选；两阶段确认后纯本地导出。
+- **数据边界**：第 21 段及更早段仅从 UI 隐藏，磁盘完整保留，不自动导出、不调用模型、不删除；历史预览不切换后台 current。
+- **验证入口**：`build/bin/archive/validation/Q-Solver-change017-history-view-fix-validation.exe`；SHA-256 `3b85644beb8a726c7138d01ce843526538b4d028aea80fd75403a0844bd338c5`。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 018
+
+- **名称**：question-bank-continuation（题库历史分段真正续接）。
+- **状态**：业务实现、普通自动验证、正式 bindings 和独立验证构建完成；Windows GUI 人工验收待执行；race 因 `0xc0000139` BLOCKED；未提交、未推送、未发布、未关闭。
+- **档案**：[018-question-bank-continuation](018-question-bank-continuation/00-request.md)；[实现后审计](../audits/018-question-bank-continuation.md)。
+- **范围**：从最近 20 个 ended/exported/paused 分段真正切换题库 current，在主截图解题界面恢复历史截图与完整答案；以持久 turn 引用或明确标记的旧 Record 重建恢复非 system 模型上下文；切换、完成落盘失败和 Retry 均保持 Store、Solver 与 App refs 一致。
+- **数据边界**：discarded 永久只读；第 21 段及更早数据仅隐藏并保留；旧导出目录不覆盖，再次导出创建 `_02` 等后缀版本。
+- **安全边界**：运行任务、未发送截图、未落盘、整理或导出时拒绝；旧数据明确标记按题库记录重建；后续使用当前模型/场景/Prompt；不保存密钥、完整配置、Prompt、简历或 thinking。
+- **验证入口**：最新布局验证程序 `build/bin/archive/validation/Q-Solver-change018-layout-validation.exe`；SHA-256 `853e64c3ccd59101317d0fc4e92414a10f1d12695deed9694b0d689ee2e07343`。原续接验证程序继续保留。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 019
+
+- **名称**：screenshot-fold-answer-summary（主界面截图折叠与多图多题答案汇总）。
+- **状态**：业务实现与普通自动验证完成；Windows GUI 与真实模型效果 NEEDS_USER；race 因 `0xc0000139` BLOCKED；统一验证归档复制受权限阻塞；未提交、未推送、未发布、未关闭。
+- **档案**：[019-screenshot-fold-answer-summary](019-screenshot-fold-answer-summary/00-request.md)；[实现后审计](../audits/019-screenshot-fold-answer-summary.md)。
+- **范围**：主解题界面每张截图默认收起并可独立展开/隐藏；统一系统行为增加本轮多图多题识别、跨图合并、重叠去重、题号映射、待核对和最终答案汇总规则。
+- **边界**：复用既有图片缓存与一次 multipart 模型请求；不新增模型调用、题库结构、Wails API、Mobile 协议或依赖；未经授权未调用真实模型。
+- **验证入口**：`build/bin/Q-Solver-change019-answer-summary-preview-validation.exe`；SHA-256 `cd4b354ef37613029d2bb0e39b9d62fd924480aefa0eafbf762ca60135d19cf7`；归档目录和 `SHA256SUMS` 尚未更新。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 020
+
+- **名称**：round-history-selection（历史记录按轮展示与单轮选择）。
+- **状态**：业务实现、普通自动验证、独立验证构建和统一归档完成；Windows GUI 人工验收待执行；race 因 `0xc0000139` BLOCKED；未提交、未推送、未发布、未关闭。
+- **档案**：[020-round-history-selection](020-round-history-selection/00-request.md)；[实现后审计](../audits/020-round-history-selection.md)。
+- **范围**：保持 Session/Record 权威结构不变，在桌面前端派生逐轮历史条目并独立管理浏览目标；点击一轮只显示该轮，新请求仍按 `epoch + sessionId + recordId` 写入真实 Record；legacy 流也使用独立写入目标。
+- **边界**：删除和图片导出仍是父 Session 级；不修改 Go 后端、Wails API/bindings、Mobile、题库 schema、模型请求或依赖。
+- **验证入口**：`build/bin/archive/validation/Q-Solver-change020-round-history-selection-validation.exe`；SHA-256 `3ea25ab19009d373c304f440c126bfeb18ce7c0d4c218d8e9be8204abdaa75bf`。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 021
+
+- **名称**：start-next-exam（开始下一套笔试）。
+- **状态**：业务实现、普通自动验证、正式 bindings、独立验证构建和统一归档完成；Windows GUI 人工验收待执行；race 因 `0xc0000139` BLOCKED；未提交、未推送、未发布、未关闭。
+- **档案**：[021-start-next-exam](021-start-next-exam/00-request.md)；[实现后审计](../audits/021-start-next-exam.md)。
+- **范围**：主界面按钮与 Windows 默认 `Ctrl+Shift+N` 打开同一单例确认层；后端原子封存 active/paused 段，ended/exported 幂等接受，持久化成功后清理桌面、待发送截图与 Solver 上下文；下一题懒创建新段。
+- **边界**：不根据异步导出状态自动切换；解题、capture、整理、导出、未落盘或写入阻塞时拒绝且零副作用；保留题库原始记录、归档截图、旧导出和 Mobile 固定链接/当前显示。
+- **bindings 审计**：固定 Wails v2.11.0 根据当前累计 Go API 完整再生成并通过编译；事前只有哈希无文件副本，不能声称除 `StartNextExam` 外逐字节不变。
+- **验证入口**：`build/bin/archive/validation/Q-Solver-change021-start-next-exam-validation.exe`；SHA-256 `95f4b3c17b96db0e25fa682ed337bb067458046784a09d3580d1eff4839e3c4c`。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 022
+
+- **名称**：answer-copy-numbering-sync（答案复制与分段题号同步）。
+- **状态**：业务实现、普通自动验证、正式 bindings、独立构建和统一归档完成；Windows GUI 与真实模型 NEEDS_USER；race BLOCKED；未提交、未推送、未发布、未关闭。
+- **档案**：[022-answer-copy-numbering-sync](022-answer-copy-numbering-sync/00-request.md)；[实施后审计](../audits/022-answer-copy-numbering-sync.md)。
+- **范围**：固定回答末尾三列表格、Go 统一解析/纯答案复制、Answer/AnswerItems/ConversationSnapshot 原子持久化、Session 受限编号摘要、Desktop/Mobile 复制与历史目标保持、实际快捷键提示，以及 KeepContext 引用一致性修复。
+- **安全边界**：保持一次模型请求；解析失败保留全文，待核对禁用复制；保持 schema version 2 和旧 JSON 兼容；不新增依赖、不升级 runtime，不读写用户密钥配置，不删除题库/截图/旧导出。
+- **验证**：Go test/vet/build、七份前端回归、Mobile DOM/SSE、Vite、Wails 及 12 条归档校验通过；28 项保护哈希不变；race 启动错误 `0xc0000139`。
+- **验证入口**：`build/bin/archive/validation/Q-Solver-change022-answer-copy-numbering-validation.exe`；SHA-256 `5cde3df3a8bdd160f7740ffeebc6b68c7dcb3f87bbfc5ff7226ce6bf2950e751`。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
+
+## Change 023
+
+- **名称**：numbered-answer-copy（复制题号＋答案）。
+- **状态**：实现、普通自动验证、独立构建与归档完成；GUI 用户确认通过；未提交、未推送、未发布、未关闭。
+- **档案**：[023-numbered-answer-copy](023-numbered-answer-copy/00-request.md)；[实施后审计](../audits/023-numbered-answer-copy.md)。
+- **范围**：Desktop/Mobile 新增带实际题号复制；保留纯答案和桌面全文复制。不改 Go API、模型请求、题库结构或依赖。
+- **验证**：Go test/vet/build、八份前端回归、Mobile DOM/SSE、Vite、Wails 通过；35 项旧产物与依赖哈希不变。GUI 用户确认通过，既有 race BLOCKED 未解决。
+- **验证入口**：`build/bin/archive/validation/Q-Solver-change023-numbered-answer-copy-validation.exe`；SHA-256 `44fbb9381179b0d739003c53df1abe9c06847255447f87ff786fdbe8a711d339`。
+- **授权边界**：不含 commit、push、Tag、Release 授权。
+
+## 2026-10-25 Change 016～023 整合提交
+
+- 用户已明确批准一次性跨 Change 整合为功能/测试与治理两个提交，并连同既有 RC2 `da273bd` 推送至 origin/dev/qsolver-custom。
+- 功能/测试提交：`e44bb6163f0cb1b88e2ec4b4da80a1446ddb1990`；治理记录随本次第二提交归档。
+- [完整提交边界审计](../audits/016-023-commit-boundary.md)列明精确文件、完整消息、验证与排除项。
+- 上述分段历史摘要中的未提交/未推送是当时状态，最新结果以 Git 历史与远端分支头为准；本次不创建 Tag 或 Release。
+- Change 023 用户人工验收通过；其他未明确验收和 race 环境阻塞保持原状态，未自动 Close。

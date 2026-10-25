@@ -8,6 +8,8 @@
   <SettingsModal />
   <QuestionBankPanel />
   <QuestionBankExportModal />
+  <MobileActionConfirm />
+  <NextExamConfirm />
 
   <Teleport to="body">
     <Transition name="overlay-fade">
@@ -48,6 +50,8 @@ import ScreenshotDock from './components/ScreenshotDock.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import QuestionBankPanel from './components/QuestionBankPanel.vue'
 import QuestionBankExportModal from './components/QuestionBankExportModal.vue'
+import MobileActionConfirm from './components/MobileActionConfirm.vue'
+import NextExamConfirm from './components/NextExamConfirm.vue'
 import { useQuestionBankStore } from './stores/questionbank'
 import ResizeHandle from './components/ResizeHandle.vue'
 import Icon from './components/Icon.vue'
@@ -55,6 +59,7 @@ import Icon from './components/Icon.vue'
 import { useUIStore } from './stores/ui'
 import { useSettingsStore } from './stores/settings'
 import { useSolutionStore } from './stores/solution'
+import { useMobileStore } from './stores/mobile'
 import { on } from './services/events'
 import { api } from './services/api'
 import { initCodeBlockInteractions } from './utils/markdown-latex'
@@ -63,19 +68,24 @@ const ui = useUIStore()
 const settingsStore = useSettingsStore()
 const solution = useSolutionStore()
 const questionBank = useQuestionBankStore()
+const mobile = useMobileStore()
 
-let pendingSolveCallback = null
+async function requestMobileClearFromShortcut() {
+  if (mobile.busy || mobile.pendingAction) return false
+  if (!await mobile.refresh()) return false
+  return mobile.requestClear()
+}
 
 function cancelSolve() {
   ui.showResumeWarning = false
-  pendingSolveCallback = null
 }
 
-function continueSolve() {
+async function continueSolve() {
   ui.showResumeWarning = false
-  if (pendingSolveCallback) {
-    pendingSolveCallback()
-    pendingSolveCallback = null
+  try {
+    await api.confirmSolveWithoutResume()
+  } catch (error) {
+    ui.showToast(`继续解题失败：${error?.message || String(error)}`, 'error', 3500)
   }
 }
 
@@ -86,6 +96,8 @@ onMounted(() => {
     await questionBank.refresh()
     if (questionBank.visible) await questionBank.loadSessions()
   })
+  on('request-clear-mobile-display', requestMobileClearFromShortcut)
+  on('request-start-next-exam', questionBank.requestStartNextExam)
 
   api.getInitStatus().then(s => { ui.initStatus = s })
   on('init-status', (s) => { ui.initStatus = s })
@@ -135,15 +147,38 @@ onMounted(() => {
 
   on('user-message', (screenshot) => solution.setUserScreenshot(screenshot))
 
-  on('start-solving', () => {
-    const s = settingsStore.settings
-    if (s.resumePath && !s.resumeContent) {
-      pendingSolveCallback = proceedWithSolve
-      ui.showResumeWarning = true
-      return
+  on('desktop-solve-event', (event) => {
+    if (!solution.handleDesktopSolveEvent(event)) return
+    if (event.event === 'request-start') ui.showResumeWarning = false
+    ui.mainVisible = true
+    ui.hasStarted = true
+    switch (event.event) {
+      case 'request-start':
+      case 'solution-stream-start':
+        ui.flash('solve')
+        settingsStore.statusText = '正在思考...'
+        settingsStore.statusIcon = '...'
+        break
+      case 'solution':
+        settingsStore.statusText = '解题完成'
+        settingsStore.statusIcon = '✓'
+        break
+      case 'solution-error':
+        settingsStore.statusText = event.text?.includes('canceled') ? '已取消' : '出错'
+        settingsStore.statusIcon = '!'
+        break
+      case 'hidden':
+        settingsStore.statusText = event.success ? '已转发到手机端' : '已转发到手机端（出错）'
+        settingsStore.statusIcon = event.success ? '📱' : '!'
+        break
     }
-    proceedWithSolve()
   })
+
+  on('resume-warning-required', () => {
+    ui.showResumeWarning = true
+  })
+
+  on('start-solving', proceedWithSolve)
 
   function proceedWithSolve() {
     solution.errorState.show = false
@@ -247,6 +282,7 @@ onMounted(() => {
       const current = solution.history[0]
       if (settingsStore.settings.keepContext && current.rounds?.length > 1) {
         current.rounds.pop()
+        solution.selectHistory(0)
         solution.setStreamBuffer('')
         solution.isAppending = true
         solution.isLoading = false

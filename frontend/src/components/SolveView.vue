@@ -10,27 +10,29 @@
         </button>
       </div>
       <div class="history-content" v-show="!isHistoryCollapsed">
-        <div v-if="solution.history.length === 0" class="history-empty">
+        <div v-if="solution.historyEntries.length === 0" class="history-empty">
           <Icon name="file" :size="20" class="empty-icon" />
           <span class="empty-text">暂无记录</span>
         </div>
-        <HistoryItem v-for="(h, idx) in solution.history" :key="idx"
-          :summary="solution.getSummary(h)"
-          :time="h.time"
-          :isActive="idx === solution.activeHistoryIndex"
+        <HistoryItem v-for="(entry, idx) in solution.historyEntries" :key="entry.key"
+          :summary="entry.summary"
+          :time="entry.time"
+          :isActive="solution.isHistoryEntrySelected(entry)"
           :isFirst="idx === 0"
-          :previewHtml="solution.renderMarkdown(solution.getSummary(h))"
-          :roundsCount="solution.getRoundsCount(h)"
-          @select="solution.selectHistory(idx)"
-          @delete="solution.deleteHistory(idx)"
-          @export-image="solution.exportImage(idx)" />
+          :isWritable="entry.parent.isWritable === true"
+          :deletable="!(entry.parent.isWritable && (solution.isLoading || solution.isAppending || solution.isThinking))"
+          :previewHtml="solution.renderMarkdown(entry.summary)"
+          :roundLabel="entry.roundLabel"
+          @select="solution.selectHistoryEntry(entry)"
+          @delete="solution.deleteHistory(entry.sessionIndex)"
+          @export-image="solution.exportImage(entry.sessionIndex)" />
       </div>
     </div>
 
     <!-- Right Panel - Content -->
     <div class="right-panel">
       <!-- Empty state -->
-      <EmptyState v-if="solution.history.length === 0 && !solution.isLoading && !solution.errorState.show"
+      <EmptyState v-if="solution.historyEntries.length === 0 && !solution.isLoading && !solution.errorState.show"
         :shortcut="settingsStore.solveShortcut" :sendShortcut="settingsStore.sendShortcut" />
 
       <!-- Error state -->
@@ -39,31 +41,40 @@
         :solveShortcut="settingsStore.solveShortcut" />
 
       <!-- Loading state (initial) -->
-      <LoadingView v-else-if="solution.isLoading && !solution.isThinking && solution.currentRounds.length <= 1 && !hasAnyContent" />
+      <LoadingView v-else-if="solution.isViewingStreamTarget && solution.isLoading && !solution.isThinking && solution.currentRounds.length <= 1 && !hasAnyContent" />
 
       <!-- Content area -->
       <div v-else id="content" class="content-area md-body">
-        <template v-for="(round, idx) in solution.currentRounds" :key="idx">
-          <!-- Round divider (only for multi-round, shown between rounds) -->
-          <RoundDivider v-if="idx > 0" :round="idx + 1" />
-
+        <div v-if="solution.currentHistoryItem?.contextWarning" class="context-warning" role="status">
+          {{ solution.currentHistoryItem.contextWarning }}
+        </div>
+        <div v-if="solution.currentHistoryItem" class="session-heading">
+          <strong>{{ solution.currentHistoryItem.name || '解题会话' }}</strong>
+          <span>{{ solution.currentHistoryItem.isWritable ? '后台当前分段' : '只读查看' }}</span>
+        </div>
+        <template v-for="(round, idx) in solution.currentRounds" :key="round.recordId || round.localId || idx">
           <div class="chat-round">
+            <RoundScreenshots
+              :round="round"
+              :scope-key="roundScopeKey(round, idx)"
+              @load="solution.loadRoundImage"
+            />
             <!-- Thinking chain -->
             <ThinkingBlock
               v-if="round.thinking"
               :thinking="round.thinking"
-              :isActive="solution.isThinking && idx === solution.currentRounds.length - 1"
-              :isStalled="solution.isThinkingStalled && idx === solution.currentRounds.length - 1"
-              :statusText="(solution.isThinking && idx === solution.currentRounds.length - 1) ? solution.thinkingStatusText : (round.thinkingStatus || 'Reasoning Process')"
+              :isActive="solution.isViewingStreamTarget && solution.isThinking && idx === solution.currentRounds.length - 1"
+              :isStalled="solution.isViewingStreamTarget && solution.isThinkingStalled && idx === solution.currentRounds.length - 1"
+              :statusText="(solution.isViewingStreamTarget && solution.isThinking && idx === solution.currentRounds.length - 1) ? solution.thinkingStatusText : (round.thinkingStatus || 'Reasoning Process')"
             />
 
             <!-- AI response -->
             <div class="ai-response"
-              v-html="(idx === solution.currentRounds.length - 1 && solution.streamingHtml) ? solution.streamingHtml : solution.renderMarkdown(round.aiResponse)">
+              v-html="(solution.isViewingStreamTarget && idx === solution.currentRounds.length - 1 && solution.streamingHtml) ? solution.streamingHtml : solution.renderMarkdown(round.aiResponse)">
             </div>
 
             <!-- Streaming cursor -->
-            <span v-if="idx === solution.currentRounds.length - 1 && solution.streamingHtml && !solution.isLoading" class="stream-cursor">▍</span>
+            <span v-if="solution.isViewingStreamTarget && idx === solution.currentRounds.length - 1 && solution.streamingHtml && !solution.isLoading" class="stream-cursor">▍</span>
 
             <!-- Inline error -->
             <div v-if="round.error" class="inline-error">
@@ -76,15 +87,17 @@
 
             <!-- Action bar (only for completed rounds with content) -->
             <ActionBar
-              v-if="round.aiResponse && !solution.isLoading && !(idx === solution.currentRounds.length - 1 && solution.streamingHtml)"
+              v-if="round.status === 'completed' && round.aiResponse && !(solution.isViewingStreamTarget && solution.isLoading) && !(solution.isViewingStreamTarget && idx === solution.currentRounds.length - 1 && solution.streamingHtml)"
               :content="round.aiResponse"
+              :answer-items="round.answerItems || []"
+              :answer-copy-text="round.answerCopyText || ''"
               :model="settingsStore.settings.model"
             />
           </div>
         </template>
 
         <!-- Neural pill loader (loading, no thinking yet) -->
-        <div v-if="solution.isLoading && !solution.isThinking" class="neural-pill-loader">
+        <div v-if="solution.isViewingStreamTarget && solution.isLoading && !solution.isThinking" class="neural-pill-loader">
           <div class="pill-track">
             <span class="pill-bar"></span>
             <span class="pill-bar"></span>
@@ -94,7 +107,7 @@
         </div>
 
         <!-- Append loading (additional round) -->
-        <div v-if="solution.isAppending && !solution.isThinking" class="append-loading">
+        <div v-if="solution.isViewingStreamTarget && solution.isAppending && !solution.isThinking" class="append-loading">
           <div class="ai-orb">
             <div class="ai-orb-inner"></div>
           </div>
@@ -118,13 +131,19 @@ import ErrorView from './ErrorView.vue'
 import LoadingView from './LoadingView.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ActionBar from './ActionBar.vue'
-import RoundDivider from './RoundDivider.vue'
+import RoundScreenshots from './RoundScreenshots.vue'
 
 const solution = useSolutionStore()
 const settingsStore = useSettingsStore()
 const ui = useUIStore()
 
 const isHistoryCollapsed = ref(false)
+
+function roundScopeKey(round, idx) {
+  const item = solution.currentHistoryItem
+  const sessionKey = item?.sessionId || item?.id || solution.activeHistoryIndex
+  return `${sessionKey}:${Number(item?.epoch || 0)}:${round?.recordId || idx}`
+}
 
 // Check if there's any content in the current rounds
 const hasAnyContent = computed(() => {
@@ -242,6 +261,9 @@ const hasAnyContent = computed(() => {
   overflow-y: auto;
   padding: var(--sp-5);
 }
+.context-warning { margin-bottom: var(--sp-3); padding: var(--sp-3); border: 1px solid var(--warning-border); border-radius: var(--radius-md); background: var(--warning-bg); color: var(--color-warning); font-size: var(--text-sm); }
+.session-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-4); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border-subtle); }
+.session-heading span { color: var(--text-muted); font-size: var(--text-xs); }
 
 /* Text shadow for high transparency readability */
 .ai-response,

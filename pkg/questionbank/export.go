@@ -93,6 +93,10 @@ func organizedFilename(name string, legacy bool) string {
 
 func (s *Store) Export(opts ExportOptions) (ExportResult, error) {
 	s.mu.Lock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		s.mu.Unlock()
+		return ExportResult{}, err
+	}
 	if s.current == nil {
 		s.mu.Unlock()
 		return ExportResult{}, fmt.Errorf("当前没有可导出的分段")
@@ -106,6 +110,9 @@ func (s *Store) ExportSession(id string, opts ExportOptions) (ExportResult, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return ExportResult{}, err
+	}
 	session, base, err := s.sessionSnapshotLocked(id)
 	if err != nil {
 		return ExportResult{}, err
@@ -177,6 +184,7 @@ func (s *Store) ExportSession(id string, opts ExportOptions) (ExportResult, erro
 		result.Markdown = filepath.Join(dest, organizedName)
 	}
 	now := time.Now()
+	appendExportSnapshot(session, now, dest)
 	session.State = Exported
 	session.ExportedAt = &now
 	session.ExportDirectory = dest
@@ -184,6 +192,7 @@ func (s *Store) ExportSession(id string, opts ExportOptions) (ExportResult, erro
 		s.current.State = session.State
 		s.current.ExportedAt = session.ExportedAt
 		s.current.ExportDirectory = session.ExportDirectory
+		s.current.Exports = append([]ExportSnapshot(nil), session.Exports...)
 		s.dirty = true
 		if err = s.saveLocked(); err != nil {
 			return result, fmt.Errorf("题库已导出，但分段状态保存失败: %w", err)
@@ -195,6 +204,9 @@ func (s *Store) ExportSession(id string, opts ExportOptions) (ExportResult, erro
 }
 
 func (s *Store) sessionSnapshotLocked(id string) (*Session, string, error) {
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return nil, "", err
+	}
 	if !validID(id) {
 		return nil, "", fmt.Errorf("分段 ID 无效")
 	}
@@ -235,10 +247,14 @@ type organizedQuestion struct {
 	number      int
 }
 
-func exportMetadata(session *Session, opts ExportOptions) (string, string) {
+func exportMetadata(session *Session, opts ExportOptions) (string, string, string) {
 	company := strings.TrimSpace(opts.Company)
 	if company == "" {
 		company = strings.TrimSpace(session.Company)
+	}
+	issuer := strings.TrimSpace(opts.Issuer)
+	if issuer == "" {
+		issuer = strings.TrimSpace(session.Issuer)
 	}
 	kind := strings.TrimSpace(opts.Type)
 	if kind == "" {
@@ -250,13 +266,16 @@ func exportMetadata(session *Session, opts ExportOptions) (string, string) {
 	if company == "" {
 		company = "未指定"
 	}
-	return company, kind
+	if issuer == "" {
+		issuer = "未指定"
+	}
+	return company, issuer, kind
 }
 
 func (s *Store) renderExport(session *Session, base, name string, opts ExportOptions, temp string) (string, string, int, error) {
-	company, kind := exportMetadata(session, opts)
+	company, issuer, kind := exportMetadata(session, opts)
 	var raw strings.Builder
-	fmt.Fprintf(&raw, "# %s：原始记录\n\n- 分段：%s\n- 单位：%s\n- 题型：%s\n- 开始时间：%s\n- 提交次数：%d\n\n> 原答案未经校验，不是官方标准答案。一次提交可能包含多道题，失败或取消记录也完整保留。\n\n", heading(name), session.ID, heading(company), heading(kind), session.StartedAt.Format("2006-01-02 15:04:05 -07:00"), len(session.Records))
+	fmt.Fprintf(&raw, "# %s：原始记录\n\n- 分段：%s\n- 出题方：%s\n- 单位：%s\n- 题型：%s\n- 开始时间：%s\n- 提交次数：%d\n\n> 原答案未经校验，不是官方标准答案。一次提交可能包含多道题，失败或取消记录也完整保留。\n\n", heading(name), session.ID, heading(issuer), heading(company), heading(kind), session.StartedAt.Format("2006-01-02 15:04:05 -07:00"), len(session.Records))
 
 	categories := make([]string, 0)
 	typesByCategory := make(map[string][]string)
@@ -319,7 +338,7 @@ func (s *Store) renderExport(session *Session, base, name string, opts ExportOpt
 	}
 
 	var organized strings.Builder
-	fmt.Fprintf(&organized, "# %s\n\n- 单位：%s\n- 题型：%s\n- 题目数量：%d\n- 整理时间：%s\n\n> 题干、分类、参考答案与解析由模型辅助提炼，均需人工核对。完整截图和未经改写的原答案见 [原始记录](原始记录.md)。\n\n## 试题\n\n", heading(name), heading(company), heading(kind), questionCount, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&organized, "# %s\n\n- 出题方：%s\n- 单位：%s\n- 题型：%s\n- 题目数量：%d\n- 整理时间：%s\n\n> 题干、分类、参考答案与解析由模型辅助提炼，均需人工核对。完整截图和未经改写的原答案见 [原始记录](原始记录.md)。\n\n## 试题\n\n", heading(name), heading(issuer), heading(company), heading(kind), questionCount, time.Now().Format("2006-01-02 15:04:05"))
 	if len(categories) == 0 {
 		organized.WriteString("暂无结构化整理结果。\n\n")
 	}

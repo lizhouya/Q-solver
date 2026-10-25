@@ -33,11 +33,7 @@
                   :class="{ recording: settingsStore.recordingAction === key.action, disabled: settingsStore.isMacOS }"
                   @click="!settingsStore.isMacOS && settingsStore.recordKey(key.action)"
                 >
-                  {{
-                    settingsStore.recordingAction === key.action
-                      ? settingsStore.recordingText
-                      : (settingsStore.tempShortcuts[key.action]?.keyName || (settingsStore.isMacOS ? key.macDefault : key.default))
-                  }}
+                  {{ settingsStore.shortcutDisplayName(key) }}
                 </button>
               </div>
             </div>
@@ -135,27 +131,44 @@
           </div>
 
           <div class="form-group">
-            <label>手机连接入口</label>
-            <div v-if="mobileInfo.loading" class="empty-hint">连接信息加载中…</div>
-            <div v-else-if="mobileInfo.readError" class="mobile-unavailable">
+            <label>同步端连接</label>
+            <div v-if="mobile.loading" class="empty-hint">连接信息加载中…</div>
+            <div v-else-if="mobile.readError" class="mobile-unavailable">
               <p class="hint-text warning-hint">⚠️ 无法读取 Mobile 服务状态。这不代表端口冲突，可重新读取。</p>
-              <button class="btn-secondary mobile-retry" :disabled="mobileInfo.retrying" @click="refreshMobileInfo">重新读取</button>
+              <button class="btn-secondary mobile-retry" :disabled="mobile.busy" @click="mobile.refresh">重新读取</button>
             </div>
-            <div v-else-if="!mobileInfo.available" class="mobile-unavailable">
+            <div v-else-if="!mobile.info.available" class="mobile-unavailable">
               <p class="hint-text">⚠️ {{ mobileStatusMessage }}</p>
-              <button v-if="mobileInfo.retryable" class="btn-secondary mobile-retry" :disabled="mobileInfo.retrying" @click="retryMobileOutput">{{ mobileInfo.retrying ? '重试中…' : '重试 Mobile 服务' }}</button>
+              <button v-if="mobile.info.retryable" class="btn-secondary mobile-retry" :disabled="mobile.busy" @click="mobile.retry">{{ mobile.mutating ? '重试中…' : '重试 Mobile 服务' }}</button>
             </div>
             <div v-else class="mobile-info">
               <div class="mobile-url-row">
-                <input readonly :value="mobileInfo.url" class="mobile-url" @click="$event.target.select()" />
-                <button class="btn-copy" @click="copyMobileUrl">复制</button>
+                <input readonly :value="mobile.info.url" class="mobile-url" @click="$event.target.select()" />
+                <button class="btn-copy" :disabled="mobile.busy" @click="copyMobileUrl">复制</button>
               </div>
               <ol class="mobile-steps">
-                <li>手机连上与电脑相同的 Wi-Fi <b>（同一局域网）</b></li>
-                <li>打开相机扫码下 URL，或手动在浏览器输入上方地址</li>
+                <li>在能访问本机地址的设备浏览器中打开上方链接</li>
                 <li>等待解题后实时查看答案与分析</li>
+                <li>网络 IP 变化时，Token 固定也可能导致完整 URL 变化</li>
               </ol>
-              <p class="hint-text">仅局域网可访问，不含外网。当前端口 <b>{{ mobileInfo.port }}</b>。</p>
+              <p class="hint-text">此 HTTP 链接包含访问凭据；可达网络中的链接持有者可以查看同步内容。当前端口 <b>{{ mobile.info.port }}</b>。</p>
+            </div>
+
+            <div v-if="!mobile.loading && !mobile.readError" class="mobile-management">
+              <div class="mobile-management-row">
+                <div>
+                  <strong>{{ mobile.info.stableLinkEnabled ? '固定链接已开启' : '固定链接已关闭' }}</strong>
+                  <p>{{ mobile.info.stableLinkEnabled ? '完整重启后复用 Token；网络 IP 仍可能变化。' : '每次完整启动生成新临时 Token；同进程重试保持不变。' }}</p>
+                </div>
+                <button class="btn-secondary" :disabled="mobile.busy || !mobile.info.canResetLink" @click="mobile.requestStableMode(!mobile.info.stableLinkEnabled)">
+                  {{ mobile.info.stableLinkEnabled ? '关闭固定链接' : '启用固定链接' }}
+                </button>
+              </div>
+              <div class="mobile-action-row">
+                <button class="btn-secondary" :disabled="mobile.busy || !mobile.info.canClear" @click="mobile.requestClear">清空同步端显示</button>
+                <button class="btn-secondary danger-action" :disabled="mobile.busy || !mobile.info.canResetLink" @click="mobile.requestReset">重置同步链接</button>
+              </div>
+              <p class="hint-text">清屏不删除桌面答案、题库、截图、导出文件或模型上下文；重置链接会让旧链接和旧连接失效。</p>
             </div>
           </div>
         </div>
@@ -231,11 +244,11 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUIStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
 import { useQuestionBankStore } from '../stores/questionbank'
-import { api } from '../services/api'
+import { useMobileStore } from '../stores/mobile'
 import ResumeImport from './ResumeImport.vue'
 import ProviderSelect from './ProviderSelect.vue'
 import ModelSelect from './ModelSelect.vue'
@@ -246,16 +259,17 @@ import Icon from './Icon.vue'
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
 const questionBank = useQuestionBankStore()
+const mobile = useMobileStore()
 const savingAll = ref(false)
 
 watch(() => ui.showSettings, (visible) => {
   if (!visible) return
   questionBank.beginPreferenceEdit()
-  refreshMobileInfo()
+  mobile.refresh()
 })
 
 watch(() => ui.activeTab, (tab) => {
-  if (ui.showSettings && tab === 'output') refreshMobileInfo()
+  if (ui.showSettings && tab === 'output') mobile.refresh()
 })
 
 async function saveAllSettings() {
@@ -278,24 +292,14 @@ async function saveAllSettings() {
 }
 
 // Mobile Output 连接信息：服务状态与尚未保存的 outputMode 草稿彼此独立。
-const mobileInfo = reactive({
-  loading: false,
-  readError: false,
-  available: false,
-  url: '',
-  port: 0,
-  status: 'not_started',
-  retryable: false,
-  retrying: false,
-})
-let mobileInfoRequestVersion = 0
-
 const mobileModeDirty = computed(() => (
   settingsStore.tempSettings.outputMode !== settingsStore.settings.outputMode
 ))
 
 const mobileStatusMessage = computed(() => {
-  switch (mobileInfo.status) {
+  switch (mobile.info.status) {
+    case 'mobile_state_unavailable':
+      return 'Mobile 专用状态不可用；为避免覆盖固定链接，服务未启动。'
     case 'port_unavailable':
       return 'Mobile 服务端口当前不可用；答案与滚动会安全回退到电脑端。'
     case 'initialization_failed':
@@ -309,66 +313,15 @@ const mobileStatusMessage = computed(() => {
   }
 })
 
-function applyMobileInfo(info) {
-  mobileInfo.available = info?.available === true
-  mobileInfo.url = mobileInfo.available ? (info?.url || '') : ''
-  mobileInfo.port = mobileInfo.available ? Number(info?.port || 0) : 0
-  mobileInfo.status = info?.status || (mobileInfo.available ? 'ready' : 'not_started')
-  mobileInfo.retryable = info?.retryable === true
-  mobileInfo.readError = false
-}
-
-async function refreshMobileInfo() {
-  if (mobileInfo.retrying) return
-  const version = ++mobileInfoRequestVersion
-  mobileInfo.loading = true
-  mobileInfo.readError = false
+async function copyMobileUrl() {
+  if (!mobile.info.url) return
   try {
-    const info = await api.getMobileOutputInfo()
-    if (version === mobileInfoRequestVersion) applyMobileInfo(info)
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(mobile.info.url)
+    ui.showToast('连接地址已复制', 'success')
   } catch (_) {
-    if (version !== mobileInfoRequestVersion) return
-    mobileInfo.available = false
-    mobileInfo.url = ''
-    mobileInfo.port = 0
-    mobileInfo.readError = true
-    mobileInfo.retryable = false
-  } finally {
-    if (version === mobileInfoRequestVersion) mobileInfo.loading = false
-  }
-}
-
-async function retryMobileOutput() {
-  if (mobileInfo.retrying) return
-  const version = ++mobileInfoRequestVersion
-  mobileInfo.retrying = true
-  mobileInfo.readError = false
-  try {
-    const info = await api.retryMobileOutput()
-    if (version !== mobileInfoRequestVersion) return
-    applyMobileInfo(info)
-    ui.showToast(info?.available ? 'Mobile 服务已恢复' : 'Mobile 服务仍不可用，请检查端口占用', info?.available ? 'success' : 'warning')
-  } catch (_) {
-    if (version !== mobileInfoRequestVersion) return
-    mobileInfo.available = false
-    mobileInfo.url = ''
-    mobileInfo.port = 0
-    mobileInfo.readError = true
-    mobileInfo.retryable = false
-    ui.showToast('重试 Mobile 服务失败', 'error')
-  } finally {
-    mobileInfo.retrying = false
-  }
-}
-
-function copyMobileUrl() {
-  if (!mobileInfo.url) return
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(mobileInfo.url).then(() => {
-      ui.showToast('连接地址已复制', 'success')
-    })
-  } else {
     document.querySelector('.mobile-url')?.select()
+    ui.showToast('复制失败，请手动复制已选中的连接地址', 'error')
   }
 }
 
@@ -748,6 +701,19 @@ const screenshotConfig = computed({
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
+
+.mobile-management {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+.mobile-management-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.mobile-management-row strong { color: var(--text-primary); font-size: var(--text-sm); }
+.mobile-management-row p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--text-xs); line-height: 1.5; }
+.mobile-action-row { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
+.danger-action { color: var(--color-warning); border-color: var(--warning-border); }
 
 /* ---- 001 · 输出模式 + 手机连接 ---- */
 .output-mode-grid {

@@ -43,24 +43,33 @@ type QuestionBankPreferences struct {
 }
 
 type QuestionBankExportDraft struct {
-	SessionID      string `json:"sessionId"`
-	Company        string `json:"company"`
-	Type           string `json:"type"`
-	Name           string `json:"name"`
-	Directory      string `json:"directory"`
-	AutoOrganize   bool   `json:"autoOrganize"`
-	NumberedPrefix string `json:"numberedPrefix"`
-	Count          int    `json:"count"`
-	StartedAt      string `json:"startedAt"`
+	SessionID          string                                 `json:"sessionId"`
+	Company            string                                 `json:"company"`
+	Issuer             string                                 `json:"issuer"`
+	Type               string                                 `json:"type"`
+	Name               string                                 `json:"name"`
+	NameCustomized     bool                                   `json:"nameCustomized"`
+	Directory          string                                 `json:"directory"`
+	AutoOrganize       bool                                   `json:"autoOrganize"`
+	NumberedPrefix     string                                 `json:"numberedPrefix"`
+	Count              int                                    `json:"count"`
+	StartedAt          string                                 `json:"startedAt"`
+	MetadataSuggestion *questionbank.SourceMetadataSuggestion `json:"metadataSuggestion,omitempty"`
+	SuggestionConflict bool                                   `json:"suggestionConflict,omitempty"`
+	OrganizeReady      bool                                   `json:"organizeReady"`
+	PendingOrganize    int                                    `json:"pendingOrganize"`
+	FailedOrganize     int                                    `json:"failedOrganize"`
 }
 
 type QuestionBankExportRequest struct {
-	SessionID    string `json:"sessionId"`
-	Company      string `json:"company"`
-	Type         string `json:"type"`
-	Name         string `json:"name"`
-	Directory    string `json:"directory"`
-	AutoOrganize bool   `json:"autoOrganize"`
+	SessionID      string `json:"sessionId"`
+	Company        string `json:"company"`
+	Issuer         string `json:"issuer"`
+	Type           string `json:"type"`
+	Name           string `json:"name"`
+	NameCustomized bool   `json:"nameCustomized"`
+	Directory      string `json:"directory"`
+	AutoOrganize   bool   `json:"autoOrganize"`
 }
 
 type questionBankPreferencesFile struct {
@@ -206,8 +215,11 @@ func (a *App) GetQuestionBankStatus() QuestionBankStatus {
 		if session != nil {
 			status.Session = &questionbank.SessionInfo{
 				ID:              session.ID,
+				Name:            session.Name,
 				Company:         session.Company,
+				Issuer:          session.Issuer,
 				Type:            session.Type,
+				NameCustomized:  session.NameCustomized,
 				State:           session.State,
 				Count:           len(session.Records),
 				StartedAt:       session.StartedAt.Format(time.RFC3339Nano),
@@ -491,16 +503,25 @@ func (a *App) ResumeQuestionBankSession() error {
 }
 
 func (a *App) SaveQuestionBankSession() error {
+	a.conversationMu.Lock()
+	defer a.conversationMu.Unlock()
+
 	b := a.questionBank
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.store == nil {
 		return fmt.Errorf("尚未配置题库目录")
 	}
+	recoverConversation := b.store.HasPendingCompletion()
 	if err := b.store.Flush(); err != nil {
 		return err
 	}
 	b.message = "原始记录已保存"
+	if recoverConversation {
+		if err := a.restoreCurrentQuestionBankConversationLocked(b); err != nil {
+			return fmt.Errorf("原始记录已保存，但模型上下文恢复失败: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -629,6 +650,107 @@ func (a *App) questionBankSessionNumberLocked(session *questionbank.Session) int
 	return 1
 }
 
+func metadataSuggestionValue(records []questionbank.Record, selectValue func(*questionbank.SourceMetadataSuggestion) string) (string, bool) {
+	type candidate struct {
+		value string
+		count int
+		order int
+	}
+	candidates := make(map[string]*candidate)
+	order := 0
+	for index := range records {
+		suggestion := records[index].MetadataSuggestion
+		if suggestion == nil {
+			continue
+		}
+		value := strings.TrimSpace(selectValue(suggestion))
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if existing := candidates[key]; existing != nil {
+			existing.count++
+			continue
+		}
+		candidates[key] = &candidate{value: value, count: 1, order: order}
+		order++
+	}
+	var best *candidate
+	for _, item := range candidates {
+		if best == nil || item.count > best.count || item.count == best.count && item.order < best.order {
+			best = item
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	return best.value, len(candidates) > 1
+}
+
+func aggregateMetadataSuggestion(records []questionbank.Record) (*questionbank.SourceMetadataSuggestion, bool) {
+	company, companyConflict := metadataSuggestionValue(records, func(value *questionbank.SourceMetadataSuggestion) string { return value.Company })
+	issuer, issuerConflict := metadataSuggestionValue(records, func(value *questionbank.SourceMetadataSuggestion) string { return value.Issuer })
+	kind, typeConflict := metadataSuggestionValue(records, func(value *questionbank.SourceMetadataSuggestion) string { return value.Type })
+	notes := make([]string, 0)
+	seenNotes := make(map[string]bool)
+	for index := range records {
+		if suggestion := records[index].MetadataSuggestion; suggestion != nil {
+			note := strings.TrimSpace(suggestion.ReviewNote)
+			if note != "" && !seenNotes[note] {
+				seenNotes[note] = true
+				notes = append(notes, note)
+			}
+		}
+	}
+	if company == "" && issuer == "" && kind == "" && len(notes) == 0 {
+		return nil, false
+	}
+	return &questionbank.SourceMetadataSuggestion{
+		Company: company, Issuer: issuer, Type: kind, ReviewNote: strings.Join(notes, "；"),
+	}, companyConflict || issuerConflict || typeConflict
+}
+
+func appendQuestionBankNamePart(parts []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return parts
+	}
+	for _, existing := range parts {
+		if strings.EqualFold(existing, value) {
+			return parts
+		}
+	}
+	return append(parts, value)
+}
+
+func automaticQuestionBankName(numberedPrefix, company, issuer, kind string) string {
+	parts := make([]string, 0, 3)
+	parts = appendQuestionBankNamePart(parts, company)
+	parts = appendQuestionBankNamePart(parts, issuer)
+	if len(parts) == 0 {
+		parts = append(parts, numberedPrefix)
+	}
+	parts = appendQuestionBankNamePart(parts, normalizeQuestionBankType(kind))
+	for index := range parts {
+		parts[index] = questionBankNamePart(parts[index])
+	}
+	return strings.Join(parts, "_")
+}
+
+func questionBankOrganizeState(session *questionbank.Session) (pending, failed int) {
+	for _, record := range session.Records {
+		if record.Status != questionbank.Completed || len(record.Questions) > 0 {
+			continue
+		}
+		if record.OrganizeError != "" {
+			failed++
+		} else {
+			pending++
+		}
+	}
+	return pending, failed
+}
+
 func (a *App) questionBankExportDraftLocked(id string) (QuestionBankExportDraft, error) {
 	b := a.questionBank
 	if b.store == nil {
@@ -651,23 +773,47 @@ func (a *App) questionBankExportDraftLocked(id string) (QuestionBankExportDraft,
 	if session.State == questionbank.Discarded {
 		return QuestionBankExportDraft{}, fmt.Errorf("已清空的分段不参与导出")
 	}
-	kind := inferQuestionBankType(session)
+	suggestion, conflict := aggregateMetadataSuggestion(session.Records)
 	company := strings.TrimSpace(session.Company)
-	numberedPrefix := fmt.Sprintf("笔试_%s_%02d", session.StartedAt.Format("20060102"), a.questionBankSessionNumberLocked(session))
-	name := numberedPrefix + "_" + questionBankNamePart(kind)
-	if company != "" {
-		name = questionBankNamePart(company) + "_" + questionBankNamePart(kind)
+	issuer := strings.TrimSpace(session.Issuer)
+	kind := normalizeQuestionBankType(session.Type)
+	if suggestion != nil {
+		if company == "" {
+			company = suggestion.Company
+		}
+		if issuer == "" {
+			issuer = suggestion.Issuer
+		}
+		if session.Type == "" || session.Type == "综合" || session.Type == "综合笔试" {
+			kind = normalizeQuestionBankType(suggestion.Type)
+		}
 	}
+	if kind == "综合笔试" {
+		kind = inferQuestionBankType(session)
+	}
+	numberedPrefix := fmt.Sprintf("笔试_%s_%02d", session.StartedAt.Format("20060102"), a.questionBankSessionNumberLocked(session))
+	name := automaticQuestionBankName(numberedPrefix, company, issuer, kind)
+	if session.NameCustomized && strings.TrimSpace(session.Name) != "" {
+		name = session.Name
+	}
+	pending, failed := questionBankOrganizeState(session)
 	return QuestionBankExportDraft{
-		SessionID:      session.ID,
-		Company:        company,
-		Type:           kind,
-		Name:           name,
-		Directory:      b.store.Root(),
-		AutoOrganize:   b.preferences.AutoOrganize,
-		NumberedPrefix: numberedPrefix,
-		Count:          len(session.Records),
-		StartedAt:      session.StartedAt.Format(time.RFC3339Nano),
+		SessionID:          session.ID,
+		Company:            company,
+		Issuer:             issuer,
+		Type:               kind,
+		Name:               name,
+		NameCustomized:     session.NameCustomized,
+		Directory:          b.store.Root(),
+		AutoOrganize:       b.preferences.AutoOrganize,
+		NumberedPrefix:     numberedPrefix,
+		Count:              len(session.Records),
+		StartedAt:          session.StartedAt.Format(time.RFC3339Nano),
+		MetadataSuggestion: suggestion,
+		SuggestionConflict: conflict,
+		OrganizeReady:      pending == 0,
+		PendingOrganize:    pending,
+		FailedOrganize:     failed,
 	}, nil
 }
 
@@ -702,6 +848,122 @@ func (a *App) questionBankExportConfigLocked() (QuestionBankPreferences, config.
 	preferences := a.questionBank.preferences
 	cfg, err := a.questionBankExportConfigForLocked(preferences.AutoOrganize)
 	return preferences, cfg, err
+}
+
+func (a *App) questionBankTargetLocked(id string) (*questionbank.Session, error) {
+	b := a.questionBank
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("请选择要处理的分段")
+	}
+	snapshot, err := b.store.SnapshotByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot == nil || len(snapshot.Records) == 0 {
+		return nil, fmt.Errorf("所选分段暂无记录")
+	}
+	if snapshot.State == questionbank.Discarded {
+		return nil, fmt.Errorf("已清空的分段不参与整理或导出")
+	}
+	if snapshot.State != questionbank.Active && snapshot.State != questionbank.Paused && snapshot.State != questionbank.Ended && snapshot.State != questionbank.Exported {
+		return nil, fmt.Errorf("所选分段状态不支持整理或导出")
+	}
+	for _, record := range snapshot.Records {
+		if record.Status == questionbank.Running {
+			return nil, fmt.Errorf("所选分段仍有题目正在处理")
+		}
+	}
+	return snapshot, nil
+}
+
+func (a *App) sealQuestionBankTargetLocked(snapshot *questionbank.Session) (string, error) {
+	if snapshot.State != questionbank.Active && snapshot.State != questionbank.Paused {
+		return snapshot.ID, nil
+	}
+	current, _ := a.questionBank.store.Snapshot()
+	if current == nil || current.ID != snapshot.ID {
+		return "", fmt.Errorf("只能封存当前活动分段")
+	}
+	targetID, err := a.questionBank.store.SealCurrent()
+	if err != nil {
+		return "", err
+	}
+	if targetID != snapshot.ID {
+		return "", fmt.Errorf("分段在封存时发生变化，请重试")
+	}
+	return targetID, nil
+}
+
+func (a *App) startQuestionBankOrganizeLocked(targetID string, cfg config.Config) {
+	b := a.questionBank
+	ctx, cancel := context.WithCancel(context.Background())
+	b.cancel = cancel
+	b.organizing = true
+	b.operation = "organizing"
+	b.progress = questionbank.Progress{}
+	b.message = "正在整理分段并生成待核对建议"
+	store := b.store
+	provider := llm.NewOpenAIAdapter(&cfg)
+	b.workers.Add(1)
+
+	go func() {
+		defer b.workers.Done()
+		defer cancel()
+		organizeErr := store.OrganizeSession(ctx, targetID, provider, cfg.Model, func(progress questionbank.Progress) {
+			b.mu.Lock()
+			b.progress = progress
+			b.mu.Unlock()
+			a.notifyQuestionBank()
+		})
+		b.mu.Lock()
+		switch {
+		case errors.Is(organizeErr, context.Canceled):
+			b.message = "整理已取消；已完成的题目和建议仍保留，可稍后继续"
+		case organizeErr != nil:
+			b.message = organizeErr.Error() + "；可核对已有结果后导出，或稍后重试"
+		default:
+			b.message = "整理完成；模型建议尚未成为权威元数据，请核对后再导出"
+		}
+		b.organizing = false
+		b.operation = ""
+		b.cancel = nil
+		b.mu.Unlock()
+		a.notifyQuestionBank()
+	}()
+}
+
+// PrepareQuestionBankSegment seals the selected active segment when needed and
+// runs the existing per-record organizer. It never creates an export directory.
+func (a *App) PrepareQuestionBankSegment(sessionID string) error {
+	b := a.questionBank
+	if b == nil {
+		return fmt.Errorf("题库服务不可用")
+	}
+	b.mu.Lock()
+	if err := a.bankAvailableLocked(); err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	snapshot, err := a.questionBankTargetLocked(sessionID)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	cfg, err := a.questionBankExportConfigForLocked(true)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	targetID, err := a.sealQuestionBankTargetLocked(snapshot)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	a.startQuestionBankOrganizeLocked(targetID, cfg)
+	b.mu.Unlock()
+	a.notifyQuestionBank()
+	return nil
 }
 
 func (a *App) startQuestionBankExportWithOptionsLocked(targetID string, autoOrganize bool, options questionbank.ExportOptions, cfg config.Config) {
@@ -774,44 +1036,23 @@ func (a *App) ExportQuestionBankSegment(request QuestionBankExportRequest) error
 	}
 	request.SessionID = strings.TrimSpace(request.SessionID)
 	request.Company = strings.TrimSpace(request.Company)
+	request.Issuer = strings.TrimSpace(request.Issuer)
 	request.Type = normalizeQuestionBankType(request.Type)
 	request.Name = strings.TrimSpace(request.Name)
 	request.Name = strings.TrimSuffix(strings.TrimSuffix(request.Name, ".md"), ".MD")
 	request.Directory = strings.TrimSpace(request.Directory)
-	if request.SessionID == "" {
-		b.mu.Unlock()
-		return fmt.Errorf("请选择要导出的分段")
-	}
 	if request.Name == "" {
 		b.mu.Unlock()
 		return fmt.Errorf("请填写题库名称")
 	}
-	if len([]rune(request.Company)) > 120 || len([]rune(request.Type)) > 120 || len([]rune(request.Name)) > 120 {
+	if len([]rune(request.Company)) > 120 || len([]rune(request.Issuer)) > 120 || len([]rune(request.Type)) > 120 || len([]rune(request.Name)) > 120 {
 		b.mu.Unlock()
-		return fmt.Errorf("单位、题型和题库名称最多 120 字")
+		return fmt.Errorf("单位、出题方、题型和题库名称最多 120 字")
 	}
-	snapshot, err := b.store.SnapshotByID(request.SessionID)
+	snapshot, err := a.questionBankTargetLocked(request.SessionID)
 	if err != nil {
 		b.mu.Unlock()
 		return err
-	}
-	if snapshot == nil || len(snapshot.Records) == 0 {
-		b.mu.Unlock()
-		return fmt.Errorf("所选分段暂无记录")
-	}
-	if snapshot.State == questionbank.Discarded {
-		b.mu.Unlock()
-		return fmt.Errorf("已清空的分段不参与导出")
-	}
-	if snapshot.State != questionbank.Active && snapshot.State != questionbank.Paused && snapshot.State != questionbank.Ended && snapshot.State != questionbank.Exported {
-		b.mu.Unlock()
-		return fmt.Errorf("所选分段状态不支持导出")
-	}
-	for _, record := range snapshot.Records {
-		if record.Status == questionbank.Running {
-			b.mu.Unlock()
-			return fmt.Errorf("所选分段仍有题目正在处理")
-		}
 	}
 	if request.Directory == "" {
 		request.Directory = b.store.Root()
@@ -821,35 +1062,31 @@ func (a *App) ExportQuestionBankSegment(request QuestionBankExportRequest) error
 		b.mu.Unlock()
 		return err
 	}
-	cfg, err := a.questionBankExportConfigForLocked(request.AutoOrganize)
+	if request.AutoOrganize {
+		pending, _ := questionBankOrganizeState(snapshot)
+		if pending > 0 {
+			b.mu.Unlock()
+			return fmt.Errorf("请先整理并生成建议，再核对元数据后导出")
+		}
+	}
+	targetID, err := a.sealQuestionBankTargetLocked(snapshot)
 	if err != nil {
 		b.mu.Unlock()
 		return err
 	}
-	if snapshot.State == questionbank.Active || snapshot.State == questionbank.Paused {
-		current, _ := b.store.Snapshot()
-		if current == nil || current.ID != snapshot.ID {
-			b.mu.Unlock()
-			return fmt.Errorf("只能封存并导出当前活动分段")
-		}
-		targetID, sealErr := b.store.SealCurrent()
-		if sealErr != nil {
-			b.mu.Unlock()
-			return sealErr
-		}
-		if targetID != snapshot.ID {
-			b.mu.Unlock()
-			return fmt.Errorf("导出分段在封存时发生变化，请重试")
-		}
+	if err = b.store.UpdateSessionMetadata(targetID, request.Name, request.Company, request.Issuer, request.Type, request.NameCustomized); err != nil {
+		b.mu.Unlock()
+		return err
 	}
 	options := questionbank.ExportOptions{
 		Name:      request.Name,
 		Company:   request.Company,
+		Issuer:    request.Issuer,
 		Type:      request.Type,
 		Directory: cleanDirectory,
 		RawOnly:   !request.AutoOrganize,
 	}
-	a.startQuestionBankExportWithOptionsLocked(snapshot.ID, request.AutoOrganize, options, cfg)
+	a.startQuestionBankExportWithOptionsLocked(targetID, false, options, config.Config{})
 	b.mu.Unlock()
 	a.notifyQuestionBank()
 	return nil

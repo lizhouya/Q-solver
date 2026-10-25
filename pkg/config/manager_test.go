@@ -2,9 +2,13 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"Q-Solver/pkg/shortcut"
 )
 
 func isolatedManager(t *testing.T) *ConfigManager {
@@ -81,5 +85,174 @@ func TestMissingConfigAllowsFirstSave(t *testing.T) {
 	}
 	if err := cm.Save(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func writeShortcutConfig(t *testing.T, cm *ConfigManager, shortcuts map[string]shortcut.KeyBinding) {
+	t.Helper()
+	plain, err := json.Marshal(Config{Shortcuts: shortcuts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := encrypt(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cm.configPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadMigratesStartNextExamShortcutSafely(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skipf("Windows-only migration test on %s", runtime.GOOS)
+	}
+
+	defaultBinding := shortcut.KeyBinding{ComboID: "78+160+162", KeyName: "Ctrl+Shift+N"}
+
+	t.Run("missing action with free default", func(t *testing.T) {
+		cm := isolatedManager(t)
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"screenshot": {ComboID: "119", KeyName: "F8"},
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		if got := cm.Get().Shortcuts["start_next_exam"]; got != defaultBinding {
+			t.Fatalf("action 缺失且默认组合空闲时应补默认：want %+v, got %+v", defaultBinding, got)
+		}
+	})
+
+	t.Run("missing action with occupied default", func(t *testing.T) {
+		cm := isolatedManager(t)
+		occupied := shortcut.KeyBinding{ComboID: defaultBinding.ComboID, KeyName: "Legacy Ctrl+Shift+N"}
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"legacy_action": occupied,
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		got := cm.Get().Shortcuts
+		if binding := got["legacy_action"]; binding != occupied {
+			t.Fatalf("迁移不得抢占其他 action 的默认组合：want %+v, got %+v", occupied, binding)
+		}
+		if binding := got["start_next_exam"]; binding != (shortcut.KeyBinding{}) {
+			t.Fatalf("默认组合被占用时 start_next_exam 应保持未绑定，实际 %+v", binding)
+		}
+	})
+
+	for _, test := range []struct {
+		name    string
+		binding shortcut.KeyBinding
+	}{
+		{name: "explicit empty", binding: shortcut.KeyBinding{}},
+		{name: "explicit custom", binding: shortcut.KeyBinding{ComboID: "77+160+162", KeyName: "Ctrl+Shift+M"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cm := isolatedManager(t)
+			writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+				"start_next_exam": test.binding,
+			})
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Get().Shortcuts["start_next_exam"]; got != test.binding {
+				t.Fatalf("显式绑定不得被迁移覆盖：want %+v, got %+v", test.binding, got)
+			}
+		})
+	}
+}
+
+func TestLoadMigratesClearMobileDisplayShortcut(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skipf("Windows-only migration test on %s", runtime.GOOS)
+	}
+
+	t.Run("free default", func(t *testing.T) {
+		cm := isolatedManager(t)
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"screenshot": {ComboID: "119", KeyName: "F8"},
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		got := cm.Get().Shortcuts["clear_mobile_display"]
+		if got.ComboID != "67+160" || got.KeyName != "Shift+C" {
+			t.Fatalf("空闲默认组合应自动迁移，实际 %+v", got)
+		}
+	})
+
+	t.Run("occupied default", func(t *testing.T) {
+		cm := isolatedManager(t)
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"legacy_action": {ComboID: "67+160", KeyName: "Legacy Shift+C"},
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		got := cm.Get().Shortcuts
+		if binding := got["legacy_action"]; binding != (shortcut.KeyBinding{}) {
+			t.Fatalf("默认 Shift+C 必须从旧 action 迁移给清屏，旧绑定应清空，实际 %+v", binding)
+		}
+		if binding := got["clear_mobile_display"]; binding.ComboID != "67+160" || binding.KeyName != "Shift+C" {
+			t.Fatalf("清屏应取得默认 Shift+C，实际 %+v", binding)
+		}
+	})
+
+	t.Run("persisted empty repairs legacy collision", func(t *testing.T) {
+		cm := isolatedManager(t)
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"clear_mobile_display": {},
+			"toggle_window":        {ComboID: "67+160", KeyName: "Shift+C"},
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		got := cm.Get().Shortcuts
+		if binding := got["toggle_window"]; binding != (shortcut.KeyBinding{}) {
+			t.Fatalf("旧版持久化空清屏绑定时必须清除隐藏窗口冲突，实际 %+v", binding)
+		}
+		if binding := got["clear_mobile_display"]; binding != (shortcut.KeyBinding{ComboID: "67+160", KeyName: "Shift+C"}) {
+			t.Fatalf("旧版空绑定应修复为清屏默认值，实际 %+v", binding)
+		}
+	})
+
+	t.Run("explicit default removes duplicate", func(t *testing.T) {
+		cm := isolatedManager(t)
+		writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+			"clear_mobile_display": {ComboID: "67+160", KeyName: "Shift+C"},
+			"toggle_window":        {ComboID: "67+160", KeyName: "Shift+C"},
+		})
+		if err := cm.Load(); err != nil {
+			t.Fatal(err)
+		}
+		got := cm.Get().Shortcuts
+		if binding := got["toggle_window"]; binding != (shortcut.KeyBinding{}) {
+			t.Fatalf("显式默认清屏绑定应清除重复的隐藏窗口绑定，实际 %+v", binding)
+		}
+		if binding := got["clear_mobile_display"]; binding.ComboID != "67+160" {
+			t.Fatalf("清屏默认绑定应保留，实际 %+v", binding)
+		}
+	})
+
+	for _, test := range []struct {
+		name    string
+		binding shortcut.KeyBinding
+	}{
+		{name: "explicit custom", binding: shortcut.KeyBinding{ComboID: "67+162", KeyName: "Ctrl+C"}},
+		{name: "explicit empty", binding: shortcut.KeyBinding{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cm := isolatedManager(t)
+			writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+				"clear_mobile_display": test.binding,
+			})
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Get().Shortcuts["clear_mobile_display"]; got != test.binding {
+				t.Fatalf("显式绑定不得被迁移覆盖：want %+v, got %+v", test.binding, got)
+			}
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"Q-Solver/pkg/answersummary"
 	"time"
 )
 
@@ -21,10 +22,12 @@ const (
 
 // Payload 手机端展示载荷。D-Mobile-003：仅「答案 + 简短分析」，不传输完整思考链。
 type Payload struct {
-	Question string `json:"question"` // 当前题目（第一版为空，占位；不传输截图）
-	Analysis string `json:"analysis"` // 简短分析（映射 solution-stream-thinking 累积）
-	Answer   string `json:"answer"`   // 最终答案（映射 solution-stream-chunk / solution）
-	Model    string `json:"model"`    // 当前模型名
+	AnswerItems    []answersummary.Item `json:"answerItems,omitempty"`
+	AnswerCopyText string               `json:"answerCopyText,omitempty"`
+	Question       string               `json:"question"` // 当前题目（第一版为空，占位；不传输截图）
+	Analysis       string               `json:"analysis"` // 简短分析（映射 solution-stream-thinking 累积）
+	Answer         string               `json:"answer"`   // 最终答案（映射 solution-stream-chunk / solution）
+	Model          string               `json:"model"`    // 当前模型名
 }
 
 // ShortcutHint 是可安全发送到手机端的快捷键提示。
@@ -37,6 +40,8 @@ type ShortcutHint struct {
 // Snapshot 统一状态快照（全量，手机端断线重连时先收到当前 Snapshot 自动对齐）。
 // Control/ControlSeq 与解题 Seq 相互独立：Control 是一次性滚动命令，ControlSeq 用于去重。
 type Snapshot struct {
+	SessionID  string         `json:"sessionId"`         // 当前进程随机会话 ID，用于跨进程重置序号命名空间
+	ClearSeq   uint64         `json:"clearSeq"`          // 可重放的显示清屏边界
 	Seq        int            `json:"seq"`               // 解题快照序号，单调递增
 	Ts         int64          `json:"ts"`                // Unix 毫秒
 	Status     string         `json:"status"`            // waiting | streaming | done | error | idle

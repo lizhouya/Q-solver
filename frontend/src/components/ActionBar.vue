@@ -1,9 +1,20 @@
 <template>
   <div class="action-bar">
     <div class="action-left">
+      <button class="action-btn" :disabled="!numberedCopyText || copying" @click="handleCopyNumberedAnswers"
+        title="复制本轮实际题号与答案，每题一行，不重新编号">
+        <Icon :name="numberedAnswersCopied ? 'check' : 'copy'" :size="14" />
+        <span>{{ numberedAnswersCopied ? '已复制题号＋答案' : '复制题号＋答案' }}</span>
+      </button>
+      <button class="action-btn" :disabled="!answerCopyText || copying" @click="handleCopyAnswers"
+        :title="answerCopyText ? '仅复制本轮可填写答案，每题一行，不含题号与解析' : (answerItems.length ? '含待核对项，暂不可复制答案' : '本轮未生成可复制的答案汇总')">
+        <Icon :name="answersCopied ? 'check' : 'copy'" :size="14" />
+        <span>{{ answersCopied ? '已复制答案' : '复制答案' }}</span>
+      </button>
+      <span v-if="copyError" class="copy-error" role="status">{{ copyError }}</span>
       <button class="action-btn" @click="handleCopy" :title="copied ? '已复制' : '复制全文'">
         <Icon :name="copied ? 'check' : 'copy'" :size="14" />
-        <span>{{ copied ? '已复制' : '复制' }}</span>
+        <span>{{ copied ? '已复制全文' : '复制全文' }}</span>
       </button>
       <button
         class="action-btn"
@@ -25,6 +36,16 @@
         <Icon name="check-circle" :size="14" />
         <span>结束本段</span>
       </button>
+      <button
+        class="action-btn"
+        :class="{ busy: questionBank.nextExamSubmitting }"
+        :disabled="questionBank.nextExamPending || questionBank.nextExamSubmitting"
+        title="封存当前段并清理本机运行态，准备开始下一套笔试"
+        @click="questionBank.requestStartNextExam"
+      >
+        <Icon name="refresh" :size="14" :spinning="questionBank.nextExamSubmitting" />
+        <span>{{ questionBank.nextExamSubmitting ? '切换中…' : '开始下一套' }}</span>
+      </button>
     </div>
     <div class="action-right">
       <span class="meta-text" v-if="model">{{ model }}</span>
@@ -35,18 +56,39 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { copyText, formatNumberedAnswers } from '../utils/clipboard'
 import Icon from './Icon.vue'
 import { useQuestionBankStore } from '../stores/questionbank'
 
 const props = defineProps({
   content: { type: String, default: '' },
+  answerItems: { type: Array, default: () => [] },
+  answerCopyText: { type: String, default: '' },
   model: { type: String, default: '' },
   duration: { type: String, default: '' },
 })
 
 const questionBank = useQuestionBankStore()
+const numberedCopyText = computed(() => formatNumberedAnswers(props.answerItems, props.answerCopyText))
+const numberedAnswersCopied = ref(false)
 const copied = ref(false)
+const answersCopied = ref(false)
+const copying = ref(false)
+const copyError = ref('')
+let feedbackTimer
+let copyVersion = 0
+function resetCopyFeedback() {
+  copyVersion++
+  clearTimeout(feedbackTimer)
+  numberedAnswersCopied.value = false
+  copied.value = false
+  answersCopied.value = false
+  copying.value = false
+  copyError.value = ''
+}
+watch(() => [props.content, props.answerCopyText, numberedCopyText.value], resetCopyFeedback)
+onBeforeUnmount(resetCopyFeedback)
 
 const exportLabel = computed(() => {
   if (questionBank.status.organizing) {
@@ -65,25 +107,28 @@ const exportTitle = computed(() => {
   return '确认名称、位置和本次是否调用模型后导出当前分段'
 })
 
-function handleCopy() {
-  if (!props.content) return
-  navigator.clipboard.writeText(props.content).then(() => {
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  }).catch(() => {
-    const ta = document.createElement('textarea')
-    ta.value = props.content
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  })
+async function performCopy(text, mode) {
+  if (!text || copying.value) return
+  const version = ++copyVersion
+  copying.value = true
+  copyError.value = ''
+  const success = await copyText(text)
+  if (version !== copyVersion) return
+  copying.value = false
+  copied.value = success && mode === 'full'
+  answersCopied.value = success && mode === 'answers'
+  numberedAnswersCopied.value = success && mode === 'numbered'
+  if (!success) copyError.value = '复制失败，请手动选择文本复制'
+  clearTimeout(feedbackTimer)
+  feedbackTimer = setTimeout(resetCopyFeedback, 2500)
 }
+function handleCopy() { return performCopy(props.content, 'full') }
+function handleCopyAnswers() { return performCopy(props.answerCopyText, 'answers') }
+function handleCopyNumberedAnswers() { return performCopy(numberedCopyText.value, 'numbered') }
 </script>
 
 <style scoped>
+.copy-error { color: var(--color-error); font-size: var(--text-xs); }
 .action-bar {
   display: flex;
   align-items: center;

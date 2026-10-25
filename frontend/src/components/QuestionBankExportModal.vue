@@ -42,15 +42,65 @@
               <span class="qb-export-id">{{ bank.exportDraft.sessionId }}</span>
             </div>
 
-            <div class="qb-field-grid">
+            <label class="qb-organize-switch" :class="{ enabled: bank.exportDraft.autoOrganize }">
+              <input
+                v-model="bank.exportDraft.autoOrganize"
+                type="checkbox"
+                :disabled="formLocked"
+              />
+              <span>
+                <strong>本次调用模型整理</strong>
+                <small v-if="bank.exportDraft.autoOrganize">
+                  先整理并生成待核对建议；最终确认导出不会再次调用模型。
+                </small>
+                <small v-else>
+                  只在本地生成原始记录和全部截图，不调用模型，也不生成整理试卷。
+                </small>
+              </span>
+            </label>
+
+            <section v-if="bank.exportDraft.autoOrganize" class="qb-suggestion-card" aria-live="polite">
+              <div class="qb-suggestion-heading">
+                <strong>模型元数据建议（待核对）</strong>
+                <span v-if="bank.status.organizing">整理中 {{ bank.status.progress?.done || 0 }}/{{ bank.status.progress?.total || 0 }}</span>
+                <span v-else-if="bank.exportDraft.organizeReady">准备完成</span>
+                <span v-else>待整理 {{ bank.exportDraft.pendingOrganize }} 条</span>
+              </div>
+              <template v-if="bank.exportDraft.metadataSuggestion">
+                <div class="qb-suggestion-values">
+                  <span>单位：{{ bank.exportDraft.metadataSuggestion.company || '未识别' }}</span>
+                  <span>出题方：{{ bank.exportDraft.metadataSuggestion.issuer || '未识别' }}</span>
+                  <span>题型：{{ bank.exportDraft.metadataSuggestion.type || '未识别' }}</span>
+                </div>
+                <p v-if="bank.exportDraft.metadataSuggestion.reviewNote">{{ bank.exportDraft.metadataSuggestion.reviewNote }}</p>
+              </template>
+              <p v-else-if="bank.exportDraft.organizeReady">没有可用的元数据建议，请人工核对并填写下方字段。</p>
+              <p v-if="bank.exportDraft.suggestionConflict" class="qb-suggestion-warning">不同提交给出的建议存在冲突，请以截图和原答案为准人工确认。</p>
+              <p v-if="bank.exportDraft.failedOrganize" class="qb-suggestion-warning">
+                {{ bank.exportDraft.failedOrganize }} 条记录整理失败；原稿和已完成结果仍保留，可核对后继续导出。
+              </p>
+              <p v-if="bank.status.organizing">关闭窗口不会取消整理；已完成结果会保存在该分段中。</p>
+            </section>
+
+            <div class="qb-field-grid qb-field-grid-three">
               <label class="qb-field">
-                <span>单位（可选）</span>
+                <span>招聘单位（可选）</span>
                 <input
                   :value="bank.exportDraft.company"
                   maxlength="120"
                   placeholder="不明确时可留空"
-                  :disabled="bank.exportSubmitting"
+                  :disabled="formLocked"
                   @input="bank.setExportCompany($event.target.value)"
+                />
+              </label>
+              <label class="qb-field">
+                <span>出题方（可选）</span>
+                <input
+                  :value="bank.exportDraft.issuer"
+                  maxlength="120"
+                  placeholder="例如：测评机构"
+                  :disabled="formLocked"
+                  @input="bank.setExportIssuer($event.target.value)"
                 />
               </label>
               <label class="qb-field">
@@ -59,22 +109,31 @@
                   :value="bank.exportDraft.type"
                   maxlength="120"
                   placeholder="例如：行测、编程与算法"
-                  :disabled="bank.exportSubmitting"
+                  :disabled="formLocked"
                   @input="bank.setExportType($event.target.value)"
                 />
               </label>
             </div>
 
             <label class="qb-field">
-              <span>题库名称</span>
+              <span class="qb-field-heading">
+                <span>题库名称</span>
+                <button
+                  v-if="bank.exportNameEdited"
+                  type="button"
+                  class="qb-link-button"
+                  :disabled="formLocked"
+                  @click="bank.restoreAutomaticExportName"
+                >恢复自动命名</button>
+              </span>
               <input
                 :value="bank.exportDraft.name"
                 maxlength="120"
-                placeholder="例如：招商银行_行测"
-                :disabled="bank.exportSubmitting"
+                placeholder="例如：招商银行_测评机构_行测"
+                :disabled="formLocked"
                 @input="bank.setExportName($event.target.value)"
               />
-              <small>默认按单位和题型生成；手动修改后，不再被单位或题型变化覆盖。</small>
+              <small>默认按“招聘单位_出题方_题型”生成；单位和出题方均为空时使用稳定编号。模型建议只有人工确认后才会写入权威元数据。</small>
             </label>
 
             <div class="qb-field">
@@ -83,7 +142,7 @@
                 <code>{{ bank.exportDraft.directory || '尚未选择' }}</code>
                 <button
                   type="button"
-                  :disabled="bank.exportDirectorySelecting || bank.exportSubmitting"
+                  :disabled="bank.exportDirectorySelecting || formLocked"
                   @click="bank.selectExportDirectory"
                 >
                   {{ bank.exportDirectorySelecting ? '选择中…' : '修改位置' }}
@@ -91,23 +150,6 @@
               </div>
               <small>仅影响本次导出，不会修改设置中的默认目录。</small>
             </div>
-
-            <label class="qb-organize-switch" :class="{ enabled: bank.exportDraft.autoOrganize }">
-              <input
-                v-model="bank.exportDraft.autoOrganize"
-                type="checkbox"
-                :disabled="bank.exportSubmitting"
-              />
-              <span>
-                <strong>本次调用模型整理</strong>
-                <small v-if="bank.exportDraft.autoOrganize">
-                  提交后才会把本段截图和原答案发送给已配置的模型服务商，可能产生额外费用。
-                </small>
-                <small v-else>
-                  只在本地生成原始记录和全部截图，不生成空的整理试卷。
-                </small>
-              </span>
-            </label>
 
             <div class="qb-output-preview">
               <strong>预计输出</strong>
@@ -127,9 +169,9 @@
               <button
                 type="submit"
                 class="qb-primary"
-                :disabled="bank.exportSubmitting || bank.exportDirectorySelecting"
+                :disabled="formLocked || bank.exportDirectorySelecting"
               >
-                <Icon v-if="bank.exportSubmitting" name="loader" :size="14" spinning />
+                <Icon v-if="formLocked" name="loader" :size="14" spinning />
                 {{ submitLabel }}
               </button>
             </footer>
@@ -148,9 +190,14 @@ import { useQuestionBankStore } from '../stores/questionbank'
 const bank = useQuestionBankStore()
 const dialog = ref(null)
 
+const formLocked = computed(() => bank.exportSubmitting || bank.status.organizing)
 const submitLabel = computed(() => {
-  if (bank.exportSubmitting) return '正在提交…'
-  return bank.exportDraft.autoOrganize ? '整理并导出' : '仅导出原始记录'
+  if (bank.status.organizing) return '模型整理中…'
+  if (bank.exportSubmitting) return bank.exportDraft.autoOrganize && !bank.exportDraft.organizeReady
+    ? '正在启动整理…'
+    : '正在提交…'
+  if (!bank.exportDraft.autoOrganize) return '仅导出原始记录'
+  return bank.exportDraft.organizeReady ? '确认命名并导出' : '整理并生成建议'
 })
 
 function formatTime(value) {
@@ -240,8 +287,11 @@ watch(() => bank.exportVisible, async (visible) => {
 .qb-export-id { max-width: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .qb-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.qb-field-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .qb-field { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .9rem; }
 .qb-field > span { font-size: .8rem; font-weight: 650; }
+.qb-field-heading { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.qb-link-button { padding: .15rem 0; border: 0; background: transparent; color: var(--accent); font-size: .72rem; }
 .qb-field small, .qb-organize-switch small, .qb-output-preview small { color: var(--text-muted); font-size: .72rem; line-height: 1.55; }
 
 input {
@@ -287,6 +337,21 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-mu
 .qb-organize-switch span { display: flex; flex-direction: column; gap: .25rem; }
 .qb-organize-switch strong { font-size: .82rem; }
 .qb-organize-switch.enabled small { color: var(--color-warning); }
+
+
+.qb-suggestion-card {
+  margin-bottom: .9rem;
+  padding: .75rem;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  font-size: .75rem;
+}
+.qb-suggestion-heading { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.qb-suggestion-heading span { color: var(--color-warning); }
+.qb-suggestion-values { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin-top: .55rem; }
+.qb-suggestion-card p { margin: .45rem 0 0; color: var(--text-secondary); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qb-suggestion-card .qb-suggestion-warning { color: var(--color-warning); font-weight: 600; }
 
 .qb-output-preview {
   display: flex;
@@ -340,7 +405,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 560px) {
   .qb-export-overlay { align-items: flex-start; padding: .6rem; }
   .qb-export-dialog { max-height: calc(100vh - 1.2rem); }
-  .qb-field-grid, .qb-directory-row { grid-template-columns: 1fr; }
+  .qb-field-grid, .qb-field-grid-three, .qb-directory-row { grid-template-columns: 1fr; }
   .qb-export-actions { flex-direction: column-reverse; }
   .qb-export-actions button { width: 100%; }
   .qb-export-id { display: none; }

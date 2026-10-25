@@ -29,20 +29,21 @@ func NewConfigManager() *ConfigManager {
 	return cm
 }
 
-func (cm *ConfigManager) getConfigPath() string {
-	var appDir string
-
+func appConfigDir() string {
 	sysConfigDir, err := os.UserConfigDir()
 	if err != nil {
 		// 如果获取系统目录失败（极少情况），回退到当前目录
 		sysConfigDir = "."
 	}
 	// 拼接项目名称目录
-	appDir = filepath.Join(sysConfigDir, common.AppName)
-
+	appDir := filepath.Join(sysConfigDir, common.AppName)
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 	}
-	fullPath := filepath.Join(appDir, "config")
+	return appDir
+}
+
+func (cm *ConfigManager) getConfigPath() string {
+	fullPath := filepath.Join(appConfigDir(), "config")
 	logger.Println("配置文件路径", fullPath)
 
 	return fullPath
@@ -56,6 +57,8 @@ func (cm *ConfigManager) Load() error {
 		return nil
 	}
 	cfg := NewDefaultConfig()
+	clearMobileDisplayConfigured := true
+	startNextExamConfigured := true
 	data, err := os.ReadFile(cm.configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("无法读取配置文件，原配置未修改，请检查文件访问权限后重试")
@@ -68,7 +71,17 @@ func (cm *ConfigManager) Load() error {
 		if json.Unmarshal(plain, &cfg) != nil {
 			return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
 		}
+		var persisted struct {
+			Shortcuts map[string]json.RawMessage `json:"shortcuts"`
+		}
+		if json.Unmarshal(plain, &persisted) != nil {
+			return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
+		}
+		_, clearMobileDisplayConfigured = persisted.Shortcuts["clear_mobile_display"]
+		_, startNextExamConfigured = persisted.Shortcuts["start_next_exam"]
 	}
+	migrateClearMobileDisplayShortcut(&cfg, clearMobileDisplayConfigured)
+	migrateStartNextExamShortcut(&cfg, startNextExamConfigured)
 	cm.config = cfg
 	cm.loaded = true
 	logger.Println("配置已加载")

@@ -185,6 +185,10 @@
       background: #0f172a; color: var(--text); font: 600 11px/1.45 ui-monospace, Consolas, monospace;
     }
 
+    .copy-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .copy-actions button { color: var(--text); background: var(--bg-soft); border: 1px solid var(--border); border-radius: 7px; padding: 7px 12px; cursor: pointer; }
+    .copy-actions button:disabled { opacity: .5; cursor: not-allowed; }
+    .copy-note, #copy-feedback { color: var(--muted); font-size: 12px; }
     .footer { text-align: center; font-size: 10px; color: var(--muted); opacity: .6; padding: 10px 0 2px; }
 
     /* ===== 响应式断点 =====
@@ -230,7 +234,8 @@
     <div id="answer-panel">
       <!-- 实际快捷键提示（由 Snapshot.hints 提供，不含 VK/路径/Token） -->
       <div class="card" id="shortcut-card" hidden>
-        <div class="card-title"><span class="ico">⌨</span> 快捷键</div>
+        <div class="card-title"><span class="ico">⌨</span> 答题端快捷键</div>
+        <p class="copy-note">以下按键在答题电脑使用，不是浏览器快捷键。</p>
         <div class="hints-grid" id="shortcut-hints"></div>
       </div>
 
@@ -244,8 +249,13 @@
 
       <!-- 最终答案 -->
       <div class="card" id="answer-card" style="display:none">
-        <div class="card-title"><span class="ico">💡</span> 答案</div>
+        <div class="card-title"><span class="ico">💡</span> 参考答案</div>
         <div class="md" id="answer-text"></div>
+        <div class="copy-actions">
+          <button type="button" id="copy-numbered-answers" hidden disabled>复制题号＋答案</button>
+          <button type="button" id="copy-answers" hidden disabled>复制答案</button>
+          <span id="copy-feedback" role="status" aria-live="polite"></span>
+        </div>
       </div>
 
       <!-- 错误 -->
@@ -265,7 +275,11 @@
     var sessionHistory = [];  // { seq, ts, question, answer, model }——仅浏览器内存
     var latestSnapshot = null; // 最新一帧（仅用于「跟随最新」与刷新恢复）
     var selectedSeq = -1;      // -1=跟随最新；否则选中 history 中的 seq
-    var lastControlSeq = 0;    // 独立的一次性控制序号；SSE snapshot 只负责同步基线
+    var activeSessionId = '';  // 当前服务进程命名空间；不写入浏览器存储
+    var activeClearSeq = -1;   // 当前会话已接受的清屏水位
+    var renderEpoch = 0;       // 清屏/换会话时递增，使已排队渲染回调失效
+    var retiredSessionIds = Object.create(null); // 防止新进程帧到达后又切回已淘汰会话
+    var lastControlSeq = -1;   // 独立的一次性控制序号；SSE snapshot 只负责同步基线
     var lastBusinessSeq = -1;  // 最近真正渲染的业务快照；控制帧不得触发重渲染
     var lastHintsSignature = '';
 
@@ -279,6 +293,71 @@
     var waitingText = document.getElementById('waiting-text');
     var answerCard = document.getElementById('answer-card');
     var answerText = document.getElementById('answer-text');
+    var copyNumberedAnswers = document.getElementById('copy-numbered-answers');
+    var copyAnswers = document.getElementById('copy-answers');
+    var copyFeedback = document.getElementById('copy-feedback');
+    var displayedCopyText = '';
+    var displayedNumberedText = '';
+    var copyVersion = 0;
+    function formatNumberedAnswers(items, plainText) {
+      if (!plainText || typeof plainText !== 'string' || !Array.isArray(items) || !items.length) return '';
+      if (items.some(item => !item || item.status !== 'ready' ||
+        typeof item.label !== 'string' || !item.label.trim() || /[\r\n]/.test(item.label) || item.label.includes('待核对') ||
+        typeof item.value !== 'string' || !item.value || /[\r\n]/.test(item.value))) return '';
+      if (items.map(item => item.value).join('\n') !== plainText) return '';
+      return items.map(item => `${item.label}. ${item.value}`).join('\n')
+    }
+
+    function setCopyTarget(payload) {
+      copyVersion++;
+      displayedCopyText = payload && typeof payload.answerCopyText === 'string' ? payload.answerCopyText : '';
+      displayedNumberedText = formatNumberedAnswers(payload && payload.answerItems, displayedCopyText);
+      copyNumberedAnswers.hidden = !payload;
+      copyNumberedAnswers.disabled = !displayedNumberedText;
+      copyAnswers.hidden = !payload;
+      copyAnswers.disabled = !displayedCopyText;
+      copyFeedback.textContent = payload && !displayedCopyText ? '本轮汇总缺失或含待核对项，暂不可复制答案' : '';
+    }
+    async function copyDisplayedAnswers(withNumbers) {
+      var numbered = withNumbers === true;
+      var text = numbered ? displayedNumberedText : displayedCopyText;
+      if (!text || (numbered ? copyNumberedAnswers.disabled : copyAnswers.disabled)) return false;
+      var version = copyVersion;
+      copyAnswers.disabled = true;
+      copyNumberedAnswers.disabled = true;
+      var success = false;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          success = true;
+        }
+      } catch (_) {}
+      if (!success && version === copyVersion) {
+        var textarea;
+        var focused = document.activeElement;
+        try {
+          textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          success = document.execCommand('copy') === true;
+        } catch (_) {} finally {
+          if (textarea) textarea.remove();
+          try { if (focused) focused.focus({ preventScroll: true }); } catch (_) {}
+        }
+      }
+      if (version === copyVersion) {
+        copyAnswers.disabled = !displayedCopyText;
+        copyNumberedAnswers.disabled = !displayedNumberedText;
+        copyFeedback.textContent = success ? (numbered ? '已复制题号＋答案' : '已复制答案（不含题号与解析）') : '复制失败，请手动选择答案复制';
+      }
+      return success;
+    }
+    copyAnswers.addEventListener('click', copyDisplayedAnswers);
+    copyNumberedAnswers.addEventListener('click', function () { return copyDisplayedAnswers(true); });
     var errorCard = document.getElementById('error-card');
     var errorText = document.getElementById('error-text');
     var shortcutCard = document.getElementById('shortcut-card');
@@ -292,13 +371,21 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    function safeExternalHref(href) {
+      var value = String(href || '').trim();
+      return /^(?:https?:|mailto:)/i.test(value) ? value : '';
+    }
     // 传入已 escape 的文本，做结构性标记（行内代码 / 粗体 / 斜体 / 链接）
     function toInline(escaped) {
       return escaped
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
         .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_, label, href) {
+          var safeHref = safeExternalHref(href);
+          if (!safeHref) return label;
+          return '<a href="' + safeHref + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+        });
     }
     function paragraphWithLabel(line) {
       var esc = escapeHtml(line);
@@ -416,22 +503,48 @@
       connLine.className = 'conn-line' + (err ? ' err' : '');
     }
     function showWaiting(msg) {
+      setCopyTarget(null);
       waitingText.textContent = msg || '正在等待解题结果…';
       waitingCard.style.display = 'block';
       answerCard.style.display = 'none';
       errorCard.style.display = 'none';
     }
-    function showAnswer(html) {
+    function showAnswer(html, payload) {
+      setCopyTarget(payload);
       answerText.innerHTML = html;
       waitingCard.style.display = 'none';
       answerCard.style.display = 'block';
       errorCard.style.display = 'none';
     }
     function showError(msg) {
+      setCopyTarget(null);
       errorText.innerHTML = escapeHtml(msg || '未知错误');
       waitingCard.style.display = 'none';
       answerCard.style.display = 'none';
       errorCard.style.display = 'block';
+    }
+    function clearDisplayState() {
+      setCopyTarget(null);
+      renderEpoch++;
+      sessionHistory = [];
+      latestSnapshot = null;
+      selectedSeq = -1;
+      lastControlSeq = -1;
+      lastBusinessSeq = -1;
+      lastHintsSignature = '';
+
+      modelLabel.textContent = '等待桌面连接…';
+      waitingText.textContent = '正在等待解题结果…';
+      answerText.innerHTML = '';
+      errorText.innerHTML = '';
+      waitingCard.style.display = 'none';
+      answerCard.style.display = 'none';
+      errorCard.style.display = 'none';
+      shortcutHints.textContent = '';
+      shortcutCard.hidden = true;
+      histSide.textContent = '';
+      histStrip.textContent = '';
+      setBadge('待命', '');
     }
 
     // =====================================================================
@@ -453,6 +566,8 @@
         ts: snap.ts || Date.now(),
         question: p.question || '',
         answer: p.answer || '',
+        answerItems: p.answerItems || [],
+        answerCopyText: p.answerCopyText || '',
         model: p.model || ''
       };
       var idx = findHistory(snap.seq);
@@ -506,7 +621,7 @@
       if (seq === (latestSnapshot && latestSnapshot.seq)) { selectedSeq = -1; }
       else { selectedSeq = seq; }
       var e = sessionHistory[idx];
-      if (e) showAnswer(renderMarkdown(e.answer));
+      if (e) showAnswer(renderMarkdown(e.answer), e);
       setBadge('已完成', 'live');
       renderHistoryList();
     }
@@ -556,7 +671,9 @@
       if (snap.control !== 'up' && snap.control !== 'down') return false;
 
       var direction = snap.control;
+      var scheduledEpoch = renderEpoch;
       requestAnimationFrame(function () {
+        if (scheduledEpoch !== renderEpoch) return;
         var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
         var distance = Math.max(1, Math.round(viewportHeight * 0.7));
         window.scrollBy({ top: direction === 'up' ? -distance : distance, behavior: 'smooth' });
@@ -567,6 +684,39 @@
     // =====================================================================
     // 快照处理（业务层由 snapshot.status 驱动；连接层由 conn 回调驱动）
     // =====================================================================
+    function validatedFrameIdentity(snap) {
+      if (!snap || typeof snap.sessionId !== 'string' || snap.sessionId.trim() === '') return null;
+      if (typeof snap.clearSeq !== 'number' || !Number.isFinite(snap.clearSeq) || snap.clearSeq < 0 || Math.floor(snap.clearSeq) !== snap.clearSeq) return null;
+      return { sessionId: snap.sessionId, clearSeq: snap.clearSeq };
+    }
+    function acceptFrame(snap) {
+      var identity = validatedFrameIdentity(snap);
+      if (!identity) return false;
+
+      if (identity.sessionId !== activeSessionId) {
+        if (retiredSessionIds[identity.sessionId]) return false;
+        if (activeSessionId) retiredSessionIds[activeSessionId] = true;
+        activeSessionId = identity.sessionId;
+        activeClearSeq = identity.clearSeq;
+        clearDisplayState();
+        return true;
+      }
+      if (identity.clearSeq < activeClearSeq) return false;
+      if (identity.clearSeq > activeClearSeq) {
+        activeClearSeq = identity.clearSeq;
+        clearDisplayState();
+      }
+      return true;
+    }
+    function parseAcceptedFrame(e) {
+      var snap;
+      try {
+        snap = JSON.parse(e.data);
+      } catch (_) {
+        return null;
+      }
+      return acceptFrame(snap) ? snap : null;
+    }
     function normalizedBusinessSeq(snap) {
       var seq = Number(snap && snap.seq);
       return Number.isFinite(seq) && seq >= 0 ? seq : 0;
@@ -575,6 +725,8 @@
       return latestSnapshot && latestSnapshot.seq === seq;
     }
     function applyBusinessSnapshotIfNew(snap) {
+      // idle 仅承载空白/清屏边界，不占用清屏后的业务序号命名空间。
+      if (snap.status === 'idle' || !snap.status) return false;
       var seq = normalizedBusinessSeq(snap);
       if (seq <= lastBusinessSeq) return false;
       lastBusinessSeq = seq;
@@ -582,10 +734,23 @@
       return true;
     }
     function applySnapshot(snap) {
-      latestSnapshot = snap;
       var payload = snap.payload || {};
+      if (snap.status === 'idle' || !snap.status) {
+        setBadge('待命', '');
+        waitingCard.style.display = 'none';
+        answerCard.style.display = 'none';
+        errorCard.style.display = 'none';
+        return;
+      }
+
+      latestSnapshot = snap;
       if (payload.model) modelLabel.textContent = '模型 ' + payload.model;
 
+      if (selectedSeq >= 0) {
+        if (snap.status === 'done') upsertHistory(snap);
+        renderHistoryList();
+        return;
+      }
       if (snap.status === 'error') {
         setBadge('出错', 'error');
         showError(snap.error || '求解出错');
@@ -595,7 +760,7 @@
         upsertHistory(snap);           // 写入会话历史（去重）
         selectedSeq = -1;              // 新答案完成 → 自动选中最新
         setBadge('已完成', 'live');
-        showAnswer(renderMarkdown(payload.answer || ''));
+        showAnswer(renderMarkdown(payload.answer || ''), payload);
         renderHistoryList();
         return;
       }
@@ -614,9 +779,11 @@
         showWaiting('正在等待解题结果…');
         return;
       }
-      // idle 或未知
+      // 未知状态不恢复已清除的业务内容
       setBadge('待命', '');
-      showWaiting('等待解题…');
+      waitingCard.style.display = 'none';
+      answerCard.style.display = 'none';
+      errorCard.style.display = 'none';
     }
 
     // =====================================================================
@@ -639,15 +806,17 @@
           setConn('已连接', false); // 连接层：SSE 通道已建立
         };
         es.addEventListener('snapshot', function (e) {
+          var snap = parseAcceptedFrame(e);
+          if (!snap) return;
           setConn('已连接 · 同步最新', false); // 连接层
-          var snap = JSON.parse(e.data);
-          syncControlBaseline(snap);             // 只对齐序号，不重放旧控制
+          syncControlBaseline(snap);             // 首帧只对齐序号，不重放旧控制
           applyHintsIfChanged(snap.hints);
           applyBusinessSnapshotIfNew(snap);      // 首次或断线期间出现新业务状态才渲染
         });
         es.addEventListener('message', function (e) {
+          var snap = parseAcceptedFrame(e);
+          if (!snap) return;
           setConn('已连接', false); // 连接层
-          var snap = JSON.parse(e.data);
           applyHintsIfChanged(snap.hints);
           applyBusinessSnapshotIfNew(snap); // 相同业务 seq 的控制帧不得重建 DOM
           applyRealtimeControl(snap);        // 布局稳定后执行一次性滚动

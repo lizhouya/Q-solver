@@ -85,6 +85,19 @@
             <span class="sp-label">隐身模式</span>
             <span class="sp-value" :class="ui.isStealthMode ? 'ok' : 'err'">{{ ui.isStealthMode ? '已开启' : '已关闭' }}</span>
           </div>
+          <div class="sp-row">
+            <span class="sp-label">同步端</span>
+            <span class="sp-value" :class="mobile.info.available ? 'ok' : 'warn'">{{ mobileStatusLabel }}</span>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">同步链接</span>
+            <span class="sp-value">{{ mobile.info.stableLinkEnabled ? '固定' : '临时' }}</span>
+          </div>
+          <button
+            class="sp-mobile-clear"
+            :disabled="mobile.busy || !mobile.info.canClear"
+            @click="mobile.requestClear"
+          >{{ mobile.mutating ? '处理中…' : '清空同步端显示' }}</button>
         </div>
       </div>
     </Transition>
@@ -97,10 +110,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useUIStore } from '../stores/ui'
 import { useSettingsStore } from '../stores/settings'
 import { useQuestionBankStore } from '../stores/questionbank'
+import { useMobileStore } from '../stores/mobile'
 import { api } from '../services/api'
 import Icon from './Icon.vue'
 import ThemeToggle from './ThemeToggle.vue'
@@ -110,6 +124,7 @@ defineEmits(['openSettings'])
 const ui = useUIStore()
 const settingsStore = useSettingsStore()
 const questionBank = useQuestionBankStore()
+const mobile = useMobileStore()
 
 const statusClass = computed(() => {
   const text = settingsStore.statusText || ''
@@ -121,6 +136,22 @@ const statusClass = computed(() => {
 })
 
 const showStatusPanel = ref(false)
+watch(
+  () => mobile.pendingAction,
+  (pending) => {
+    if (pending) showStatusPanel.value = false
+  },
+  { flush: 'sync' },
+)
+const mobileStatusLabel = computed(() => {
+  if (mobile.loading) return '读取中'
+  if (mobile.readError) return '状态未知'
+  if (mobile.info.available) return '已就绪'
+  if (mobile.info.status === 'port_unavailable') return '端口不可用'
+  if (mobile.info.status === 'mobile_state_unavailable') return '状态不可用'
+  if (mobile.info.status === 'stopped') return '已停止'
+  return '未启动'
+})
 const statusBtnRef = ref(null)
 const panelStyle = reactive({ top: '0px', left: '0px' })
 
@@ -138,6 +169,7 @@ function toggleStatusPanel() {
     if (left < 10) left = 10
     panelStyle.left = `${left}px`
     showStatusPanel.value = true
+    mobile.refresh()
   }
 }
 
@@ -370,7 +402,7 @@ function showSettingsTooltip() {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   backdrop-filter: blur(24px);
-  z-index: var(--z-tooltip);
+  z-index: var(--z-dropdown);
   overflow: hidden;
   pointer-events: auto;
   transform-origin: top center;
@@ -398,6 +430,20 @@ function showSettingsTooltip() {
 }
 .sp-close:hover { background: var(--surface-card-hover); color: var(--text-primary); }
 .sp-body { padding: var(--sp-2) var(--sp-4) var(--sp-3); }
+.sp-mobile-clear {
+  width: 100%;
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+.sp-mobile-clear:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.sp-mobile-clear:disabled { opacity: 0.5; cursor: not-allowed; }
 .sp-row {
   display: flex;
   align-items: center;

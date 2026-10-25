@@ -38,7 +38,7 @@
 
             <div v-if="bank.status.organizing" class="qb-progress" role="status">
               <div class="qb-progress-copy">
-                <span>{{ bank.status.operation === 'exporting' ? '正在导出原始记录' : '正在整理并导出' }}</span>
+                <span>{{ bank.status.operation === 'exporting' ? '正在导出原始记录' : '正在整理并生成建议' }}</span>
                 <strong v-if="bank.status.operation !== 'exporting'">{{ bank.status.progress?.done || 0 }} / {{ bank.status.progress?.total || 0 }}</strong>
               </div>
               <div v-if="bank.status.operation !== 'exporting'" class="qb-progress-track"><span :style="{ width: progressWidth }"></span></div>
@@ -79,30 +79,124 @@
           <section class="qb-section qb-history" aria-labelledby="qb-history-title">
             <div class="qb-section-heading">
               <div>
-                <h3 id="qb-history-title">历史分段</h3>
-                <p class="qb-hint">已封存或已导出的分段可重新打开同一导出窗口，不会切换当前可写段。</p>
+                <h3 id="qb-history-title">最近 {{ bank.sessionLimit }} 个分段</h3>
+                <p class="qb-hint">点击分段可查看归档；“继续此分段”会把它恢复到截图解题主界面，并暂停当前活动段。</p>
               </div>
               <button :disabled="bank.busy" @click="bank.loadSessions">刷新</button>
             </div>
+            <p v-if="bank.sessionHidden" class="qb-hidden-note">
+              另有 {{ bank.sessionHidden }} 个更早分段仅保留在题库文件夹中；不会自动导出、整理或删除。
+            </p>
             <div v-if="bank.sessions.length" class="qb-session-list">
               <div v-for="session in bank.sessions" :key="session.id" class="qb-session-row">
-                <div class="qb-session" :class="{ active: session.id === bank.status.session?.id }">
+                <button
+                  type="button"
+                  class="qb-session"
+                  :class="{ active: session.id === bank.status.session?.id, selected: session.id === bank.selectedSessionId }"
+                  :aria-pressed="session.id === bank.selectedSessionId"
+                  @click="browseSession(session.id)"
+                >
                   <span>
-                    <strong>{{ session.company || session.type || '笔试题库' }}</strong>
+                    <strong>{{ sessionTitle(session) }}</strong>
                     <small>{{ formatTime(session.startedAt) }}</small>
                   </span>
-                  <span class="qb-session-meta">{{ session.count || 0 }} 次提交 · {{ stateName(session.state) }}</span>
+                  <span class="qb-session-meta">
+                    <em v-if="session.id === bank.status.session?.id">后台当前段</em>
+                    <em v-if="session.id === bank.selectedSessionId && bank.detailLoading">正在读取</em>
+                    <em v-else-if="session.id === bank.sessionDetail?.id">正在浏览</em>
+                    <em v-else-if="session.id === bank.selectedSessionId && bank.detailError">读取失败</em>
+                    {{ session.count || 0 }} 次提交 · {{ stateName(session.state) }}
+                  </span>
+                </button>
+                <div class="qb-session-actions">
+                  <button
+                    v-if="['ended', 'exported', 'paused'].includes(session.state)"
+                    class="qb-history-continue"
+                    :disabled="bank.busy || Boolean(bank.continueSessionWorking)"
+                    :aria-label="`继续 ${sessionTitle(session)}`"
+                    @click.stop="bank.continueSession(session.id)"
+                  >{{ bank.continueSessionWorking === session.id ? '切换中…' : '继续此分段' }}</button>
+                  <button
+                    v-if="Number(session.count || 0) > 0 && ['ended', 'exported'].includes(session.state)"
+                    class="qb-history-export"
+                    :disabled="bank.busy || Boolean(bank.continueSessionWorking)"
+                    :aria-label="`重新导出 ${sessionTitle(session)}`"
+                    @click.stop="bank.exportSession(session.id)"
+                  >重新导出…</button>
                 </div>
-                <button
-                  v-if="['ended', 'exported'].includes(session.state)"
-                  class="qb-history-export"
-                  :disabled="bank.busy"
-                  :aria-label="`重新导出 ${session.company || session.type || '笔试题库'}`"
-                  @click="bank.exportSession(session.id)"
-                >重新导出…</button>
               </div>
             </div>
             <p v-else class="qb-empty">暂无历史分段。</p>
+          </section>
+
+          <section v-if="bank.selectedSessionId" ref="detailPanel" class="qb-section qb-detail" aria-labelledby="qb-detail-title" tabindex="-1">
+            <div class="qb-section-heading">
+              <div>
+                <h3 id="qb-detail-title">分段详情</h3>
+                <p class="qb-hint">只读归档视图，与左侧实时解题历史相互独立。</p>
+              </div>
+              <button type="button" @click="bank.clearSessionDetail">关闭详情</button>
+            </div>
+            <p v-if="bank.detailLoading" class="qb-empty" role="status">正在读取完整记录…</p>
+            <p v-else-if="bank.detailError" class="qb-error" role="alert">{{ bank.detailError }}</p>
+            <template v-else-if="bank.sessionDetail">
+              <div class="qb-detail-meta">
+                <strong>{{ sessionTitle(bank.sessionDetail) }}</strong>
+                <span>{{ stateName(bank.sessionDetail.state) }} · {{ bank.sessionDetail.count }} 次提交</span>
+                <span v-if="bank.sessionDetail.company">单位：{{ bank.sessionDetail.company }}</span>
+                <span v-if="bank.sessionDetail.issuer">出题方：{{ bank.sessionDetail.issuer }}</span>
+                <span v-if="bank.sessionDetail.type">题型：{{ bank.sessionDetail.type }}</span>
+                <span v-if="bank.sessionDetail.state === 'discarded'">已清空，仅保留本地历史；不可恢复、整理或导出。</span>
+              </div>
+              <p v-if="!bank.sessionDetail.records?.length" class="qb-empty qb-archive-empty">
+                该分段没有提交记录，因此没有可显示的题目或答案。分段文件仍保留在题库目录中。
+              </p>
+              <article v-for="(record, recordIndex) in bank.sessionDetail.records" :key="record.id" class="qb-record">
+                <header class="qb-record-header">
+                  <strong>提交 {{ recordIndex + 1 }}</strong>
+                  <span>{{ stateName(record.status) }} · {{ formatTime(record.createdAt) }}</span>
+                </header>
+                <p class="qb-record-context">模型：{{ record.model || '未知' }} · 场景：{{ record.scene || '未知' }}</p>
+                <div v-if="record.images?.length" class="qb-record-images">
+                  <div v-for="image in record.images" :key="image.index" class="qb-record-image">
+                    <img
+                      v-if="imageState(record.id, image.index).data"
+                      :src="imageState(record.id, image.index).data"
+                      :alt="`提交 ${recordIndex + 1} 截图 ${image.index + 1}`"
+                    />
+                    <button
+                      v-else
+                      type="button"
+                      :disabled="imageState(record.id, image.index).loading"
+                      @click="bank.loadRecordImage(record.id, image.index)"
+                    >{{ imageState(record.id, image.index).loading ? '读取中…' : `查看截图 ${image.index + 1}` }}</button>
+                    <small v-if="imageState(record.id, image.index).error">{{ imageState(record.id, image.index).error }}</small>
+                  </div>
+                </div>
+                <h4>完整原答案</h4>
+                <pre>{{ record.answer || '（无答案）' }}</pre>
+                <p v-if="record.organizeError" class="qb-inline-note">整理状态：{{ record.organizeError }}</p>
+                <div v-if="record.metadataSuggestion" class="qb-suggestion-inline">
+                  <strong>模型元数据建议（待核对）</strong>
+                  <span>单位：{{ record.metadataSuggestion.company || '未识别' }}</span>
+                  <span>出题方：{{ record.metadataSuggestion.issuer || '未识别' }}</span>
+                  <span>题型：{{ record.metadataSuggestion.type || '未识别' }}</span>
+                  <small>{{ record.metadataSuggestion.reviewNote }}</small>
+                </div>
+                <div v-if="record.questions?.length" class="qb-questions">
+                  <h4>已有整理结果（待核对）</h4>
+                  <section v-for="(question, questionIndex) in record.questions" :key="questionIndex" class="qb-question">
+                    <strong>{{ question.title }}</strong>
+                    <p>{{ question.stem }}</p>
+                    <p>分类：{{ question.category }} / {{ question.type }}</p>
+                    <p>参考答案：{{ question.referenceAnswer || '待核对' }}</p>
+                    <p v-if="question.knowledgePoints?.length">知识点：{{ question.knowledgePoints.join('、') }}</p>
+                    <p v-if="question.keyPoints?.length">解析要点：{{ question.keyPoints.join('；') }}</p>
+                    <small>{{ question.reviewNote }}</small>
+                  </section>
+                </div>
+              </article>
+            </template>
           </section>
         </div>
       </section>
@@ -117,6 +211,7 @@ import { useQuestionBankStore } from '../stores/questionbank'
 
 const bank = useQuestionBankStore()
 const panel = ref(null)
+const detailPanel = ref(null)
 const confirmDiscard = ref(false)
 
 const stateNames = {
@@ -137,6 +232,18 @@ const progressWidth = computed(() => {
   return total > 0 ? `${Math.min(100, Math.round((done / total) * 100))}%` : '0%'
 })
 const formatTime = (value) => value ? new Date(value).toLocaleString() : '时间未知'
+const sessionTitle = (session) => session?.name || [session?.company, session?.issuer, session?.type].filter(Boolean).join('_') || '笔试题库'
+const imageState = (recordId, index) => bank.imageCache[`${recordId}:${index}`] || { loading: false, data: '', error: '' }
+
+async function browseSession(id) {
+  const selection = bank.selectSession(id)
+  await nextTick()
+  if (bank.selectedSessionId === id) {
+    detailPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    detailPanel.value?.focus({ preventScroll: true })
+  }
+  return selection
+}
 
 async function discardCurrent() {
   const success = await bank.discardCurrent(true)
@@ -191,20 +298,45 @@ button.qb-danger-solid { background: var(--error-bg); border-color: var(--error-
 .qb-confirm-text { font-size: .78rem; color: var(--color-warning); }
 .qb-history { border-bottom: 0; }
 .qb-session-list { display: flex; flex-direction: column; gap: .5rem; margin-top: .75rem; }
-.qb-session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; }
-.qb-session { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .55rem .8rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-card); }
-.qb-history-export { white-space: nowrap; }
+.qb-session-row { display: grid; grid-template-columns: minmax(0, 1fr) 7.5rem; align-items: stretch; gap: .5rem; }
+.qb-session-actions { min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: .4rem; }
+.qb-session-actions button { width: 100%; }
+.qb-session { min-width: 0; display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: .35rem; padding: .55rem .8rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-card); }
+.qb-history-export, .qb-history-continue { white-space: nowrap; }
+.qb-history-continue { color: white; background: var(--accent); border-color: var(--accent); }
 .qb-session.active { border-color: var(--accent); background: var(--accent-muted); }
-.qb-session > span:first-child { min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+.qb-session > span:first-child { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
 .qb-session strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qb-session small, .qb-session-meta { color: var(--text-muted); font-size: .72rem; }
-.qb-session-meta { flex-shrink: 0; }
+.qb-session-meta { max-width: 100%; align-self: flex-start; overflow-wrap: anywhere; }
 .qb-empty { padding: 1rem; text-align: center; color: var(--text-muted); font-size: .8rem; }
+.qb-hidden-note { padding: .6rem .7rem; border-radius: var(--radius-md); background: var(--warning-bg); color: var(--color-warning); font-size: .75rem; }
+.qb-session { width: 100%; text-align: left; }
+.qb-session.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-muted); }
+.qb-session-meta em { display: inline-block; margin-right: .3rem; padding: .08rem .3rem; border-radius: var(--radius-full); background: var(--accent-muted); color: var(--accent); font-style: normal; }
+.qb-detail { border-top: 1px solid var(--border-default); scroll-margin-top: 1rem; outline: none; }
+.qb-archive-empty { margin-top: .75rem; border: 1px dashed var(--border-default); border-radius: var(--radius-md); }
+.qb-detail-meta { display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin-top: .75rem; padding: .75rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-card); font-size: .76rem; }
+.qb-detail-meta strong { width: 100%; font-size: .9rem; }
+.qb-record { margin-top: .75rem; padding: .8rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-card); }
+.qb-record-header { padding: 0 0 .55rem; border: 0; border-bottom: 1px solid var(--border-subtle); font-size: .77rem; }
+.qb-record-header span, .qb-record-context { color: var(--text-muted); font-size: .72rem; }
+.qb-record h4 { margin: .8rem 0 .4rem; font-size: .78rem; }
+.qb-record pre { max-width: 100%; max-height: 22rem; margin: 0; padding: .7rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: var(--radius-sm); background: var(--surface-input); color: var(--text-primary); font: .75rem/1.6 ui-monospace, monospace; }
+.qb-record-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .55rem; margin-top: .7rem; }
+.qb-record-image { display: flex; flex-direction: column; gap: .3rem; align-items: flex-start; }
+.qb-record-image img { width: 100%; max-height: 260px; object-fit: contain; border-radius: var(--radius-sm); background: var(--surface-input); }
+.qb-record-image small { color: var(--color-error); overflow-wrap: anywhere; }
+.qb-inline-note, .qb-suggestion-inline { margin-top: .65rem; padding: .55rem; border-radius: var(--radius-sm); background: var(--warning-bg); color: var(--color-warning); font-size: .72rem; }
+.qb-suggestion-inline { display: flex; flex-wrap: wrap; gap: .25rem .7rem; }
+.qb-suggestion-inline strong, .qb-suggestion-inline small { width: 100%; }
+.qb-question { margin-top: .5rem; padding: .6rem; border-left: 3px solid var(--accent); background: var(--surface-input); font-size: .74rem; }
+.qb-question p { margin: .3rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qb-question small { color: var(--text-muted); }
 @media (max-width: 560px) {
-  .qb-section-heading, .qb-session, .qb-inline-error { align-items: stretch; flex-direction: column; }
+  .qb-section-heading, .qb-inline-error { align-items: stretch; flex-direction: column; }
   .qb-session-row { grid-template-columns: 1fr; }
-  .qb-history-export { justify-self: start; }
+  .qb-session-actions { width: 100%; }
   .qb-state { align-self: flex-start; }
-  .qb-session-meta { align-self: flex-start; }
 }
 </style>

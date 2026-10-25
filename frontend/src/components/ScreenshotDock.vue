@@ -57,6 +57,10 @@ on('start-solving', () => {
   screenshots.value = []
 })
 
+on('desktop-solve-event', event => {
+  if (event?.event === 'request-start') screenshots.value = []
+})
+
 defineExpose({ screenshots })
 </script>
 

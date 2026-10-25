@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"Q-Solver/pkg/config"
 	"Q-Solver/pkg/mobile"
 	"Q-Solver/pkg/shortcut"
 )
@@ -145,8 +146,11 @@ func TestGetMobileOutputInfoUnavailable(t *testing.T) {
 // mobileServer 为具体类型 *mobile.Server、无 mock 接口，因此沿用 phase4_test 的既有做法：
 // 启动真实 Server（默认端口），断言 DefaultPort。若端口 38511 冲突则自动 skip。
 func TestGetMobileOutputInfoAvailable(t *testing.T) {
-	bridge := mobile.NewBridge()
-	srv, err := mobile.NewServer(bridge)
+	bridge, err := mobile.NewBridge(0)
+	if err != nil {
+		t.Fatal("创建 mobile bridge 失败")
+	}
+	srv, err := mobile.NewServer(bridge, appTestMobileToken)
 	if err != nil {
 		t.Fatalf("创建 mobile server 失败: %v", err)
 	}
@@ -155,7 +159,19 @@ func TestGetMobileOutputInfoAvailable(t *testing.T) {
 	}
 	t.Cleanup(func() { srv.Stop() })
 
-	a := &App{mobileBridge: bridge, mobileServer: srv}
+	manager := &fakeMobileStateManager{state: config.MobileRuntimeState{
+		StableLink: true,
+		Token:      appTestMobileToken,
+		Generation: 1,
+	}}
+	a := &App{
+		mobileBridge:       bridge,
+		mobileServer:       srv,
+		mobileStateManager: manager,
+		mobileRuntimeState: manager.state,
+		mobileStateReady:   true,
+		mobileStatus:       mobileStatusReady,
+	}
 
 	got := a.GetMobileOutputInfo()
 	if !got.Available {
@@ -184,7 +200,12 @@ func TestRetryMobileOutputAfterPortBecomesAvailable(t *testing.T) {
 		t.Skipf("无法占用默认端口以建立测试前提: %v", err)
 	}
 
-	a := &App{}
+	manager := &fakeMobileStateManager{state: config.MobileRuntimeState{
+		StableLink: true,
+		Token:      appTestMobileToken,
+		Generation: 1,
+	}}
+	a := &App{mobileStateManager: manager}
 	a.setupMobile()
 	info := a.GetMobileOutputInfo()
 	if info.Available || info.Status != mobileStatusPortUnavailable || !info.Retryable {
@@ -217,5 +238,20 @@ func TestRetryMobileOutputDoesNotHideCurrentWindow(t *testing.T) {
 	_, hides := controller.calls()
 	if hides != 0 {
 		t.Fatalf("重试 Mobile 服务不得触发桌面隐藏，实际 Hide %d 次", hides)
+	}
+}
+
+func TestMobileHintsIncludeActualClearAndNextBindings(t *testing.T) {
+	bindings := map[string]shortcut.KeyBinding{
+		"clear_mobile_display": {KeyName: "Ctrl+Alt+C"},
+		"start_next_exam":      {KeyName: "Ctrl+Alt+N"},
+	}
+	hints := mobileShortcutHints(bindings)
+	if len(hints) != 2 || hints[0].KeyName != "Ctrl+Alt+C" || hints[1].KeyName != "Ctrl+Alt+N" {
+		t.Fatalf("missing actual bindings: %+v", hints)
+	}
+	bindings["start_next_exam"] = shortcut.KeyBinding{}
+	if len(mobileShortcutHints(bindings)) != 1 {
+		t.Fatal("empty shortcut shown")
 	}
 }

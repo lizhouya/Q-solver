@@ -52,3 +52,51 @@ func TestShortcutsJSONRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip 后 toggle_window 绑定不一致：%+v", kb)
 	}
 }
+
+func TestDefaultClearMobileDisplayShortcut(t *testing.T) {
+	cfg := NewDefaultConfig()
+	kb, ok := cfg.Shortcuts["clear_mobile_display"]
+	if runtime.GOOS == "darwin" {
+		if ok {
+			t.Fatal("macOS 默认快捷键不得包含 clear_mobile_display")
+		}
+		return
+	}
+	if runtime.GOOS != "windows" {
+		t.Skipf("未覆盖平台 %s", runtime.GOOS)
+	}
+	if !ok || kb.ComboID != "67+160" || kb.KeyName != "Shift+C" {
+		t.Fatalf("Windows 清屏默认快捷键应为 Shift+C(67+160)，实际 %+v", kb)
+	}
+}
+
+func TestDefaultStartNextExamShortcut(t *testing.T) {
+	windowsShortcuts := getDefaultShortcutsForOS("windows")
+	kb, ok := windowsShortcuts["start_next_exam"]
+	if !ok || kb.ComboID != "78+160+162" || kb.KeyName != "Ctrl+Shift+N" {
+		t.Fatalf("Windows 开始下一套默认快捷键应为 Ctrl+Shift+N(78+160+162)，实际 %+v", kb)
+	}
+
+	if _, ok := getDefaultShortcutsForOS("darwin")["start_next_exam"]; ok {
+		t.Fatal("macOS 默认快捷键不得包含 start_next_exam")
+	}
+}
+
+func TestDefaultWindowsShortcutComboIDsAreUnique(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skipf("Windows-only test on %s", runtime.GOOS)
+	}
+	seen := make(map[string]string)
+	for action, binding := range NewDefaultConfig().Shortcuts {
+		if binding.ComboID == "" {
+			continue
+		}
+		if other, exists := seen[binding.ComboID]; exists {
+			t.Fatalf("默认快捷键冲突：%s 与 %s 共用 %s", other, action, binding.ComboID)
+		}
+		seen[binding.ComboID] = action
+	}
+	if owner := seen["78+160+162"]; owner != "start_next_exam" {
+		t.Fatalf("Ctrl+Shift+N 默认组合应唯一归 start_next_exam，实际归属 %q", owner)
+	}
+}

@@ -18,12 +18,24 @@ export function CheckScreenCapturePermission() {
   return window['go']['app']['App']['CheckScreenCapturePermission']();
 }
 
+export function ClearMobileDisplay(arg1) {
+  return window['go']['app']['App']['ClearMobileDisplay'](arg1);
+}
+
 export function ClearResume() {
   return window['go']['app']['App']['ClearResume']();
 }
 
 export function ClearScreenshots() {
   return window['go']['app']['App']['ClearScreenshots']();
+}
+
+export function ConfirmSolveWithoutResume() {
+  return window['go']['app']['App']['ConfirmSolveWithoutResume']();
+}
+
+export function ContinueQuestionBankSession(arg1) {
+  return window['go']['app']['App']['ContinueQuestionBankSession'](arg1);
 }
 
 export function CopyCode() {
@@ -82,6 +94,14 @@ export function GetQuestionBankPreferences() {
   return window['go']['app']['App']['GetQuestionBankPreferences']();
 }
 
+export function GetQuestionBankRecordImage(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetQuestionBankRecordImage'](arg1, arg2, arg3);
+}
+
+export function GetQuestionBankSessionDetail(arg1) {
+  return window['go']['app']['App']['GetQuestionBankSessionDetail'](arg1);
+}
+
 export function GetQuestionBankStatus() {
   return window['go']['app']['App']['GetQuestionBankStatus']();
 }
@@ -110,6 +130,10 @@ export function ListQuestionBankSessions() {
   return window['go']['app']['App']['ListQuestionBankSessions']();
 }
 
+export function ListRecentQuestionBankSessions() {
+  return window['go']['app']['App']['ListRecentQuestionBankSessions']();
+}
+
 export function MoveWindow(arg1, arg2) {
   return window['go']['app']['App']['MoveWindow'](arg1, arg2);
 }
@@ -134,6 +158,10 @@ export function ParseResume() {
   return window['go']['app']['App']['ParseResume']();
 }
 
+export function PrepareQuestionBankSegment(arg1) {
+  return window['go']['app']['App']['PrepareQuestionBankSegment'](arg1);
+}
+
 export function RemoveFocus() {
   return window['go']['app']['App']['RemoveFocus']();
 }
@@ -152,6 +180,10 @@ export function RequestMicrophoneAccess() {
 
 export function RequestScreenCapturePermission() {
   return window['go']['app']['App']['RequestScreenCapturePermission']();
+}
+
+export function ResetMobileOutputLink(arg1) {
+  return window['go']['app']['App']['ResetMobileOutputLink'](arg1);
 }
 
 export function RestoreFocus() {
@@ -190,6 +222,10 @@ export function SelectResume() {
   return window['go']['app']['App']['SelectResume']();
 }
 
+export function SetMobileStableLink(arg1, arg2) {
+  return window['go']['app']['App']['SetMobileStableLink'](arg1, arg2);
+}
+
 export function SetWindowAlwaysOnTop(arg1) {
   return window['go']['app']['App']['SetWindowAlwaysOnTop'](arg1);
 }
@@ -204,6 +240,10 @@ export function ShowWindow() {
 
 export function SplitQuestionBankSegment() {
   return window['go']['app']['App']['SplitQuestionBankSegment']();
+}
+
+export function StartNextExam(arg1) {
+  return window['go']['app']['App']['StartNextExam'](arg1);
 }
 
 export function StartQuestionBankSession(arg1, arg2) {

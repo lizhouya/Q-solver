@@ -111,13 +111,14 @@ Its core strengths are:
 
 Question-bank records are independent of frontend history, `KeepContext`, and desktop/mobile output routing. Normal solving does not require manually starting a session:
 
-1. In **Settings → Question Bank**, choose a default archive directory **outside the Git repository**. Settings only retain the default directory and default model-organization toggle; organization, type, and question-bank name are per-export fields.
+1. In **Settings → Question Bank**, choose a default archive directory **outside the Git repository**. Settings only retain the default directory and default model-organization toggle; organization, issuer, type, and question-bank name are per-export fields.
 2. The first solve lazily creates the current segment. Later solves append to it. The top-bar label “N submissions in this segment” counts solve submissions, not extracted questions; one submission may contain multiple questions.
-3. Clicking **Export question bank** beside an answer first opens a confirmation dialog. For that export you can edit the organization, question type, name, temporary destination, and model-organization choice. Opening or canceling the dialog does not seal the segment, upload content, or call the model.
-4. The suggested name uses `organization_type`. Without an organization it uses a stable number such as `笔试_20261020_01_综合笔试`. Once you edit the name manually, later organization/type changes do not overwrite it.
-5. With model organization off, export is local-only and creates `原始记录.md` plus `assets/`. With it on, content is sent only after confirmation; screenshots and original answers are processed record by record to extract stems, broad categories, specific types, reference answers, knowledge points, and solution notes. This may cost extra API calls, but never sends the resume, full configuration, chat history, or solving persona, and never overwrites the original answer.
-6. **End segment** only seals the current segment; the next solve creates a new one automatically. A successful export also seals it. **Clear segment** is a soft clear: source files remain on disk, but the segment is excluded from export.
-7. **Re-export…** in the Question Bank panel opens the same dialog for a historical segment without switching the writable segment. Repeated exports use suffixes such as `_02` and `_03` and never overwrite prior versions.
+3. Clicking **Export question bank** beside an answer first opens a confirmation dialog. For that export you can edit the recruiting organization, issuer or assessment provider, question type, name, temporary destination, and model-organization choice. Opening or canceling the dialog does not seal the segment, upload content, or call the model.
+4. The suggested name uses `organization_issuer_type`, omitting empty or duplicate parts. If both organization and issuer are unknown, it uses a stable number such as `笔试_20261020_01_综合笔试`. A manually edited name remains protected until **Restore automatic naming** is selected.
+5. With model organization off, export is local-only and creates `原始记录.md` plus `assets/`. With it on, **Organize and generate suggestions** processes only records that still lack structured questions and returns both question data and metadata candidates. Every candidate is explicitly pending human review and never becomes authoritative automatically. After review, **Confirm name and export** performs a local-only final export without another model call. The flow never sends the resume, full configuration, chat history, or solving persona, and never overwrites the original answer.
+6. **End segment** only seals the current segment; the next solve creates a new one automatically. A successful export also seals it. **Clear segment** is a soft clear: the live desktop answer history returns to a clean waiting state, while source records, screenshots, prior exports, and model context remain intact. The cleared segment cannot be organized or exported again.
+7. The Question Bank panel shows at most the latest 20 segments. Clicking a row still opens an independent read-only view. For an `ended`, `exported`, or `paused` segment, **Continue this segment** performs a real switch of the writable current segment and restores all submissions, one to three screenshots per submission, and full answers in the main screenshot-solving view. The prior active segment is safely paused and can be resumed later; `discarded` segments remain permanently read-only. Segment 21 and older stay on disk but are hidden and never trigger automatic organization, export, or deletion. Continuing an exported segment preserves every old export; another export uses `_02`, `_03`, and later suffixes.
+8. After finishing one exam set, click **Start next exam** in the answer action bar or press `Ctrl + Shift + N`. After confirmation, the app safely seals the current segment and clears pending screenshots, desktop history, and retained model conversation. Durable source records, archived screenshots, previous exports, and the current Mobile display remain intact. The action is rejected while solving, archiving, organizing, exporting, or saving is still active; the next segment is created lazily by the next real solve.
 
 Recommended layout; see [Change 011](_dev/changes/011-job-workspace-layout/06-notes.md) for migration details:
 
@@ -143,7 +144,10 @@ Recommended layout; see [Change 011](_dev/changes/011-job-workspace-layout/06-no
 - A submission may contain multiple questions. Source records preserve submission order; each organized question links back to its source submission. Failed, canceled, interrupted, or missing answers are labeled explicitly.
 - The organized paper contains no images and is arranged as questions followed by reference answers and explanations. Screenshots remain only in `原始记录.md` and `assets/`. Extracted content requires human review and is not an official answer key.
 - If model organization fails or is canceled, the original draft and any successfully organized records are still exported; unstructured submissions are listed in the paper.
-- The latest active segment is recovered after restart. Legacy `会话记录` directories and v1 manifests remain readable but are not moved, deleted, or overwritten automatically.
+- On restart, the current `active` or `paused` segment and any recoverable model context are restored. New Change 018 records persist only up to ten non-system Session/Record references; API keys, full configuration, prompts, resume content, and thinking are never stored there. The next request always uses the current model, scene, prompt, and resume configuration. Legacy data can only be reconstructed from its own completed records and is labeled as context reconstructed from question-bank records that may differ from the original context.
+- Continuation is rejected while a solve goroutine is still running, screenshots are waiting to be sent, data is unsaved, or organization/export is active. A conversation epoch rejects late desktop events from the old segment; the Mobile clear-display epoch remains independent.
+- After a write failure, restore directory access and use **Retry save** instead of exiting. The final answer and conversation snapshot retry atomically, and successful recovery synchronizes the model context. A forced process termination can still lose unsaved data.
+- Legacy `会话记录` directories and v1 manifests remain readable but are not moved, deleted, or overwritten automatically.
 - Exported files are local plaintext and may contain private screenshots. Relevant screenshots and answers are sent to the configured provider only after model organization is enabled and the export dialog is submitted.
 - Question-bank preferences live in a separate user-level `Q-Solver/questionbank-settings.json` and cover defaults plus migration compatibility, not credentials or per-export metadata.
 
@@ -222,18 +226,39 @@ Default shortcuts:
 | Click-through | `F10` | `Cmd + 3` |
 | Move window slightly | `Alt + Arrow Keys` | `Cmd + Option + Arrow Keys` |
 | Scroll content | `Alt + PgUp / PgDn` | `Cmd + Option + Shift + Arrow Keys` |
+| Clear mobile display | `Shift + C` | — |
+| Start next exam | `Ctrl + Shift + N` | — |
 
 > macOS currently uses fixed shortcuts. Windows supports recording and adjusting shortcuts in settings.
 > The mobile view shows the shortcuts that are actually configured. **Scroll content** follows the saved `desktop`, `mobile`, or `dual` output route and safely falls back to the desktop when the mobile service is unavailable.
+> **Clear mobile display** is Windows-only and defaults specifically to left `Shift + C`; it can be re-recorded under **Settings → General**. The shortcut only opens the confirmation dialog, and the global hook consumes the matching key combination. During upgrade, if a legacy action such as Hide Window still owns that default combination, the legacy action is unbound and the combination is migrated to Clear Mobile Display so `Shift+C` cannot hide the main window.
+> **Start next exam** also has a Windows-only default and can be re-recorded under **Settings → General**. It shares the same confirmation flow as the main-view button, never deletes durable question-bank data, and does not clear Mobile output. An existing user action that owns the default combination is never displaced during upgrade.
 
 ### Mobile connection and scrolling
 
 - Open **Settings → Output** to view the phone connection entry. The page refreshes service status whenever Settings opens or the Output tab is selected. Read failures, not-started service, unavailable port, and ready service are reported separately, and retryable failures can be recovered in place.
+- Stable links are enabled by default. The link changes once on the first upgrade to this feature; after that, a full restart reuses it while the app configuration directory, LAN IP, and port remain unchanged. The Token and port format are stable, not the network address, so DHCP, VPN, or network changes may still change the full URL.
+- **Retry service** only restores listening; it does not rotate the link or clear the display. **Reset sync link** immediately revokes the old link and active SSE connections and starts the new link from a blank state. **Clear mobile display** clears answers, analysis, errors, and in-page history without changing the link.
+- Clear and Reset do not delete desktop answers, question-bank records, historical segments, screenshots, exports, normal settings, or model context, and they do not cancel an in-flight solve. Late Mobile output from a pre-clear task is rejected by the display boundary, while new tasks continue normally.
+- The mobile page uses an HTTP Token link. Anyone who can reach the address and has the complete link may view synchronized content. Copies, screenshots, and offline saves cannot be remotely revoked.
+- A successful Clear message means the server state was committed and broadcast. SSE has no client acknowledgement, so it does not prove that every device has visibly rendered the blank state.
 - Selecting an output-mode card is only a draft until you click **Save**. The page also shows the currently active mode so an unsaved `mobile` selection cannot be mistaken for an active route.
 - The up/down arrows in the top bar scroll answer content. You can click them, use the saved global shortcuts, or place the pointer over the two-arrow control group and use the mouse wheel. Wheel handling does not take over Settings, the normal answer-reading area, or other system areas.
 - While the phone is showing a historical answer, desktop scroll commands only move the current phone page; they do not switch the selection back to the latest answer. Reconnecting also does not replay an old scroll command.
 
 ---
+
+## 仅复制可填写答案与题号规则
+
+- 需要核对题目对应关系时使用“复制题号＋答案”，例如 `16. C`、`20. AB`；使用汇总中的实际题号，不重新编号。桌面和同步端均支持，原有纯答案复制及桌面全文复制保留。
+
+- 每轮解题（包含 1～3 张截图）要求在全文末尾输出“最终答案汇总”，单题也适用。桌面保留“复制全文”，新增“复制答案”；同步端参考答案卡也提供“复制答案”。
+- “复制答案”只取本轮汇总中的可填写值：单选如 `B`、多选如 `AC`；多空题以 `；` 分隔在一行；多题按显示顺序逐行复制，不带题号、题干、解析或“答案：”前缀。
+- 含“待核对”、重复题号、缺失或格式不合规时，复制答案不可用，不会改成复制全文。旧记录只有符合固定三列表格时才可临时恢复复制，原文件不变。
+- 同一题库分段保存题号参考；关闭“保持上下文”、重启或真正续接后仍可使用。该参考只含受限题号，不含旧答案或历史聊天；截图的显式题号/章节号优先，不能确定时标“待核对”。它是辅助提示，不是 OCR 正确性保证。
+- “开始下一套”后，新分段不继承上一套题号。完整原答案、截图与旧导出继续保留，不为提取答案增加第二次模型请求。
+- 同步端“答题端快捷键”显示已保存的实际绑定，包含清空同步端、开始下一套；未绑定动作不显示。按键在答题电脑使用，不是在浏览器执行。
+- 浏览旧轮时复制的是所选轮。浏览器权限或 HTTP 环境不允许复制且兼容路径失败时，会提示失败，请手动选择文本；不显示虚假的成功提示。
 
 ## Tech Stack
 

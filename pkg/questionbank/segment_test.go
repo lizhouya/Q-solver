@@ -104,6 +104,13 @@ func TestExportUsesArchiveDirectoryDirectlyAndSequentialSuffix(t *testing.T) {
 	if filepath.Base(second.Directory) != base+"_02" {
 		t.Fatalf("冲突后缀错误: first=%s second=%s", base, filepath.Base(second.Directory))
 	}
+	persisted, err := s.SnapshotByID(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.Exports) != 2 || persisted.Exports[0].Directory != first.Directory || persisted.Exports[1].Directory != second.Directory {
+		t.Fatalf("多版本导出历史未保留: %+v", persisted.Exports)
+	}
 }
 
 func TestExportDefaultsToQuestionBankNameAndGroupsCategoryThenType(t *testing.T) {
@@ -457,5 +464,30 @@ func TestRawAnswerMarkdownUsesAdaptiveFence(t *testing.T) {
 	}
 	if !strings.Contains(got, answer) {
 		t.Fatal("安全展示改变了原答案内容")
+	}
+}
+
+func TestExportMarkdownIncludesIssuerMetadata(t *testing.T) {
+	s := automaticBank(t)
+	add(t, s, Completed)
+	id, err := s.SealCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.UpdateSessionMetadata(id, "单位_出题方_逻辑", "单位", "出题方", "逻辑", true); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.ExportSession(id, ExportOptions{Name: "单位_出题方_逻辑", Company: "单位", Issuer: "出题方", Type: "逻辑"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{result.RawMarkdown, result.Markdown} {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !strings.Contains(string(data), "- 出题方：出题方") {
+			t.Fatalf("导出文件缺少出题方元信息: %s", path)
+		}
 	}
 }

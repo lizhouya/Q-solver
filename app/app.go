@@ -5,6 +5,7 @@ import (
 	"Q-Solver/pkg/llm"
 	"Q-Solver/pkg/logger"
 	"Q-Solver/pkg/mobile"
+	"Q-Solver/pkg/questionbank"
 	"Q-Solver/pkg/resume"
 	"Q-Solver/pkg/screen"
 	"Q-Solver/pkg/shortcut"
@@ -34,10 +35,20 @@ type App struct {
 	screenService   *screen.Service
 	solver          *solution.Solver
 
-	// Mobile Output（001/012 变更）：事件镜像 + 可重试的局域网 SSE 服务。
+	conversationMu    sync.Mutex
+	conversationEpoch uint64
+	conversationRefs  []questionbank.ConversationTurnRef
+	screenshotBuffer  []string
+
+	// Mobile Output：专用状态、显示边界与可重试的 SSE 服务。
+	mobileOpMu             sync.Mutex
 	mobileMu               sync.RWMutex
 	mobileBridge           *mobile.Bridge
 	mobileServer           *mobile.Server
+	mobileStateManager     mobileStateManager
+	mobileRuntimeState     config.MobileRuntimeState
+	mobileStateReady       bool
+	mobileClosing          bool
 	mobileStatus           string
 	mobileConfigSubscribed bool
 
@@ -55,11 +66,12 @@ func NewApp() *App {
 	configManager := config.NewConfigManager()
 
 	app := &App{
-		configManager: configManager,
-		questionBank:  &questionBankService{},
-		stateManager:  state.NewStateManager(),
-		taskManager:   task.NewTaskCoordinator(),
-		screenService: screen.NewService(),
+		configManager:      configManager,
+		questionBank:       &questionBankService{},
+		stateManager:       state.NewStateManager(),
+		taskManager:        task.NewTaskCoordinator(),
+		screenService:      screen.NewService(),
+		mobileStateManager: config.NewMobileStateManager(),
 	}
 
 	// Window Visibility（003 Phase 1）：复用 state manager 的 HWND，不重复创建句柄
@@ -97,6 +109,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	a.llmService = llm.NewService(a.configManager.Get(), a.configManager)
 	a.solver = solution.NewSolver(a.llmService.GetProvider())
+	a.restoreCurrentQuestionBankConversation()
 	a.resumeService = resume.NewService(a.configManager.Get(), a.configManager)
 
 	a.shortcutService = shortcut.NewService(a, a.configManager.Get().Shortcuts, func(callback func(map[string]shortcut.KeyBinding)) {
@@ -127,8 +140,24 @@ func (a *App) onConfigChanged(newConfig config.Config, oldConfig config.Config) 
 		a.solver.SetProvider(a.llmService.GetProvider())
 	}
 
-	if !newConfig.KeepContext && a.solver != nil {
-		a.solver.ClearHistory()
+	if !newConfig.KeepContext && oldConfig.KeepContext {
+		a.conversationMu.Lock()
+		if a.solver != nil {
+			a.solver.ClearHistory()
+		}
+		a.conversationRefs = nil
+		a.conversationEpoch++
+		if b := a.questionBank; b != nil {
+			b.mu.Lock()
+			if b.store != nil {
+				if err := b.store.ClearCurrentConversation(); err != nil {
+					b.message = "模型上下文已清空，但题库快照未保存，请重试保存"
+				}
+			}
+			b.mu.Unlock()
+		}
+		a.conversationMu.Unlock()
+		a.notifyQuestionBank()
 	}
 
 	if bridge := a.mobileBridgeForUse(); bridge != nil {

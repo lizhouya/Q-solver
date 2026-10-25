@@ -1,8 +1,10 @@
 package mobile
 
 import (
+	"Q-Solver/pkg/answersummary"
 	"bufio"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,9 +19,21 @@ import (
 	"time"
 )
 
+const testToken = "0123456789abcdef0123456789abcdef"
+const rotatedTestToken = "fedcba9876543210fedcba9876543210"
+
+func newTestBridge(t *testing.T) *Bridge {
+	t.Helper()
+	bridge, err := NewBridge(0)
+	if err != nil {
+		t.Fatalf("创建 Bridge 失败: %v", err)
+	}
+	return bridge
+}
+
 // TestBridgeEventSequence 验证 Bridge 状态机：事件流 → 期望快照。
 func TestBridgeEventSequence(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	b.SetModel("gpt-4o")
 
 	// 1) 开始
@@ -79,8 +93,8 @@ func (w *subscriptionObserverWriter) Flush() {
 }
 
 func TestSSESubscribesBeforeInitialFlush(t *testing.T) {
-	b := NewBridge()
-	s, err := NewServer(b)
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +130,7 @@ func TestSSESubscribesBeforeInitialFlush(t *testing.T) {
 }
 
 func TestBridgeHintsAndOneShotControls(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	initialSeq := b.GetState().Seq
 	b.SetHints([]ShortcutHint{
 		{Label: "向上滚动", KeyName: "Alt+PgUp"},
@@ -174,7 +188,7 @@ func TestBridgeHintsAndOneShotControls(t *testing.T) {
 }
 
 func TestControlReplacesBacklogInsteadOfBeingDropped(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	sub, _ := b.Subscribe()
 	defer b.Unsubscribe(sub)
 	for i := 0; i < cap(sub); i++ {
@@ -197,7 +211,7 @@ func TestControlReplacesBacklogInsteadOfBeingDropped(t *testing.T) {
 }
 
 func TestBridgeRejectsUnlistedEvents(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	before := b.GetState()
 	b.Publish("toast", "不应发送到手机")
 	after := b.GetState()
@@ -236,13 +250,13 @@ func readSSEFrame(t *testing.T, reader *bufio.Reader) (string, Snapshot, string)
 }
 
 func TestSSEInitialSnapshotOnlySyncsControlSequence(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	b.SetHints([]ShortcutHint{{Label: "向下滚动", KeyName: "Alt+PgDn"}})
 	if !b.PublishControl("down") {
 		t.Fatal("测试前提：down 应发布成功")
 	}
 
-	s, err := NewServer(b)
+	s, err := NewServer(b, testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,8 +294,8 @@ func TestSSEInitialSnapshotOnlySyncsControlSequence(t *testing.T) {
 
 // TestSSEHandshakeAndPublish 端到端验证 SSE：token 校验 + 连接即快照 + 实时推送。
 func TestSSEHandshakeAndPublish(t *testing.T) {
-	b := NewBridge()
-	s, err := NewServer(b)
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +361,8 @@ func TestSSEHandshakeAndPublish(t *testing.T) {
 
 // TestUnauthorizedSSE 验证错误 token 返回 401。
 func TestUnauthorizedSSE(t *testing.T) {
-	b := NewBridge()
-	s, _ := NewServer(b)
+	b := newTestBridge(t)
+	s, _ := NewServer(b, testToken)
 	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
@@ -367,10 +381,10 @@ func TestUnauthorizedSSE(t *testing.T) {
 
 // TestIndexHTML 验证根路径返回 embed 手机页：
 //
-//	HTTP 200 + text/html + body 含固定文本，且不依赖 token（HTML 页面本身无鉴权，token 只保护 /sse）。
+//	HTTP 200 + text/html + body 含固定文本；首页与 SSE 都要求 token。
 func TestIndexHTML(t *testing.T) {
-	b := NewBridge()
-	s, _ := NewServer(b)
+	b := newTestBridge(t)
+	s, _ := NewServer(b, testToken)
 	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
@@ -402,21 +416,21 @@ func TestIndexHTML(t *testing.T) {
 		}
 	}
 
-	// 不带 token 也应返回首页（token 只保护 /sse）
+	// 不带 token 不得返回首页
 	resp2, err := http.Get("http://127.0.0.1:" + strconv.Itoa(s.port) + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("无 token 时应返回首页 200, 得到 %d", resp2.StatusCode)
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 token 时应返回首页 401, 得到 %d", resp2.StatusCode)
 	}
 }
 
 // TestHealth 健康端点。
 func TestHealth(t *testing.T) {
-	b := NewBridge()
-	s, _ := NewServer(b)
+	b := newTestBridge(t)
+	s, _ := NewServer(b, testToken)
 	s.port = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
@@ -436,7 +450,7 @@ func TestHealth(t *testing.T) {
 
 // 真实 Bridge 的业务帧必须逐帧增序；不能只用手造递增序号验证浏览器。
 func TestBusinessSnapshotSequenceAdvancesOnEveryEvent(t *testing.T) {
-	b := NewBridge()
+	b := newTestBridge(t)
 	sub, initial := b.Subscribe()
 	defer b.Unsubscribe(sub)
 	previous := initial.Seq
@@ -456,7 +470,7 @@ func TestBusinessSnapshotSequenceAdvancesOnEveryEvent(t *testing.T) {
 func TestTerminalSnapshotSurvivesFullQueue(t *testing.T) {
 	for _, terminal := range []string{"solution", "solution-error"} {
 		t.Run(terminal, func(t *testing.T) {
-			b := NewBridge()
+			b := newTestBridge(t)
 			sub, _ := b.Subscribe()
 			defer b.Unsubscribe(sub)
 			b.PublishControl("down")
@@ -489,8 +503,8 @@ func TestRealtimeSSEToDOMWithoutRefresh(t *testing.T) {
 	if err != nil {
 		t.Skip("Node is required for SSE-to-DOM integration")
 	}
-	b := NewBridge()
-	s, err := NewServer(b)
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
 	if err != nil {
 		t.Fatal("failed to create local test server")
 	}
@@ -537,4 +551,266 @@ func TestRealtimeSSEToDOMWithoutRefresh(t *testing.T) {
 		t.Fatalf("real SSE frames failed DOM regression: %s", output)
 	}
 	t.Log("Real Bridge → SSE → DOM: two answers updated without refresh")
+}
+
+func TestBridgeSessionAndInitialClearSequence(t *testing.T) {
+	first, err := NewBridge(41)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewBridge(41)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstState := first.GetState()
+	secondState := second.GetState()
+	if firstState.ClearSeq != 41 || first.CurrentClearSeq() != 41 {
+		t.Fatalf("初始 clearSeq 未生效: snapshot=%d current=%d", firstState.ClearSeq, first.CurrentClearSeq())
+	}
+	if len(firstState.SessionID) != 32 {
+		t.Fatalf("sessionId 应为 32 位十六进制，实际长度 %d", len(firstState.SessionID))
+	}
+	if _, err := hex.DecodeString(firstState.SessionID); err != nil {
+		t.Fatal("sessionId 不是合法十六进制")
+	}
+	if firstState.SessionID == secondState.SessionID {
+		t.Fatal("不同 Bridge 实例不应复用进程 sessionId")
+	}
+}
+
+func TestClearDisplayIsReliableBarrierAndRejectsOldEpoch(t *testing.T) {
+	b, err := NewBridge(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.SetModel("synthetic-model")
+	b.SetHints([]ShortcutHint{{Label: "向下滚动", KeyName: "Alt+PgDn"}})
+	if !b.PublishControl("down") {
+		t.Fatal("测试前提：控制帧发布失败")
+	}
+	b.Publish("solution-stream-start")
+	b.Publish("solution-stream-chunk", "旧答案")
+
+	sub, _ := b.Subscribe()
+	defer b.Unsubscribe(sub)
+	for len(sub) < cap(sub) {
+		b.Publish("solution-stream-chunk", "x")
+	}
+
+	oldEpoch := b.CurrentClearSeq()
+	b.ClearDisplay(oldEpoch + 1)
+	if len(sub) != 1 {
+		t.Fatalf("清屏必须排空积压并只留下屏障帧，队列长度 %d", len(sub))
+	}
+	barrier := <-sub
+	if barrier.ClearSeq != oldEpoch+1 || barrier.Status != StatusIdle {
+		t.Fatalf("清屏屏障错误: %+v", barrier)
+	}
+	if barrier.Payload.Answer != "" || barrier.Payload.Analysis != "" || barrier.Error != "" || barrier.Control != "" {
+		t.Fatalf("清屏后仍有旧显示内容: %+v", barrier)
+	}
+	if barrier.Payload.Model != "synthetic-model" || len(barrier.Hints) != 1 || barrier.ControlSeq != 1 {
+		t.Fatalf("清屏未保留 model/hints/controlSeq: %+v", barrier)
+	}
+
+	before := b.GetState()
+	if b.PublishIfCurrent(oldEpoch, "solution-error", "迟到错误") {
+		t.Fatal("旧 epoch 必须被原子拒绝")
+	}
+	if after := b.GetState(); after.Seq != before.Seq || after.Error != "" || len(sub) != 0 {
+		t.Fatalf("拒绝旧 epoch 后状态或队列发生变化: before=%+v after=%+v queue=%d", before, after, len(sub))
+	}
+	if !b.PublishIfCurrent(oldEpoch+1, "solution-stream-start") {
+		t.Fatal("当前 epoch 的业务事件应被接受")
+	}
+	if snap := <-sub; snap.ClearSeq != oldEpoch+1 || snap.Status != StatusWaiting {
+		t.Fatalf("当前 epoch 发布结果错误: %+v", snap)
+	}
+}
+
+func TestClearDisplayNeverMovesEpochBackwards(t *testing.T) {
+	b, err := NewBridge(9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ClearDisplay(8)
+	if got := b.CurrentClearSeq(); got != 9 {
+		t.Fatalf("clearSeq 不得倒退，实际 %d", got)
+	}
+}
+
+func TestBridgeCloseClosesSubscribersAndRejectsPublishing(t *testing.T) {
+	b := newTestBridge(t)
+	sub, _ := b.Subscribe()
+	b.Close()
+	if _, ok := <-sub; ok {
+		t.Fatal("Bridge.Close 后订阅 channel 应关闭")
+	}
+	if b.PublishIfCurrent(0, "solution-stream-start") {
+		t.Fatal("关闭后的 Bridge 不得接受业务发布")
+	}
+	if b.PublishControl("down") {
+		t.Fatal("关闭后的 Bridge 不得接受控制发布")
+	}
+	late, _ := b.Subscribe()
+	if _, ok := <-late; ok {
+		t.Fatal("关闭后新订阅应立即得到关闭的 channel")
+	}
+	b.Close()
+}
+
+func TestNewServerValidatesInitialToken(t *testing.T) {
+	b := newTestBridge(t)
+	for _, token := range []string{"", "short", strings.Repeat("g", 32), strings.Repeat("a", 31), strings.Repeat("a", 33)} {
+		if _, err := NewServer(b, token); err == nil {
+			t.Fatal("非法初始 token 应被拒绝")
+		} else if strings.Contains(err.Error(), token) && token != "" {
+			t.Fatal("校验错误不得回显 token")
+		}
+	}
+	if _, err := NewServer(nil, testToken); err == nil {
+		t.Fatal("nil Bridge 应被拒绝")
+	}
+	if _, err := NewServer(b, strings.ToUpper(testToken)); err != nil {
+		t.Fatal("合法的大写十六进制 token 应被接受")
+	}
+}
+
+func TestProtectedRoutesAndSecurityHeaders(t *testing.T) {
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := s.routes(http.NewServeMux())
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{path: "/", want: http.StatusUnauthorized},
+		{path: "/?token=wrong", want: http.StatusUnauthorized},
+		{path: "/?token=" + testToken, want: http.StatusOK},
+		{path: "/sse?token=wrong", want: http.StatusUnauthorized},
+		{path: "/health", want: http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Fatalf("路径 %s: 期望 %d，实际 %d", strings.Split(tc.path, "?")[0], tc.want, rec.Code)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("路径 %s 缺少 no-store: %q", strings.Split(tc.path, "?")[0], got)
+		}
+		if got := rec.Header().Get("Referrer-Policy"); got != "no-referrer" {
+			t.Fatalf("路径 %s 缺少 no-referrer: %q", strings.Split(tc.path, "?")[0], got)
+		}
+	}
+}
+
+func TestRotateTokenRevokesOldRequestsAndActiveSSE(t *testing.T) {
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(s.routes(http.NewServeMux()))
+	defer server.Close()
+
+	resp, err := server.Client().Get(server.URL + "/sse?token=" + testToken)
+	if err != nil {
+		t.Fatal("建立 SSE 失败")
+	}
+	reader := bufio.NewReader(resp.Body)
+	readSSEFrame(t, reader)
+
+	s.RotateToken(rotatedTestToken)
+	closed := make(chan error, 1)
+	go func() {
+		_, err := reader.ReadByte()
+		closed <- err
+	}()
+	select {
+	case err := <-closed:
+		if err == nil {
+			t.Fatal("Token 轮换后旧 SSE 仍返回数据")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Token 轮换未撤销旧 SSE lease")
+	}
+	_ = resp.Body.Close()
+
+	oldResp, err := server.Client().Get(server.URL + "/?token=" + testToken)
+	if err != nil {
+		t.Fatal("旧 token 请求失败")
+	}
+	defer oldResp.Body.Close()
+	if oldResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("旧 token 应失效，实际状态 %d", oldResp.StatusCode)
+	}
+	newResp, err := server.Client().Get(server.URL + "/?token=" + rotatedTestToken)
+	if err != nil {
+		t.Fatal("新 token 请求失败")
+	}
+	defer newResp.Body.Close()
+	if newResp.StatusCode != http.StatusOK {
+		t.Fatalf("新 token 应生效，实际状态 %d", newResp.StatusCode)
+	}
+}
+
+func TestStopCancelsSSEWithoutHoldingServerLock(t *testing.T) {
+	b := newTestBridge(t)
+	s, err := NewServer(b, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.port = 0
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(s.Port()) + "/sse?token=" + testToken)
+	if err != nil {
+		t.Fatal("建立 SSE 失败")
+	}
+	reader := bufio.NewReader(resp.Body)
+	readSSEFrame(t, reader)
+
+	done := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop 等待活动 SSE 时发生阻塞")
+	}
+	_ = resp.Body.Close()
+	if s.Started() {
+		t.Fatal("Stop 后 Server 仍标记为 started")
+	}
+}
+
+func TestStructuredSummarySnapshotIsolation(t *testing.T) {
+	b := newTestBridge(t)
+	items := []answersummary.Item{{Label: "1", Kind: answersummary.KindSingleChoice, Value: "B", Status: answersummary.StatusReady}}
+	b.Publish("solution", "full answer", answersummary.Result{Items: items, CopyText: "must-not-trust"})
+	items[0].Value = "C"
+	state := b.GetState()
+	if state.Payload.AnswerCopyText != "B" || state.Payload.AnswerItems[0].Value != "B" {
+		t.Fatalf("invalid copy snapshot: %+v", state.Payload)
+	}
+	state.Payload.AnswerItems[0].Value = "D"
+	if b.GetState().Payload.AnswerItems[0].Value != "B" {
+		t.Fatal("snapshot shares items")
+	}
+	for _, event := range []string{"solution-error", "solution-stream-start", "solution-stream-chunk", "solution"} {
+		b.Publish("solution", "answer", answersummary.Result{Items: items})
+		b.Publish(event, "legacy")
+		if b.GetState().Payload.AnswerCopyText != "" || len(b.GetState().Payload.AnswerItems) != 0 {
+			t.Fatalf("stale summary after %s", event)
+		}
+	}
 }

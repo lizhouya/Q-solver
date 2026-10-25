@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"Q-Solver/pkg/config"
 	"Q-Solver/pkg/mobile"
 	"Q-Solver/pkg/platform"
 	"Q-Solver/pkg/shortcut"
@@ -48,24 +49,27 @@ func (c *fakeHideController) calls() (int, int) {
 // fakeDelegate 是 shortcut.ServiceDelegate 的最小实现，满足 NewService 编译。
 type fakeDelegate struct{}
 
-func (f *fakeDelegate) TriggerSolve()           {}
-func (f *fakeDelegate) TriggerScreenshot()      {}
-func (f *fakeDelegate) TriggerSend()            {}
-func (f *fakeDelegate) TriggerDeleteScreenshot() {}
-func (f *fakeDelegate) ToggleVisibility()        {}
-func (f *fakeDelegate) ToggleClickThrough() (bool, error) { return false, nil }
-func (f *fakeDelegate) MoveWindow(int, int)      {}
-func (f *fakeDelegate) ScrollContent(string)     {}
+func (f *fakeDelegate) TriggerSolve()                        {}
+func (f *fakeDelegate) TriggerScreenshot()                   {}
+func (f *fakeDelegate) TriggerSend()                         {}
+func (f *fakeDelegate) TriggerDeleteScreenshot()             {}
+func (f *fakeDelegate) ToggleVisibility()                    {}
+func (f *fakeDelegate) ToggleClickThrough() (bool, error)    { return false, nil }
+func (f *fakeDelegate) MoveWindow(int, int)                  {}
+func (f *fakeDelegate) ScrollContent(string)                 {}
 func (f *fakeDelegate) ToggleWindowVisible() (string, error) { return "visible", nil }
-func (f *fakeDelegate) EmitEvent(string, ...interface{})      {}
+func (f *fakeDelegate) EmitEvent(string, ...interface{})     {}
 
 // startTestMobileServer 创建并启动测试用 Mobile Server（HTTP listener 绑定随机端口）。
 // 用于需要 mobileOutputEnabled() 返回 true 的测试。
 // 如果 port 38511 冲突，自动 skip 测试。
 func startTestMobileServer(t *testing.T) (*mobile.Bridge, *mobile.Server) {
 	t.Helper()
-	bridge := mobile.NewBridge()
-	srv, err := mobile.NewServer(bridge)
+	bridge, err := mobile.NewBridge(0)
+	if err != nil {
+		t.Skipf("创建 mobile bridge 失败: %v", err)
+	}
+	srv, err := mobile.NewServer(bridge, appTestMobileToken)
 	if err != nil {
 		t.Skipf("创建 mobile server 失败: %v", err)
 	}
@@ -98,8 +102,17 @@ func newPhase4AppWithMobile(t *testing.T, fc *fakeHideController) *App {
 	t.Helper()
 	bridge, srv := startTestMobileServer(t)
 	a := newPhase4App(fc)
+	manager := &fakeMobileStateManager{state: config.MobileRuntimeState{
+		StableLink: true,
+		Token:      appTestMobileToken,
+		Generation: 1,
+	}}
 	a.mobileBridge = bridge
 	a.mobileServer = srv
+	a.mobileStateManager = manager
+	a.mobileRuntimeState = manager.state
+	a.mobileStateReady = true
+	a.mobileStatus = mobileStatusReady
 	return a
 }
 

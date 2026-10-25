@@ -221,7 +221,7 @@ func TestOrganizePreservesOriginalAndRetriesFailedOnly(t *testing.T) {
 	if err := s.End(); err != nil {
 		t.Fatal(err)
 	}
-	p := &fakeProvider{body: `{"sourceRecordId":"` + id + `","questions":[{"title":"题目","stem":"题干","category":"职业能力","type":"逻辑","options":["A"],"knowledgePoints":["推理"],"keyPoints":["核对条件"],"imageIndexes":[1,2],"reviewNote":"待核对"}]}`}
+	p := &fakeProvider{body: `{"sourceRecordId":"` + id + `","metadataSuggestion":{"company":"示例单位","issuer":"测评机构","type":"逻辑判断","reviewNote":"截图可见，待核对"},"questions":[{"title":"题目","stem":"题干","category":"职业能力","type":"逻辑","options":["A"],"knowledgePoints":["推理"],"keyPoints":["核对条件"],"imageIndexes":[1,2],"reviewNote":"待核对"}]}`}
 	if err := s.Organize(context.Background(), p, "model", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +234,9 @@ func TestOrganizePreservesOriginalAndRetriesFailedOnly(t *testing.T) {
 	snap, _ := s.Snapshot()
 	if snap.Records[0].Answer != "原答案 **A**" || len(snap.Records[0].Questions) != 1 {
 		t.Fatal("original answer changed")
+	}
+	if suggestion := snap.Records[0].MetadataSuggestion; suggestion == nil || suggestion.Company != "示例单位" || suggestion.Issuer != "测评机构" || suggestion.Type != "逻辑判断" {
+		t.Fatalf("metadata suggestion was not persisted: %+v", suggestion)
 	}
 	data, _ := json.Marshal(p.messages)
 	for _, v := range []string{"CandidateProfile", "ScenePrompt", "apiKey", "resumeContent"} {

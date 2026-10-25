@@ -8,7 +8,7 @@ const { defineStore, createPinia, setActivePinia } = require('pinia')
 const source = fs.readFileSync(new URL('./src/stores/settings.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '').replace('export const useSettingsStore', 'const useSettingsStore')
 const fixture = { apiKey: 'fixture-only', baseURL: 'http://localhost/v1', model: 'fixture-model', theme: 'light', windowWidth: 900, interruptThinking: true }
-function setup(overrides = {}) {
+function setup(overrides = {}, platform = 'Win32') {
   setActivePinia(createPinia())
   const calls = []
   const ui = reactive({ availableModels: [], isLoadingModels: false, showSettings: false, showToast: () => {} })
@@ -23,7 +23,7 @@ function setup(overrides = {}) {
   const context = vm.createContext({
     defineStore, reactive, ref, computed, watch, api, useUIStore: () => ui, currentTheme,
     setTheme: (value) => { currentTheme.value = value },
-    navigator: { platform: 'Win32', userAgent: '' }, window: { addEventListener() {} },
+    navigator: { platform, userAgent: '' }, window: { addEventListener() {} },
     document: { documentElement: { style: { setProperty() {} }, getAttribute: () => 'light' } },
     getComputedStyle: () => ({ getPropertyValue: () => '' }), requestAnimationFrame: (fn) => fn(),
     console: { error() {} },
@@ -63,6 +63,9 @@ assert.equal(h.store.settings.baseURL, fixture.baseURL, 'testing must not change
 await h.store.saveSettings({ close: false })
 assert.equal(h.calls[2][1].windowWidth, 900, 'unexposed fields must survive save')
 assert.equal(h.calls[2][1].interruptThinking, true)
+for (const forbidden of ['token', 'url', 'generation', 'sessionId', 'clearSeq', 'stableLinkEnabled']) {
+  assert.equal(Object.hasOwn(h.calls[2][1], forbidden), false, `ordinary settings must not contain ${forbidden}`)
+}
 assert.equal(h.ui.showSettings, true)
 
 h = setup({ syncSettings: async () => 'synthetic save failure' })
@@ -84,7 +87,30 @@ await pending
 assert.equal(h.ui.availableModels.length, 0)
 assert.equal(h.store.tempSettings.model, fixture.model)
 
+// Windows-only 快捷键只出现在 Windows，空绑定必须明确显示为未绑定。
+h = setup()
+assert.ok(h.store.shortcutActions.some(item => item.action === 'clear_mobile_display' && item.default === 'Shift+C'))
+assert.ok(h.store.shortcutActions.some(item => item.action === 'start_next_exam' && item.label === '开始下一套' && item.default === 'Ctrl+Shift+N'))
+assert.equal(h.store.shortcutDisplayName({ action: 'clear_mobile_display', default: 'Shift+C' }), 'Shift+C')
+h.store.tempShortcuts.clear_mobile_display = { keyName: '', vkCode: '' }
+assert.equal(h.store.shortcutDisplayName({ action: 'clear_mobile_display', default: 'Shift+C' }), '未绑定（点击录制）')
+h.store.tempShortcuts.start_next_exam = { keyName: '', comboID: '' }
+assert.equal(h.store.shortcutDisplayName({ action: 'start_next_exam', default: 'Ctrl+Shift+N' }), '未绑定（点击录制）')
+
+h = setup({}, 'MacIntel')
+assert.equal(h.store.shortcutActions.some(item => item.action === 'clear_mobile_display'), false, 'macOS 不显示 Windows 清屏 action')
+assert.equal(h.store.shortcutActions.some(item => item.action === 'start_next_exam'), false, 'macOS 不显示 Windows 开始下一套 action')
+
+const app = fs.readFileSync(new URL('./src/App.vue', import.meta.url), 'utf8')
+assert.ok(app.includes("on('shortcut-saved'"), 'successful recording must leave frontend recording state')
+assert.ok(app.includes("on('shortcut-error'"), 'conflicting recording must restore the previous draft binding')
+assert.ok(app.includes("on('request-clear-mobile-display'"), 'clear shortcut must request the shared confirmation flow')
+assert.equal(app.includes('api.clearMobileDisplay(true)'), false, 'shortcut event must not bypass confirmation')
+
 const modal = fs.readFileSync(new URL('./src/components/SettingsModal.vue', import.meta.url), 'utf8')
+assert.ok(modal.includes('useMobileStore'), 'settings must use the shared Mobile store')
+assert.equal(modal.includes('const mobileInfo = reactive'), false, 'settings must not keep a second Mobile state')
+assert.ok(modal.includes("ui.showToast('复制失败，请手动复制已选中的连接地址', 'error')"), 'clipboard failure must be visible')
 const start = modal.indexOf('async function saveAllSettings()')
 const end = modal.indexOf('// Mobile Output', start)
 for (const dirty of [false, true]) {

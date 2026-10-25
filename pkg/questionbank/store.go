@@ -9,21 +9,26 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"Q-Solver/pkg/answersummary"
 )
 
 const currentSessionVersion = 2
 
 type Store struct {
-	mu             sync.Mutex
-	root           string
-	recordsRoot    string
-	legacyRoots    []string
-	defaultCompany string
-	current        *Session
-	currentBase    string
-	pending        map[string][]byte
-	dirty          bool
-	lastSave       time.Time
+	mu                sync.Mutex
+	root              string
+	recordsRoot       string
+	legacyRoots       []string
+	defaultCompany    string
+	current           *Session
+	currentBase       string
+	pending           map[string][]byte
+	dirty             bool
+	lastSave          time.Time
+	saveSessionHook   func(*Session, string) error
+	writeBlocked      error
+	pendingCompletion *Session
 }
 
 func NewStore(root string) (*Store, error) {
@@ -142,13 +147,33 @@ func (s *Store) SetDefaultCompany(company string) error {
 		return fmt.Errorf("单位名称最多 120 字")
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	s.defaultCompany = company
-	s.mu.Unlock()
+	return nil
+}
+
+func (s *Store) ensureStorageWriteAllowedLocked() error {
+	if s.writeBlocked == nil {
+		return nil
+	}
+	return fmt.Errorf("题库写入已阻止，请停止继续操作并保留现场: %w", s.writeBlocked)
+}
+
+func (s *Store) ensureWriteAllowedLocked() error {
+	if err := s.ensureStorageWriteAllowedLocked(); err != nil {
+		return err
+	}
+	if s.pendingCompletion != nil {
+		return fmt.Errorf("题目完成结果等待重试保存，请先在题库面板重试保存")
+	}
 	return nil
 }
 
 func (s *Store) blockedLocked() bool {
-	return s.dirty || (s.current != nil && (s.current.State == Active || s.current.State == Paused))
+	return s.writeBlocked != nil || s.pendingCompletion != nil || s.dirty || (s.current != nil && (s.current.State == Active || s.current.State == Paused))
 }
 
 // Start remains as a compatibility entry point. Normal Change 012 capture uses
@@ -156,6 +181,9 @@ func (s *Store) blockedLocked() bool {
 func (s *Store) Start(company, kind string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if s.blockedLocked() {
 		return fmt.Errorf("请先封存当前分段并保存未落盘记录")
 	}
@@ -163,6 +191,9 @@ func (s *Store) Start(company, kind string) error {
 }
 
 func (s *Store) createCurrentLocked(company, kind string) error {
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	company = strings.TrimSpace(company)
 	kind = strings.TrimSpace(kind)
 	if len([]rune(company)) > 120 || len([]rune(kind)) > 120 {
@@ -190,6 +221,13 @@ func (s *Store) createCurrentLocked(company, kind string) error {
 	return s.saveLocked()
 }
 
+func cloneAnswerItems(items []answersummary.Item) []answersummary.Item {
+	if len(items) == 0 {
+		return nil
+	}
+	return append([]answersummary.Item(nil), items...)
+}
+
 func cloneSession(session *Session) *Session {
 	if session == nil {
 		return nil
@@ -206,6 +244,12 @@ func (s *Store) Snapshot() (*Session, bool) {
 	return cloneSession(s.current), s.dirty
 }
 
+func (s *Store) HasPendingCompletion() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pendingCompletion != nil
+}
+
 func (s *Store) SnapshotByID(id string) (*Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -220,6 +264,9 @@ func (s *Store) SnapshotByID(id string) (*Session, error) {
 }
 
 func (s *Store) ensureWritableLocked() error {
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if s.current != nil {
 		switch s.current.State {
 		case Active:
@@ -238,8 +285,19 @@ func (s *Store) ensureWritableLocked() error {
 }
 
 func (s *Store) Begin(images []string, model, scene string) (string, error) {
+	return s.begin(images, model, scene, nil)
+}
+
+func (s *Store) BeginWithContext(images []string, model, scene string, keepContext bool) (string, error) {
+	return s.begin(images, model, scene, &keepContext)
+}
+
+func (s *Store) begin(images []string, model, scene string, keepContext *bool) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return "", err
+	}
 	if len(images) == 0 || len(images) > 3 {
 		return "", fmt.Errorf("每次提交需要 1～3 张截图")
 	}
@@ -247,7 +305,7 @@ func (s *Store) Begin(images []string, model, scene string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	r := Record{ID: id, CreatedAt: time.Now(), Model: model, Scene: scene, Status: Running, Images: []string{}}
+	r := Record{ID: id, CreatedAt: time.Now(), Model: model, Scene: scene, Status: Running, Images: []string{}, KeepContext: keepContext}
 	pending := make(map[string][]byte)
 	for i, img := range images {
 		data, ext, decodeErr := decodeImage(img)
@@ -302,6 +360,9 @@ func findRecord(session *Session, id string) *Record {
 func (s *Store) Append(id, chunk string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	r := s.recordLocked(id)
 	if r == nil || r.Status != Running {
 		return nil
@@ -317,6 +378,9 @@ func (s *Store) Append(id, chunk string) error {
 func (s *Store) Finish(id, answer, status string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	r := s.recordLocked(id)
 	if r == nil || r.Status != Running {
 		return nil
@@ -343,7 +407,70 @@ func (s *Store) SealCurrent() (string, error) {
 	return s.sealCurrentLocked()
 }
 
+// SealCurrentForNext seals the current writable segment without creating its
+// successor. Unlike SealCurrent, it rejects any dirty state that existed when
+// the operation began and treats ended/exported segments as idempotent success.
+func (s *Store) SealCurrentForNext() (SealForNextResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result := SealForNextResult{}
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return result, err
+	}
+	if s.dirty {
+		return result, fmt.Errorf("当前分段存在未落盘内容，请先重试保存")
+	}
+	if s.current == nil || len(s.current.Records) == 0 {
+		return result, fmt.Errorf("当前分段暂无记录")
+	}
+
+	result.SessionID = s.current.ID
+	result.PreviousState = s.current.State
+	result.SessionState = s.current.State
+	if s.current.State == Discarded {
+		return SealForNextResult{}, fmt.Errorf("当前分段已清空，不能开始下一套")
+	}
+	for _, record := range s.current.Records {
+		if record.Status == Running {
+			return SealForNextResult{}, fmt.Errorf("还有题目正在处理，请完成或取消后再开始下一套")
+		}
+	}
+
+	switch s.current.State {
+	case Ended, Exported:
+		return result, nil
+	case Active, Paused:
+	default:
+		return SealForNextResult{}, fmt.Errorf("当前分段状态不支持开始下一套")
+	}
+
+	candidate := cloneSession(s.current)
+	now := time.Now()
+	candidate.EndedAt = &now
+	candidate.State = Ended
+	base := s.currentBase
+	if base == "" {
+		base = s.recordsRoot
+	}
+	if err := s.saveSessionLocked(candidate, base, s.pending); err != nil {
+		return SealForNextResult{}, fmt.Errorf("封存当前分段失败: %w", err)
+	}
+
+	s.current = candidate
+	s.currentBase = base
+	clear(s.pending)
+	s.dirty = false
+	s.lastSave = time.Now()
+	result.SessionState = Ended
+	result.Sealed = true
+	return result, nil
+}
+
 func (s *Store) sealCurrentLocked() (string, error) {
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return "", err
+	}
 	if s.current == nil || len(s.current.Records) == 0 {
 		return "", fmt.Errorf("当前分段暂无记录")
 	}
@@ -383,6 +510,9 @@ func (s *Store) End() error {
 func (s *Store) DiscardCurrent() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if s.current == nil || len(s.current.Records) == 0 {
 		return fmt.Errorf("当前分段暂无记录")
 	}
@@ -408,6 +538,9 @@ func (s *Store) DiscardCurrent() error {
 func (s *Store) Resume() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if s.current == nil || s.current.State != Paused {
 		return fmt.Errorf("没有可继续的分段")
 	}
@@ -419,11 +552,17 @@ func (s *Store) Resume() error {
 func (s *Store) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureStorageWriteAllowedLocked(); err != nil {
+		return err
+	}
 	return s.saveLocked()
 }
 
 func (s *Store) saveLocked() error {
-	if !s.dirty || s.current == nil {
+	if err := s.ensureStorageWriteAllowedLocked(); err != nil {
+		return err
+	}
+	if (!s.dirty && s.pendingCompletion == nil) || s.current == nil {
 		return nil
 	}
 	base := s.currentBase
@@ -431,9 +570,15 @@ func (s *Store) saveLocked() error {
 		base = s.recordsRoot
 		s.currentBase = base
 	}
-	if err := s.saveSessionLocked(s.current, base, s.pending); err != nil {
+	session := s.current
+	if s.pendingCompletion != nil {
+		session = s.pendingCompletion
+	}
+	if err := s.saveSessionLocked(session, base, s.pending); err != nil {
 		return err
 	}
+	s.current = session
+	s.pendingCompletion = nil
 	clear(s.pending)
 	s.dirty = false
 	s.lastSave = time.Now()
@@ -441,8 +586,16 @@ func (s *Store) saveLocked() error {
 }
 
 func (s *Store) saveSessionLocked(session *Session, base string, pending map[string][]byte) error {
+	if err := s.ensureStorageWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if session == nil || !validID(session.ID) {
 		return fmt.Errorf("分段记录无效")
+	}
+	if s.saveSessionHook != nil {
+		if err := s.saveSessionHook(session, base); err != nil {
+			return err
+		}
 	}
 	if filepath.Clean(base) == filepath.Clean(s.recordsRoot) {
 		if err := mkdirWithin(s.root, "_记录"); err != nil {
@@ -554,6 +707,9 @@ func (s *Store) readSessionFromBase(base, id string) (*Session, error) {
 func (s *Store) Open(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
 	if s.current != nil && s.current.ID == id {
 		return nil
 	}
@@ -605,8 +761,11 @@ func (s *Store) List() ([]SessionInfo, error) {
 			seen[id] = true
 			result = append(result, SessionInfo{
 				ID:              session.ID,
+				Name:            session.Name,
 				Company:         session.Company,
+				Issuer:          session.Issuer,
 				Type:            session.Type,
+				NameCustomized:  session.NameCustomized,
 				State:           session.State,
 				Count:           len(session.Records),
 				StartedAt:       session.StartedAt.Format(time.RFC3339Nano),

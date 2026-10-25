@@ -49,7 +49,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const recordingAction = ref(null)
   const recordingText = ref('')
-  const shortcutActions = [
+  const allShortcutActions = [
     { action: 'screenshot', label: '截图', default: 'F8', macDefault: 'Cmd+1' },
     { action: 'send', label: '发送解题', default: 'Ctrl+J', macDefault: 'Cmd+J' },
     { action: 'delete', label: '删除截图', default: 'Ctrl+D', macDefault: 'Cmd+D' },
@@ -62,7 +62,20 @@ export const useSettingsStore = defineStore('settings', () => {
     { action: 'move_right', label: '向右移动', default: 'Alt+Right', macDefault: 'Cmd+Option+Right' },
     { action: 'scroll_up', label: '向上滚动', default: 'Alt+PgUp', macDefault: 'Cmd+Option+Shift+Up' },
     { action: 'scroll_down', label: '向下滚动', default: 'Alt+PgDn', macDefault: 'Cmd+Option+Shift+Down' },
+    { action: 'clear_mobile_display', label: '清空同步端显示', default: 'Shift+C', windowsOnly: true },
+    { action: 'start_next_exam', label: '开始下一套', default: 'Ctrl+Shift+N', windowsOnly: true },
   ]
+  const shortcutActions = computed(() =>
+    allShortcutActions.filter(item => !item.windowsOnly || !isMacOS.value)
+  )
+
+  function shortcutDisplayName(key) {
+    if (recordingAction.value === key.action) return recordingText.value
+    if (Object.prototype.hasOwnProperty.call(tempShortcuts, key.action)) {
+      return tempShortcuts[key.action]?.keyName || '未绑定（点击录制）'
+    }
+    return isMacOS.value ? key.macDefault : key.default
+  }
 
   const maskedKey = computed(() => {
     if (!settings.apiKey) return ''
@@ -408,7 +421,7 @@ export const useSettingsStore = defineStore('settings', () => {
     domainCategories,
     resumeRawContent, isResumeParsing,
     isMacOS,
-    recordingAction, recordingText, shortcutActions,
+    recordingAction, recordingText, shortcutActions, shortcutDisplayName,
     maskedKey, solveShortcut, sendShortcut, deleteShortcut, toggleShortcut,
     statusText, statusIcon, resetStatus,
     loadSettings, fetchModels, refreshModels, testConnection,

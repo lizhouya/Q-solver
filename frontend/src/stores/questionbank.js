@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { api } from '../services/api'
 import { useUIStore } from './ui'
+import { useSolutionStore } from './solution'
 
 const emptyStatus = () => ({
   archiveDir: '',
@@ -25,13 +26,20 @@ const emptyPreferences = () => ({
 const emptyExportDraft = () => ({
   sessionId: '',
   company: '',
+  issuer: '',
   type: '综合笔试',
   name: '',
+  nameCustomized: false,
   directory: '',
   autoOrganize: false,
   numberedPrefix: '',
   count: 0,
   startedAt: '',
+  metadataSuggestion: null,
+  suggestionConflict: false,
+  organizeReady: false,
+  pendingOrganize: 0,
+  failedOrganize: 0,
 })
 
 function normalizePreferences(value) {
@@ -47,6 +55,11 @@ function normalizeExportDraft(value) {
     ...emptyExportDraft(),
     ...(value || {}),
     autoOrganize: value?.autoOrganize === true,
+    nameCustomized: value?.nameCustomized === true,
+    suggestionConflict: value?.suggestionConflict === true,
+    organizeReady: value?.organizeReady === true,
+    pendingOrganize: Number(value?.pendingOrganize || 0),
+    failedOrganize: Number(value?.failedOrganize || 0),
     count: Number(value?.count || 0),
   }
 }
@@ -65,9 +78,19 @@ function safeNamePart(value, fallback) {
 
 export const useQuestionBankStore = defineStore('questionbank', () => {
   const ui = useUIStore()
+  const solution = useSolutionStore()
   const visible = ref(false)
   const status = ref(emptyStatus())
   const sessions = ref([])
+  const sessionTotal = ref(0)
+  const sessionHidden = ref(0)
+  const sessionLimit = ref(20)
+  const selectedSessionId = ref('')
+  const sessionDetail = ref(null)
+  const detailLoading = ref(false)
+  const detailError = ref('')
+  const continueSessionWorking = ref('')
+  const imageCache = reactive({})
   const preferences = reactive(emptyPreferences())
   const tempPreferences = reactive(emptyPreferences())
   const working = ref(false)
@@ -81,9 +104,18 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
   const exportDirectorySelecting = ref(false)
   const exportError = ref('')
   const exportNameEdited = ref(false)
+  const exportTouched = reactive({ company: false, issuer: false, type: false, name: false })
+
+  const nextExamPending = ref(false)
+  const nextExamSubmitting = ref(false)
+  const nextExamError = ref('')
 
   let refreshVersion = 0
+  let sessionsRequestVersion = 0
+  let detailRequestVersion = 0
+  let continuationRequestVersion = 0
   let exportRequestVersion = 0
+  const imageRequestVersions = new Map()
 
   const archiveDir = computed(() => (
     status.value.archiveDir || status.value.root || preferences.archiveDir
@@ -96,6 +128,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     exportLoading.value ||
     exportSubmitting.value ||
     exportDirectorySelecting.value ||
+    nextExamSubmitting.value ||
     status.value.busy ||
     status.value.organizing
   ))
@@ -172,7 +205,11 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     const version = ++refreshVersion
     try {
       const next = await api.getQuestionBankStatus()
-      if (version === refreshVersion) setStatus(next)
+      if (version === refreshVersion) {
+        const finishedOrganizing = status.value.organizing && !next?.organizing
+        setStatus(next)
+        if (finishedOrganizing && exportVisible.value && exportDraft.autoOrganize) await reloadExportDraft()
+      }
       return true
     } catch (cause) {
       if (version === refreshVersion) reportError('读取题库状态失败', cause)
@@ -180,13 +217,101 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     }
   }
 
+  function clearSessionDetail() {
+    detailRequestVersion++
+    selectedSessionId.value = ''
+    sessionDetail.value = null
+    detailLoading.value = false
+    detailError.value = ''
+    Object.keys(imageCache).forEach(key => delete imageCache[key])
+    imageRequestVersions.clear()
+  }
+
   async function loadSessions() {
+    const version = ++sessionsRequestVersion
     try {
-      sessions.value = await api.listQuestionBankSessions() || []
+      const result = await api.listRecentQuestionBankSessions()
+      if (version !== sessionsRequestVersion) return false
+      sessions.value = result?.sessions || []
+      sessionTotal.value = Number(result?.total || sessions.value.length)
+      sessionHidden.value = Number(result?.hidden || 0)
+      sessionLimit.value = Number(result?.limit || 20)
+      if (selectedSessionId.value && !sessions.value.some(item => item.id === selectedSessionId.value)) {
+        clearSessionDetail()
+      } else if (selectedSessionId.value) {
+        await selectSession(selectedSessionId.value)
+      }
       return true
     } catch (cause) {
-      reportError('读取题库历史失败', cause)
+      if (version === sessionsRequestVersion) reportError('读取题库历史失败', cause)
       return false
+    }
+  }
+
+  async function selectSession(id) {
+    if (!id || !sessions.value.some(item => item.id === id)) return false
+    const version = ++detailRequestVersion
+    selectedSessionId.value = id
+    sessionDetail.value = null
+    detailLoading.value = true
+    detailError.value = ''
+    Object.keys(imageCache).forEach(key => delete imageCache[key])
+    imageRequestVersions.clear()
+    try {
+      const detail = await api.getQuestionBankSessionDetail(id)
+      if (version !== detailRequestVersion || selectedSessionId.value !== id || !visible.value) return false
+      sessionDetail.value = detail
+      return true
+    } catch (cause) {
+      if (version === detailRequestVersion && selectedSessionId.value === id) detailError.value = errorMessage(cause)
+      return false
+    } finally {
+      if (version === detailRequestVersion) detailLoading.value = false
+    }
+  }
+
+  async function loadRecordImage(recordId, index) {
+    const sessionId = selectedSessionId.value
+    if (!sessionId || !recordId) return false
+    const key = `${recordId}:${index}`
+    const version = (imageRequestVersions.get(key) || 0) + 1
+    imageRequestVersions.set(key, version)
+    imageCache[key] = { loading: true, data: '', error: '' }
+    try {
+      const data = await api.getQuestionBankRecordImage(sessionId, recordId, index)
+      if (selectedSessionId.value !== sessionId || imageRequestVersions.get(key) !== version || !visible.value) return false
+      imageCache[key] = { loading: false, data, error: '' }
+      return true
+    } catch (cause) {
+      if (selectedSessionId.value === sessionId && imageRequestVersions.get(key) === version) {
+        imageCache[key] = { loading: false, data: '', error: errorMessage(cause) }
+      }
+      return false
+    }
+  }
+
+  async function continueSession(id) {
+    if (!id || continueSessionWorking.value || busy.value) return false
+    const session = sessions.value.find(item => item.id === id)
+    if (!session || !['ended', 'exported', 'paused'].includes(session.state)) return false
+    const version = ++continuationRequestVersion
+    continueSessionWorking.value = id
+    error.value = ''
+    try {
+      const continuation = await api.continueQuestionBankSession(id)
+      if (version !== continuationRequestVersion || continueSessionWorking.value !== id) return false
+      if (!solution.activateQuestionBankSession(continuation)) throw new Error('续接结果缺少分段详情')
+      ui.hasStarted = true
+      ui.mainVisible = true
+      await refresh()
+      close()
+      ui.showToast('已切换到历史分段，下一次解题会继续写入该分段。', 'success', 3500)
+      return true
+    } catch (cause) {
+      if (version === continuationRequestVersion) reportError('继续历史分段失败', cause)
+      return false
+    } finally {
+      if (version === continuationRequestVersion) continueSessionWorking.value = ''
     }
   }
 
@@ -269,6 +394,8 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
 
   function close() {
     visible.value = false
+    sessionsRequestVersion++
+    clearSessionDetail()
     if (!exportVisible.value && !ui.showSettings) api.removeFocus().catch(() => {})
   }
 
@@ -292,11 +419,13 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
   }
 
   function suggestedExportName() {
-    const kind = safeNamePart(exportDraft.type, '综合笔试')
-    const company = String(exportDraft.company || '').trim()
-    if (company) return `${safeNamePart(company, '未指定单位')}_${kind}`
-    const prefix = exportDraft.numberedPrefix || '笔试'
-    return `${prefix}_${kind}`
+    const values = [exportDraft.company, exportDraft.issuer]
+      .map(value => String(value || '').trim())
+      .filter((value, index, items) => value && items.findIndex(item => item.toLocaleLowerCase() === value.toLocaleLowerCase()) === index)
+    if (!values.length) values.push(exportDraft.numberedPrefix || '笔试')
+    const kind = String(exportDraft.type || '综合笔试').trim() || '综合笔试'
+    if (!values.some(value => value.toLocaleLowerCase() === kind.toLocaleLowerCase())) values.push(kind)
+    return values.map(value => safeNamePart(value, '未命名')).join('_')
   }
 
   function syncSuggestedExportName() {
@@ -304,18 +433,35 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
   }
 
   function setExportCompany(value) {
+    exportTouched.company = true
     exportDraft.company = value
     syncSuggestedExportName()
   }
 
+  function setExportIssuer(value) {
+    exportTouched.issuer = true
+    exportDraft.issuer = value
+    syncSuggestedExportName()
+  }
+
   function setExportType(value) {
+    exportTouched.type = true
     exportDraft.type = value
     syncSuggestedExportName()
   }
 
   function setExportName(value) {
+    exportTouched.name = true
     exportDraft.name = value
+    exportDraft.nameCustomized = true
     exportNameEdited.value = true
+  }
+
+  function restoreAutomaticExportName() {
+    exportTouched.name = false
+    exportNameEdited.value = false
+    exportDraft.nameCustomized = false
+    syncSuggestedExportName()
   }
 
   async function openExport(id = '') {
@@ -330,12 +476,14 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     exportLoading.value = true
     exportError.value = ''
     exportNameEdited.value = false
+    Object.assign(exportTouched, { company: false, issuer: false, type: false, name: false })
     Object.assign(exportDraft, emptyExportDraft())
     api.restoreFocus().catch(() => {})
     try {
       const draft = await api.getQuestionBankExportDraft(id || '')
       if (version !== exportRequestVersion || !exportVisible.value) return false
       Object.assign(exportDraft, normalizeExportDraft(draft))
+      exportNameEdited.value = exportDraft.nameCustomized
       return true
     } catch (cause) {
       if (version === exportRequestVersion) exportError.value = `读取导出信息失败：${errorMessage(cause)}`
@@ -353,6 +501,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     exportDirectorySelecting.value = false
     exportError.value = ''
     exportNameEdited.value = false
+    Object.assign(exportTouched, { company: false, issuer: false, type: false, name: false })
     Object.assign(exportDraft, emptyExportDraft())
     if (!visible.value && !ui.showSettings) api.removeFocus().catch(() => {})
     return true
@@ -377,8 +526,55 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     }
   }
 
+  async function reloadExportDraft() {
+    const version = exportRequestVersion
+    const localDraft = { ...exportDraft }
+    const touched = { ...exportTouched }
+    try {
+      const draft = await api.getQuestionBankExportDraft(exportDraft.sessionId)
+      if (version !== exportRequestVersion || !exportVisible.value) return false
+      Object.assign(exportDraft, normalizeExportDraft(draft))
+      if (localDraft.directory) exportDraft.directory = localDraft.directory
+      for (const field of ['company', 'issuer', 'type']) {
+        if (touched[field]) exportDraft[field] = localDraft[field]
+      }
+      if (touched.name || localDraft.nameCustomized) {
+        exportDraft.name = localDraft.name
+        exportDraft.nameCustomized = true
+        exportNameEdited.value = true
+      } else {
+        exportNameEdited.value = false
+        syncSuggestedExportName()
+      }
+      return true
+    } catch (cause) {
+      if (version === exportRequestVersion) exportError.value = `刷新整理建议失败：${errorMessage(cause)}`
+      return false
+    }
+  }
+
+  async function prepareExport() {
+    if (exportSubmitting.value || exportLoading.value || status.value.organizing) return false
+    const version = exportRequestVersion
+    exportSubmitting.value = true
+    exportError.value = ''
+    try {
+      await api.prepareQuestionBankSegment(exportDraft.sessionId)
+      if (version !== exportRequestVersion) return false
+      ui.showToast('已开始整理；完成后请核对模型建议再导出。', 'success', 3500)
+      await refresh()
+      return true
+    } catch (cause) {
+      if (version === exportRequestVersion) exportError.value = `开始整理失败：${errorMessage(cause)}`
+      return false
+    } finally {
+      if (version === exportRequestVersion) exportSubmitting.value = false
+    }
+  }
+
   async function submitExport() {
-    if (exportSubmitting.value || exportLoading.value) return false
+    if (exportSubmitting.value || exportLoading.value || status.value.organizing) return false
+    if (exportDraft.autoOrganize && !exportDraft.organizeReady) return prepareExport()
     const name = exportDraft.name.trim()
     if (!name) {
       exportError.value = '请填写题库名称。'
@@ -392,8 +588,10 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     const request = {
       sessionId: exportDraft.sessionId,
       company: exportDraft.company.trim(),
+      issuer: exportDraft.issuer.trim(),
       type: exportDraft.type.trim(),
       name,
+      nameCustomized: exportNameEdited.value,
       directory: exportDraft.directory.trim(),
       autoOrganize: exportDraft.autoOrganize === true,
     }
@@ -403,7 +601,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
       await api.exportQuestionBankSegment(request)
       if (version !== exportRequestVersion) return false
       exportVisible.value = false
-      ui.showToast(request.autoOrganize ? '已开始整理并导出所选分段。' : '已开始导出原始记录。', 'success', 3000)
+      ui.showToast(request.autoOrganize ? '已确认元数据并开始本地导出；不会再次调用模型。' : '已开始导出原始记录。', 'success', 3500)
       await refresh()
       if (visible.value) await loadSessions()
       if (!visible.value && !ui.showSettings) api.removeFocus().catch(() => {})
@@ -432,12 +630,50 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     )
   }
 
+  function requestStartNextExam() {
+    if (nextExamPending.value || nextExamSubmitting.value) return false
+    nextExamError.value = ''
+    nextExamPending.value = true
+    return true
+  }
+
+  function cancelStartNextExam() {
+    if (nextExamSubmitting.value || !nextExamPending.value) return false
+    nextExamPending.value = false
+    nextExamError.value = ''
+    return true
+  }
+
+  async function confirmStartNextExam() {
+    if (!nextExamPending.value || nextExamSubmitting.value) return false
+    nextExamSubmitting.value = true
+    nextExamError.value = ''
+    try {
+      await api.startNextExam(true)
+      solution.resetLiveHistory()
+      ui.hasStarted = false
+      await refresh()
+      nextExamPending.value = false
+      ui.showToast('当前段已封存，可以开始下一套笔试。', 'success', 3500)
+      return true
+    } catch (cause) {
+      nextExamError.value = `开始下一套失败：${errorMessage(cause)}`
+      return false
+    } finally {
+      nextExamSubmitting.value = false
+    }
+  }
+
   async function discardCurrent(confirmed) {
     if (!confirmed) return false
-    return run(
+    const success = await run(
       () => api.discardQuestionBankSegment(true),
-      { successMessage: '当前分段已清空，原始记录仍保留在本地。' },
+      { successMessage: '桌面历史已清空；题库原始记录和模型上下文仍保留。' },
     )
+    if (!success) return false
+    solution.resetLiveHistory()
+    ui.hasStarted = false
+    return true
   }
 
   async function openSession(id) {
@@ -463,6 +699,15 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     visible,
     status,
     sessions,
+    sessionTotal,
+    sessionHidden,
+    sessionLimit,
+    selectedSessionId,
+    sessionDetail,
+    detailLoading,
+    detailError,
+    continueSessionWorking,
+    imageCache,
     preferences,
     tempPreferences,
     working,
@@ -476,6 +721,9 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     exportError,
     exportNameEdited,
     exportExpectedFile,
+    nextExamPending,
+    nextExamSubmitting,
+    nextExamError,
     archiveDir,
     configured,
     sessionState,
@@ -488,6 +736,10 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     preferencesDirty,
     refresh,
     loadSessions,
+    selectSession,
+    continueSession,
+    clearSessionDetail,
+    loadRecordImage,
     loadPreferences,
     beginPreferenceEdit,
     selectOutput,
@@ -499,13 +751,19 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     openExport,
     closeExport,
     selectExportDirectory,
+    prepareExport,
     submitExport,
     setExportCompany,
+    setExportIssuer,
     setExportType,
     setExportName,
+    restoreAutomaticExportName,
     exportCurrent,
     exportSession,
     splitCurrent,
+    requestStartNextExam,
+    cancelStartNextExam,
+    confirmStartNextExam,
     discardCurrent,
     openSession,
     retrySave,

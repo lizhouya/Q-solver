@@ -1,8 +1,10 @@
 <template>
   <div class="history-item" :class="{ active: isActive }" @click="$emit('select')">
     <div class="history-header">
-      <span class="history-tag">{{ isFirst ? '当前问题' : '历史问题' }}</span>
-      <span v-if="roundsCount > 1" class="rounds-badge">{{ roundsCount }} 轮</span>
+      <div class="history-labels">
+        <span class="history-tag">{{ isWritable ? '后台当前' : '只读查看' }}</span>
+        <span class="round-label">{{ roundLabel }}</span>
+      </div>
       <div class="menu-trigger" @click.stop="toggleMenu" ref="menuTriggerRef">
         <Icon name="more-vertical" :size="14" class="dots-icon" />
       </div>
@@ -16,10 +18,10 @@
       <div v-if="menuOpen" class="history-menu" :style="menuStyle" @click.stop>
         <div class="menu-item" @click="handleExportImage">
           <Icon name="image" :size="15" />
-          <span>导出为图片</span>
+          <span>导出此会话为图片</span>
         </div>
-        <div class="menu-divider"></div>
-        <div class="menu-item danger" @click="handleDelete">
+        <div v-if="deletable" class="menu-divider"></div>
+        <div v-if="deletable" class="menu-item danger" @click="handleDelete">
           <Icon name="trash" :size="15" />
           <span>删除此会话</span>
         </div>
@@ -37,8 +39,10 @@ const props = defineProps({
   time: { type: String, default: '' },
   isActive: { type: Boolean, default: false },
   isFirst: { type: Boolean, default: false },
+  isWritable: { type: Boolean, default: false },
+  deletable: { type: Boolean, default: true },
   previewHtml: { type: String, default: '' },
-  roundsCount: { type: Number, default: 1 }
+  roundLabel: { type: String, default: '第 1 轮' }
 })
 
 const emit = defineEmits(['select', 'delete', 'export-image'])
@@ -121,14 +125,20 @@ onUnmounted(() => { document.removeEventListener('click', handleClickOutside) })
   background: var(--accent-muted);
   color: var(--accent);
 }
-.rounds-badge {
+.history-labels {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.round-label {
   font-size: 10px;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--accent-muted);
   color: var(--accent);
   font-weight: var(--weight-semibold);
-  margin-left: 4px;
+  white-space: nowrap;
 }
 .history-preview {
   font-size: var(--text-sm);

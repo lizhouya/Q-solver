@@ -125,25 +125,24 @@ func TestCtrlShiftHComboMapping(t *testing.T) {
 	}
 }
 
-func TestHandleRecordStoresToggleWindow(t *testing.T) {
+func TestHandleRecordOnlyPreviewsBinding(t *testing.T) {
 	d := &mockDelegate{}
-	s := newTestService(d)
-
-	s.handleRecord("toggle_window", "Ctrl+Shift+H", "72+160+162")
-
-	bound, ok := s.GetShortcuts()["toggle_window"]
-	if !ok {
-		t.Fatal("录制后应保存 toggle_window 绑定")
+	initial := map[string]KeyBinding{
+		"toggle_window": {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"},
 	}
-	if bound.ComboID != "72+160+162" || bound.KeyName != "Ctrl+Shift+H" {
-		t.Fatalf("绑定不对：%+v", bound)
+	s := NewService(d, initial, noopSubscribe)
+
+	s.handleRecord("toggle_window", "Shift+C", "67+160")
+
+	if got := s.GetShortcuts()["toggle_window"]; got != initial["toggle_window"] {
+		t.Fatalf("录制预览不得提前修改运行态绑定：want %+v, got %+v", initial["toggle_window"], got)
 	}
 	if !reflect.DeepEqual(d.events, []string{"key-recorded"}) {
-		t.Fatalf("应推送 key-recorded 事件，实际 %v", d.events)
+		t.Fatalf("预览应只推送 key-recorded，实际 %v", d.events)
 	}
 }
 
-func TestHandleRecordingCompleteConflict(t *testing.T) {
+func TestHandleRecordingCompleteConflictKeepsBothOriginalBindings(t *testing.T) {
 	d := &mockDelegate{}
 	initial := map[string]KeyBinding{
 		"toggle_window": {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"},
@@ -151,20 +150,35 @@ func TestHandleRecordingCompleteConflict(t *testing.T) {
 	}
 	s := NewService(d, initial, noopSubscribe)
 
-	// 把 screenshot 录成 Ctrl+Shift+H → 与 toggle_window 冲突，应报错且不破坏原绑定
+	// 把 screenshot 录成 Ctrl+Shift+H → 与 toggle_window 冲突；预览和完成都不得污染运行态。
+	s.handleRecord("screenshot", "Ctrl+Shift+H", "72+160+162")
 	s.handleRecordingComplete("screenshot", "Ctrl+Shift+H", "72+160+162")
 
-	found := false
-	for _, e := range d.events {
-		if e == "shortcut-error" {
-			found = true
+	if !reflect.DeepEqual(d.events, []string{"key-recorded", "shortcut-error"}) {
+		t.Fatalf("冲突录制事件不正确：%v", d.events)
+	}
+	for action, want := range initial {
+		if got := s.GetShortcuts()[action]; got != want {
+			t.Fatalf("冲突后 %s 绑定被破坏：want %+v, got %+v", action, want, got)
 		}
 	}
-	if !found {
-		t.Fatal("冲突时应推送 shortcut-error 事件")
+}
+
+func TestHandleRecordingCompleteCommitsAfterConflictCheck(t *testing.T) {
+	d := &mockDelegate{}
+	s := NewService(d, map[string]KeyBinding{
+		"screenshot": {ComboID: "119", KeyName: "F8"},
+	}, noopSubscribe)
+
+	s.handleRecord("screenshot", "Shift+C", "67+160")
+	s.handleRecordingComplete("screenshot", "Shift+C", "67+160")
+
+	want := KeyBinding{ComboID: "67+160", KeyName: "Shift+C"}
+	if got := s.GetShortcuts()["screenshot"]; got != want {
+		t.Fatalf("无冲突完成后应提交绑定：want %+v, got %+v", want, got)
 	}
-	if got := s.GetShortcuts()["toggle_window"].ComboID; got != "72+160+162" {
-		t.Fatalf("冲突后 toggle_window 绑定被破坏：%s", got)
+	if !reflect.DeepEqual(d.events, []string{"key-recorded", "shortcut-saved"}) {
+		t.Fatalf("成功录制应结束前端录制状态，实际事件 %v", d.events)
 	}
 }
 
@@ -246,4 +260,42 @@ func TestClickThroughCustomBindingStillUsesActionState(t *testing.T) {
 		t.Fatalf("自定义快捷键下应调用 ToggleClickThrough 1 次，实际 %d", d.toggleClickThroughCalls)
 	}
 	assertSingleToast(t, d, "鼠标穿透：已开启", "success")
+}
+
+func TestHandleTriggerStartNextExamOnlyEmitsRequest(t *testing.T) {
+	d := &mockDelegate{}
+	s := newTestService(d)
+
+	s.handleTrigger("start_next_exam")
+
+	if !reflect.DeepEqual(d.events, []string{"request-start-next-exam"}) {
+		t.Fatalf("开始下一套快捷键应只发一次请求事件，实际 %v", d.events)
+	}
+	if len(d.eventData) != 1 || len(d.eventData[0]) != 0 {
+		t.Fatalf("开始下一套请求事件不得携带 payload，实际 %v", d.eventData)
+	}
+	if d.solveCalls != 0 || d.screenshotCalls != 0 || d.sendCalls != 0 || d.deleteScreenshotCalls != 0 ||
+		d.toggleVisibilityCalls != 0 || d.toggleClickThroughCalls != 0 ||
+		d.toggleWindowCalls != 0 || len(d.moveCalls) != 0 || len(d.scrollCalls) != 0 {
+		t.Fatal("开始下一套请求不得直接调用任何 mutation 或其他快捷键 delegate")
+	}
+}
+
+func TestHandleTriggerClearMobileDisplayOnlyRequestsConfirmation(t *testing.T) {
+	d := &mockDelegate{}
+	s := newTestService(d)
+
+	s.handleTrigger("clear_mobile_display")
+
+	if !reflect.DeepEqual(d.events, []string{"request-clear-mobile-display"}) {
+		t.Fatalf("清屏快捷键应只发一次请求事件，实际 %v", d.events)
+	}
+	if len(d.eventData) != 1 || len(d.eventData[0]) != 0 {
+		t.Fatalf("清屏请求事件不得携带 payload，实际 %v", d.eventData)
+	}
+	if d.screenshotCalls != 0 || d.sendCalls != 0 || d.deleteScreenshotCalls != 0 ||
+		d.toggleVisibilityCalls != 0 || d.toggleClickThroughCalls != 0 ||
+		d.toggleWindowCalls != 0 || len(d.moveCalls) != 0 || len(d.scrollCalls) != 0 {
+		t.Fatal("清屏请求不得触发其他快捷键 delegate")
+	}
 }

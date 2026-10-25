@@ -18,9 +18,10 @@ type Task struct {
 
 // TaskCoordinator 统一管理任务调度和取消
 type TaskCoordinator struct {
-	mu          sync.Mutex
-	currentTask *Task
-	taskCounter int64
+	mu            sync.Mutex
+	currentTask   *Task
+	inFlightTasks map[int64]*Task
+	taskCounter   int64
 }
 
 // NewTaskCoordinator 创建任务协调器
@@ -44,13 +45,18 @@ func (tc *TaskCoordinator) StartTask(name string) (context.Context, int64) {
 	taskID := atomic.AddInt64(&tc.taskCounter, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tc.currentTask = &Task{
+	task := &Task{
 		ID:      taskID,
 		Ctx:     ctx,
 		Cancel:  cancel,
 		Name:    name,
 		Running: true,
 	}
+	tc.currentTask = task
+	if tc.inFlightTasks == nil {
+		tc.inFlightTasks = make(map[int64]*Task)
+	}
+	tc.inFlightTasks[taskID] = task
 
 	logger.Printf("开始新任务: %s (ID: %d)", name, taskID)
 	return ctx, taskID
@@ -61,11 +67,15 @@ func (tc *TaskCoordinator) CompleteTask(taskID int64) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
-	if tc.currentTask != nil && tc.currentTask.ID == taskID {
-		tc.currentTask.Running = false
-		tc.currentTask.Cancel = nil
-		logger.Printf("任务完成: %s (ID: %d)", tc.currentTask.Name, taskID)
+	task, ok := tc.inFlightTasks[taskID]
+	if !ok {
+		return
 	}
+
+	delete(tc.inFlightTasks, taskID)
+	task.Running = false
+	task.Cancel = nil
+	logger.Printf("任务完成: %s (ID: %d)", task.Name, taskID)
 }
 
 // CancelCurrentTask 取消当前任务
@@ -97,6 +107,14 @@ func (tc *TaskCoordinator) HasRunningTask() bool {
 	defer tc.mu.Unlock()
 
 	return tc.currentTask != nil && tc.currentTask.Running
+}
+
+// HasInFlightTask 检查是否有已开始但尚未完成的任务
+func (tc *TaskCoordinator) HasInFlightTask() bool {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	return len(tc.inFlightTasks) > 0
 }
 
 // GetCurrentTaskID 获取当前任务ID

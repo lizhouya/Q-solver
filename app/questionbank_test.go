@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"Q-Solver/pkg/answersummary"
 	"Q-Solver/pkg/config"
+	"Q-Solver/pkg/llm"
 	"Q-Solver/pkg/questionbank"
 	"Q-Solver/pkg/task"
 )
@@ -398,5 +400,159 @@ func TestQuestionBankExportRequestDoesNotPersistOneOffDirectory(t *testing.T) {
 	preferences := a.GetQuestionBankPreferences()
 	if preferences.ArchiveDir != store.Root() {
 		t.Fatalf("本次目录污染了长期偏好: %+v", preferences)
+	}
+}
+
+func TestQuestionBankMetadataSuggestionAggregationAndAutomaticName(t *testing.T) {
+	records := []questionbank.Record{
+		{MetadataSuggestion: &questionbank.SourceMetadataSuggestion{Company: "示例单位", Issuer: "测评机构", Type: "逻辑判断", ReviewNote: "标题可见"}},
+		{MetadataSuggestion: &questionbank.SourceMetadataSuggestion{Company: "示例单位", Issuer: "另一机构", Type: "逻辑判断", ReviewNote: "仍需核对"}},
+		{MetadataSuggestion: &questionbank.SourceMetadataSuggestion{Company: "其他单位", Issuer: "测评机构", Type: "数量关系"}},
+	}
+	suggestion, conflict := aggregateMetadataSuggestion(records)
+	if suggestion == nil || suggestion.Company != "示例单位" || suggestion.Issuer != "测评机构" || suggestion.Type != "逻辑判断" || !conflict {
+		t.Fatalf("候选聚合未按频次和首次出现稳定选择: suggestion=%+v conflict=%v", suggestion, conflict)
+	}
+	if got := automaticQuestionBankName("笔试_20261023_01", "示例单位", "测评机构", "逻辑判断"); got != "示例单位_测评机构_逻辑判断" {
+		t.Fatalf("自动名称错误: %q", got)
+	}
+	if got := automaticQuestionBankName("笔试_20261023_01", "示例单位", "示例单位", "逻辑判断"); got != "示例单位_逻辑判断" {
+		t.Fatalf("大小写无关去重错误: %q", got)
+	}
+	if got := automaticQuestionBankName("笔试_20261023_01", "", "", "逻辑判断"); got != "笔试_20261023_01_逻辑判断" {
+		t.Fatalf("无单位和出题方的稳定编号错误: %q", got)
+	}
+}
+
+func TestQuestionBankFinalExportPersistsReviewedMetadataWithoutModel(t *testing.T) {
+	a, store, img := archiveApp(t)
+	a.configManager = config.NewConfigManager()
+	emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+	emit("solution", "answer")
+	finish()
+	current, _ := store.Snapshot()
+	destination := t.TempDir()
+	if err := a.ExportQuestionBankSegment(QuestionBankExportRequest{
+		SessionID: current.ID, Company: "核对单位", Issuer: "核对出题方", Type: "逻辑判断",
+		Name: "手工题库名", NameCustomized: true, Directory: destination, AutoOrganize: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a.questionBank.workers.Wait()
+	snapshot, err := store.SnapshotByID(current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Company != "核对单位" || snapshot.Issuer != "核对出题方" || snapshot.Type != "逻辑判断" || snapshot.Name != "手工题库名" || !snapshot.NameCustomized {
+		t.Fatalf("核对后的权威元数据未持久化: %+v", snapshot)
+	}
+	if a.GetQuestionBankStatus().LastExport.Markdown != "" {
+		t.Fatal("RawOnly 最终导出意外生成整理稿")
+	}
+}
+
+type fakeQuestionBankProvider struct {
+	calls int
+	body  string
+}
+
+func (p *fakeQuestionBankProvider) GenerateContent(context.Context, string, []llm.Message) (llm.Message, error) {
+	p.calls++
+	return llm.NewAssistantMessage(p.body), nil
+}
+func (p *fakeQuestionBankProvider) GenerateContentStream(context.Context, []llm.Message, llm.StreamCallback) (llm.Message, error) {
+	return llm.Message{}, nil
+}
+func (p *fakeQuestionBankProvider) GetModels(context.Context) ([]string, error) { return nil, nil }
+func (p *fakeQuestionBankProvider) TestChat(context.Context) error              { return nil }
+
+func TestQuestionBankOrganizedExportRequiresPreparationButAllowsRecordedFailure(t *testing.T) {
+	a, store, img := archiveApp(t)
+	a.configManager = config.NewConfigManager()
+	emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+	emit("solution", "answer")
+	finish()
+	current, _ := store.Snapshot()
+	request := QuestionBankExportRequest{
+		SessionID: current.ID, Type: "综合笔试", Name: "整理稿", Directory: t.TempDir(), AutoOrganize: true,
+	}
+	if err := a.ExportQuestionBankSegment(request); err == nil {
+		t.Fatal("未经准备整理的请求直接导出了整理稿")
+	}
+	after, _ := store.Snapshot()
+	if after.State != questionbank.Active {
+		t.Fatal("准备校验失败却提前封存了当前段")
+	}
+	if _, err := store.SealCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeQuestionBankProvider{body: "not json"}
+	if err := store.OrganizeSession(context.Background(), current.ID, provider, "fake", nil); err == nil {
+		t.Fatal("无效整理结果应记录失败")
+	}
+	if err := a.ExportQuestionBankSegment(request); err != nil {
+		t.Fatalf("已记录整理失败后应允许导出已有结果和原稿: %v", err)
+	}
+	a.questionBank.workers.Wait()
+	if provider.calls != 1 {
+		t.Fatalf("最终本地导出不应再次调用模型: %d", provider.calls)
+	}
+	status := a.GetQuestionBankStatus()
+	if status.LastExport.Markdown == "" || status.LastExport.RawMarkdown == "" {
+		t.Fatalf("两类文稿没有同时生成: %+v", status.LastExport)
+	}
+}
+
+func TestStructuredCapturePublishesOnlyAfterPersistence(t *testing.T) {
+	for _, text := range []string{
+		"## 最终答案汇总\n| 题号 | 题型 | 可填写答案 |\n|---|---|---|\n| 1 | 单选 | B |",
+		"## 最终答案汇总\n| 题号 | 题型 | 可填写答案 |\n|---|---|---|\n| 1 | 填空 | 待核对 |",
+		"plain answer without summary",
+	} {
+		t.Run(text, func(t *testing.T) {
+			a, store, image := archiveApp(t)
+			calls := 0
+			capture := a.beginQuestionSolveCapture(context.Background(), config.Config{}, []string{image}, func(event string, data ...interface{}) {
+				if event != "solution" {
+					return
+				}
+				calls++
+				s, dirty := store.Snapshot()
+				if dirty || s.Records[0].Status != questionbank.Completed {
+					t.Fatal("published before persistence")
+				}
+				if len(data) != 2 {
+					t.Fatalf("missing structured result: %v", data)
+				}
+				result, ok := data[1].(answersummary.Result)
+				if !ok {
+					t.Fatalf("wrong result type: %T", data[1])
+				}
+				if strings.Contains(text, "| B |") && result.CopyText != "B" {
+					t.Fatal("copy text missing")
+				}
+				if !strings.Contains(text, "| B |") && result.CopyText != "" {
+					t.Fatal("unsafe copy text")
+				}
+				if len(result.Items) != len(s.Records[0].AnswerItems) {
+					t.Fatal("persisted items differ")
+				}
+			})
+			capture.Emit("solution", text)
+			if calls != 0 {
+				t.Fatal("early terminal")
+			}
+			if !capture.Complete(true, &questionbank.ConversationSnapshot{Version: 1, Quality: questionbank.ConversationQualityPersisted}) {
+				t.Fatal("completion failed")
+			}
+			if calls != 1 {
+				t.Fatalf("terminal calls: %d", calls)
+			}
+			s, _ := store.Snapshot()
+			detail := buildQuestionBankSessionDetail(s)
+			if strings.Contains(text, "| B |") && detail.Records[0].AnswerCopyText != "B" {
+				t.Fatal("history copy missing")
+			}
+		})
 	}
 }

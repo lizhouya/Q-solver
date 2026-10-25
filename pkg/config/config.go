@@ -73,7 +73,11 @@ func NewDefaultConfig() Config {
 
 // getDefaultShortcuts 根据平台返回默认快捷键配置
 func getDefaultShortcuts() map[string]shortcut.KeyBinding {
-	if runtime.GOOS == "darwin" {
+	return getDefaultShortcutsForOS(runtime.GOOS)
+}
+
+func getDefaultShortcutsForOS(goos string) map[string]shortcut.KeyBinding {
+	if goos == "darwin" {
 		// macOS 使用简化的快捷键（不依赖 Windows VK 码）
 		return map[string]shortcut.KeyBinding{
 			"solve":         {ComboID: "Cmd+1", KeyName: "⌘1"},
@@ -92,19 +96,73 @@ func getDefaultShortcuts() map[string]shortcut.KeyBinding {
 	}
 	// Windows 默认快捷键
 	return map[string]shortcut.KeyBinding{
-		"screenshot":    {ComboID: "119", KeyName: "F8"},
-		"send":          {ComboID: "74+162", KeyName: "Ctrl+J"},
-		"delete":        {ComboID: "68+162", KeyName: "Ctrl+D"},
-		"toggle":        {ComboID: "120", KeyName: "F9"},
-		"clickthrough":  {ComboID: "121", KeyName: "F10"},
-		"toggle_window": {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"}, // 003：窗口实体隐藏/恢复
-		"move_up":       {ComboID: "38+164", KeyName: "Alt+↑"},
-		"move_down":     {ComboID: "40+164", KeyName: "Alt+↓"},
-		"move_left":     {ComboID: "37+164", KeyName: "Alt+←"},
-		"move_right":    {ComboID: "39+164", KeyName: "Alt+→"},
-		"scroll_up":     {ComboID: "33+164", KeyName: "Alt+PgUp"},
-		"scroll_down":   {ComboID: "34+164", KeyName: "Alt+PgDn"},
+		"screenshot":           {ComboID: "119", KeyName: "F8"},
+		"send":                 {ComboID: "74+162", KeyName: "Ctrl+J"},
+		"delete":               {ComboID: "68+162", KeyName: "Ctrl+D"},
+		"toggle":               {ComboID: "120", KeyName: "F9"},
+		"clickthrough":         {ComboID: "121", KeyName: "F10"},
+		"toggle_window":        {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"}, // 003：窗口实体隐藏/恢复
+		"move_up":              {ComboID: "38+164", KeyName: "Alt+↑"},
+		"move_down":            {ComboID: "40+164", KeyName: "Alt+↓"},
+		"move_left":            {ComboID: "37+164", KeyName: "Alt+←"},
+		"move_right":           {ComboID: "39+164", KeyName: "Alt+→"},
+		"scroll_up":            {ComboID: "33+164", KeyName: "Alt+PgUp"},
+		"scroll_down":          {ComboID: "34+164", KeyName: "Alt+PgDn"},
+		"clear_mobile_display": {ComboID: "67+160", KeyName: "Shift+C"},
+		"start_next_exam":      {ComboID: "78+160+162", KeyName: "Ctrl+Shift+N"},
 	}
+}
+
+func migrateStartNextExamShortcut(cfg *Config, explicitlyConfigured bool) {
+	if runtime.GOOS != "windows" || explicitlyConfigured {
+		return
+	}
+	if cfg.Shortcuts == nil {
+		cfg.Shortcuts = make(map[string]shortcut.KeyBinding)
+	}
+
+	const action = "start_next_exam"
+	defaultBinding := shortcut.KeyBinding{ComboID: "78+160+162", KeyName: "Ctrl+Shift+N"}
+	for otherAction, binding := range cfg.Shortcuts {
+		if otherAction != action && binding.ComboID == defaultBinding.ComboID {
+			cfg.Shortcuts[action] = shortcut.KeyBinding{}
+			return
+		}
+	}
+	cfg.Shortcuts[action] = defaultBinding
+}
+
+func migrateClearMobileDisplayShortcut(cfg *Config, explicitlyConfigured bool) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	if cfg.Shortcuts == nil {
+		cfg.Shortcuts = make(map[string]shortcut.KeyBinding)
+	}
+
+	const action = "clear_mobile_display"
+	defaultBinding := shortcut.KeyBinding{ComboID: "67+160", KeyName: "Shift+C"}
+	currentBinding := cfg.Shortcuts[action]
+	if explicitlyConfigured && currentBinding.ComboID != "" && currentBinding.ComboID != defaultBinding.ComboID {
+		return
+	}
+
+	defaultOwnerExists := false
+	for otherAction, binding := range cfg.Shortcuts {
+		if otherAction != action && binding.ComboID == defaultBinding.ComboID {
+			defaultOwnerExists = true
+		}
+	}
+	if explicitlyConfigured && currentBinding.ComboID == "" && !defaultOwnerExists {
+		return
+	}
+
+	for otherAction, binding := range cfg.Shortcuts {
+		if otherAction != action && binding.ComboID == defaultBinding.ComboID {
+			cfg.Shortcuts[otherAction] = shortcut.KeyBinding{}
+		}
+	}
+	cfg.Shortcuts[action] = defaultBinding
 }
 
 func (c *Config) ToJSON() string {

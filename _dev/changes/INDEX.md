@@ -30,6 +30,7 @@
 | `021` | start-next-exam（开始下一套笔试） | 普通自动验证与统一归档完成 / GUI NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `021-start-next-exam/` |
 | `022` | answer-copy-numbering-sync（答案复制与分段题号同步） | 普通自动验证与统一归档完成 / GUI 与真实模型 NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `022-answer-copy-numbering-sync/` |
 | `023` | numbered-answer-copy（复制题号＋答案） | 普通自动验证与归档完成 / GUI 用户确认通过 / 已纳入整合提交 / 不发布 | 2026-10-25 | `023-numbered-answer-copy/` |
+| `029` | build-artifact-lifecycle（构建产物生命周期与整合提交） | 书面设计已提交 / 待用户复核与实施计划 | 2026-10-29 | `029-build-artifact-lifecycle/` |
 
 > 分配规则：新增变更时，交叉核对本表、实际目录及历史记录，取最小未用三位编号；已使用编号不得因索引遗漏而复用。创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -282,3 +283,12 @@
 - [完整提交边界审计](../audits/016-023-commit-boundary.md)列明精确文件、完整消息、验证与排除项。
 - 上述分段历史摘要中的未提交/未推送是当时状态，最新结果以 Git 历史与远端分支头为准；本次不创建 Tag 或 Release。
 - Change 023 用户人工验收通过；其他未明确验收和 race 环境阻塞保持原状态，未自动 Close。
+
+## Change 029
+
+- **名称**：build-artifact-lifecycle（构建产物生命周期与整合提交）。
+- **目录**：[029-build-artifact-lifecycle](029-build-artifact-lifecycle/00-request.md)。
+- **状态**：用户已批准聊天设计；书面设计已提交，待用户复核后进入实施计划；尚未移动产物、修改规则、构建候选或推送。
+- **范围**：根目录唯一稳定版、测试中双产物、按 Change 归档、SHA-256 清单、回滚、Change 024～031 双实施提交与指定远端 push。
+- **设计**：[构建产物生命周期与整合提交设计](029-build-artifact-lifecycle/design.md)。
+- **安全边界**：二进制继续由 Git 忽略；不触碰 `releases/`，不纳入用户/CCR 配置、数据库、日志、仓库外探针或 secret；不推 upstream、不修改 main、不 force push、不创建 Tag/Release/RC。

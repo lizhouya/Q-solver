@@ -55,45 +55,64 @@
         <div v-show="ui.activeTab === 'model'" class="tab-pane model-tab">
           <div class="form-group model-select-group">
             <div class="model-header">
-              <label>模型选择</label>
-              <div class="model-actions">
-                <button
-                  class="btn-icon"
-                  @click="settingsStore.refreshModels"
-                  :disabled="ui.isLoadingModels || !settingsStore.tempSettings.apiKey"
-                  title="刷新模型列表"
-                >
-                  <svg class="action-icon" :class="{ spin: ui.isLoadingModels }" viewBox="0 0 16 16" fill="none">
-                    <path d="M14 8a6 6 0 01-10.24 4.24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                    <path d="M2 8a6 6 0 0110.24-4.24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                    <path d="M14 3v5h-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                    <path d="M2 13V8h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  class="btn-icon"
-                  @click="settingsStore.testConnection"
-                  :disabled="ui.isTestingConnection || !settingsStore.tempSettings.model"
-                  title="测试模型连通性"
-                >
-                  <svg v-if="ui.isTestingConnection" class="action-icon spin" viewBox="0 0 16 16" fill="none">
-                    <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="28 10" stroke-linecap="round" />
-                  </svg>
-                  <svg v-else class="action-icon" viewBox="0 0 16 16" fill="none">
-                    <path d="M4 3l9 5-9 5V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-                  </svg>
-                </button>
+              <label>模型名称</label>
+              <button
+                class="btn-secondary model-refresh"
+                @click="settingsStore.refreshModels"
+                :disabled="ui.isLoadingModels || !settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL"
+              >
+                {{ ui.isLoadingModels ? '刷新中…' : '刷新模型建议' }}
+              </button>
+            </div>
+
+            <ModelSelect
+              v-model="settingsStore.tempSettings.model"
+              :models="ui.availableModels"
+              :loading="ui.isLoadingModels"
+              :connection-mode="settingsStore.tempSettings.connectionMode"
+            />
+            <p v-if="!settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL" class="hint-text warning-hint">请先填写 API Key 和接口地址</p>
+          </div>
+
+          <div v-if="settingsStore.tempSettings.connectionMode === 'ccr'" class="form-group ccr-model-notice">
+            <div class="probe-header">
+              <label>CCR 模型目录</label>
+              <span>{{ ui.modelCatalog.status }}</span>
+            </div>
+            <p>这里只读取 CCR 的模型目录，不执行文字或图片实测。Q-Solver 固定通过 Chat Completions 入站调用，上游路由与协议转换由 CCR 管理。</p>
+            <p class="catalog-status" :class="`catalog-${ui.modelCatalog.status}`">{{ ui.modelCatalog.message || '进入模型页后将自动同步一次；也可以手动刷新。' }}</p>
+          </div>
+
+          <div v-if="settingsStore.tempSettings.connectionMode !== 'ccr'" class="form-group probe-panel">
+            <div class="probe-header">
+              <label>当前通道实测</label>
+              <span>{{ settingsStore.statusText }}</span>
+            </div>
+            <p class="probe-cost-notice">每次点击会调用一次模型，可能产生少量费用</p>
+            <div class="probe-grid">
+              <div class="probe-card">
+                <div class="probe-card-header">
+                  <strong>文字实测</strong>
+                  <button
+                    class="btn-secondary"
+                    @click="settingsStore.testTextConnection"
+                    :disabled="ui.textProbeLoading || !settingsStore.tempSettings.model"
+                  >{{ ui.textProbeLoading ? '测试中…' : '开始测试' }}</button>
+                </div>
+                <p :class="probeOutcomeClass(ui.probeStatus.text)">{{ probeStatusText(ui.probeStatus.text, '文字') }}</p>
+              </div>
+              <div class="probe-card">
+                <div class="probe-card-header">
+                  <strong>图片实测</strong>
+                  <button
+                    class="btn-secondary"
+                    @click="settingsStore.testVisionConnection"
+                    :disabled="ui.visionProbeLoading || !settingsStore.tempSettings.model"
+                  >{{ ui.visionProbeLoading ? '测试中…' : '开始测试' }}</button>
+                </div>
+                <p :class="probeOutcomeClass(ui.probeStatus.vision)">{{ probeStatusText(ui.probeStatus.vision, '图片') }}</p>
               </div>
             </div>
-
-            <ModelSelect v-model="settingsStore.tempSettings.model" :models="ui.availableModels" :loading="ui.isLoadingModels" />
-
-            <div v-if="ui.connectionStatus" class="connection-status" :class="ui.connectionStatus.type">
-              <span class="cs-icon">{{ ui.connectionStatus.icon }}</span>
-              <span class="cs-text">{{ ui.connectionStatus.message }}</span>
-            </div>
-
-            <p v-if="!settingsStore.tempSettings.apiKey" class="hint-text warning-hint">请先填写 API Key</p>
           </div>
 
           <div class="form-group domain-group">
@@ -226,8 +245,12 @@
 
         <div v-show="ui.activeTab === 'api'" class="tab-pane api-tab-pane">
           <ProviderSelect
+            v-model:connectionMode="settingsStore.tempSettings.connectionMode"
             v-model:apiKey="settingsStore.tempSettings.apiKey"
             v-model:baseURL="settingsStore.tempSettings.baseURL"
+            v-model:apiProtocol="settingsStore.tempSettings.apiProtocol"
+            @select-provider="settingsStore.applyProviderPreset"
+            @continue-to-model="continueToCCRModels"
           />
         </div>
       </div>
@@ -271,6 +294,28 @@ watch(() => ui.showSettings, (visible) => {
 watch(() => ui.activeTab, (tab) => {
   if (ui.showSettings && tab === 'output') mobile.refresh()
 })
+
+watch(
+  () => [ui.showSettings, ui.activeTab, settingsStore.tempSettings.connectionMode],
+  ([visible, tab, mode]) => {
+    if (visible && tab === 'model' && mode === 'ccr') settingsStore.ensureCCRModelCatalog()
+  }
+)
+
+function continueToCCRModels() {
+  ui.activeTab = 'model'
+}
+
+function probeStatusText(result, label) {
+  if (!result) return `${label}：未测试`
+  if (result.outcome === 'passed') return `${label}：通过`
+  if (result.outcome === 'inconclusive') return `${label}：不确定 — ${result.message || '无法确认结果'}`
+  return `${label}：失败 — ${result.message || '请检查连接配置'}`
+}
+
+function probeOutcomeClass(result) {
+  return ['probe-result', result?.outcome || 'untested']
+}
 
 async function saveAllSettings() {
   if (savingAll.value) return
@@ -506,30 +551,66 @@ const screenshotConfig = computed({
 }
 
 .model-tab {
-  display: flex;
-  flex-direction: column;
+  display: block;
   height: 100%;
-  overflow: hidden;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .model-select-group { flex-shrink: 0; }
+.model-refresh { min-height: 30px; padding: 0 var(--sp-3); }
+.ccr-model-notice {
+  padding: var(--sp-3);
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+}
+.ccr-model-notice p { margin: var(--sp-2) 0 0; color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.6; }
+.ccr-model-notice .catalog-status { color: var(--text-primary); overflow-wrap: anywhere; }
+.ccr-model-notice .catalog-failed,
+.ccr-model-notice .catalog-ui_timeout { color: var(--color-error); }
+.ccr-model-notice .catalog-empty,
+.ccr-model-notice .catalog-needs_config { color: var(--color-warning); }
+.ccr-model-notice .catalog-synced { color: var(--color-success); }
+
+.probe-panel {
+  padding: var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+}
+.probe-header,
+.probe-card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.probe-header label { margin: 0; }
+.probe-header span { color: var(--text-tertiary); font-size: var(--text-xs); }
+.probe-cost-notice { margin: var(--sp-2) 0 var(--sp-3); color: var(--color-warning); font-size: var(--text-xs); }
+.probe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.probe-card { padding: var(--sp-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-input); }
+.probe-card strong { color: var(--text-primary); font-size: var(--text-sm); }
+.probe-card .btn-secondary { min-height: 30px; padding: 0 var(--sp-3); }
+.probe-result { margin: var(--sp-2) 0 0; font-size: var(--text-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.probe-result.untested { color: var(--text-muted); }
+.probe-result.passed { color: var(--color-success); }
+.probe-result.failed { color: var(--color-error); }
+.probe-result.inconclusive { color: var(--color-warning); }
 
 .domain-group {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: block;
+  flex: none;
+  min-height: auto;
 }
 
 :deep(.domain-selector) {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  display: block;
+  height: auto;
+  min-height: 0;
 }
 
-:deep(.domain-grid) {
-  flex: 1;
-  height: auto !important;
+:deep(.domain-list) {
+  flex: none;
+  max-height: none;
+  overflow: visible;
 }
 
 .model-header {

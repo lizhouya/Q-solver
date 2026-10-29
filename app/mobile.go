@@ -3,6 +3,7 @@ package app
 import (
 	"Q-Solver/pkg/answersummary"
 	"Q-Solver/pkg/config"
+	"Q-Solver/pkg/llm"
 	"Q-Solver/pkg/logger"
 	"Q-Solver/pkg/mobile"
 	"Q-Solver/pkg/shortcut"
@@ -10,6 +11,7 @@ import (
 )
 
 type DesktopSolveEvent struct {
+	ErrorDetail    *llm.ErrorDiagnostic `json:"errorDetail,omitempty"`
 	AnswerItems    []answersummary.Item `json:"answerItems,omitempty"`
 	AnswerCopyText string               `json:"answerCopyText,omitempty"`
 	Epoch          uint64               `json:"epoch"`
@@ -182,6 +184,19 @@ func (a *App) routeConversationSolutionEvent(expectedDisplay uint64, target desk
 		}
 	}
 
+	envelope := newDesktopSolveEvent(target, event, data...)
+	if decision.needDesktop {
+		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
+	} else if event == "solution" || event == "solution-error" {
+		success := event == "solution"
+		envelope.Event = "hidden"
+		envelope.Success = &success
+		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
+	}
+}
+
+// newDesktopSolveEvent 把错误和安全诊断放入同一个带轮次标识的封套。
+func newDesktopSolveEvent(target desktopSolveTarget, event string, data ...interface{}) DesktopSolveEvent {
 	envelope := DesktopSolveEvent{
 		Epoch:     target.epoch,
 		SessionID: target.sessionID,
@@ -191,20 +206,18 @@ func (a *App) routeConversationSolutionEvent(expectedDisplay uint64, target desk
 	if len(data) > 0 {
 		envelope.Text, _ = data[0].(string)
 	}
+	if event == "solution-error" && len(data) > 1 {
+		if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
+			envelope.ErrorDetail = llm.CleanDiagnostic(&detail)
+		}
+	}
 	if event == "solution" && len(data) > 1 {
 		if result, ok := data[1].(answersummary.Result); ok {
 			envelope.AnswerItems = append([]answersummary.Item(nil), result.Items...)
 			envelope.AnswerCopyText, _ = answersummary.BuildCopyText(result.Items)
 		}
 	}
-	if decision.needDesktop {
-		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
-	} else if event == "solution" || event == "solution-error" {
-		success := event == "solution"
-		envelope.Event = "hidden"
-		envelope.Success = &success
-		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
-	}
+	return envelope
 }
 
 // setupMobile 启动 Mobile 链路（失败仅降级，绝不影响主功能）。

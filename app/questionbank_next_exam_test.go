@@ -260,7 +260,7 @@ func TestStartNextExamEndedAndExportedAreIdempotent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		exportResult, err := store.ExportSession(id, questionbank.ExportOptions{Name: "App 幂等导出"})
+		exportResult, err := store.ExportSession(id, questionbank.ExportOptions{Name: "App 幂等导出", RawOnly: true})
 		if err != nil {
 			t.Fatal(err)
 		}

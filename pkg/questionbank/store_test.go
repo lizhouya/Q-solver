@@ -59,6 +59,20 @@ func add(t *testing.T, s *Store, status string) string {
 	}
 	return id
 }
+func setQuestionsForTest(t *testing.T, s *Store, recordID string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := findRecord(s.current, recordID)
+	if record == nil {
+		t.Fatal("测试记录不存在")
+	}
+	record.Questions = []Question{{Title: "测试题", Stem: "测试题干", Category: "测试", Type: "单选", ImageIndexes: []int{1}, ReviewNote: "待核对"}}
+	if err := s.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompleteArchiveAndPortableExport(t *testing.T) {
 	s := bank(t)
 	for i := 0; i < 12; i++ {
@@ -67,7 +81,7 @@ func TestCompleteArchiveAndPortableExport(t *testing.T) {
 	if err := s.End(); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.Export(ExportOptions{GroupBy: "company", Name: "示例单位"})
+	result, err := s.Export(ExportOptions{GroupBy: "company", Name: "示例单位", RawOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +96,7 @@ func TestCompleteArchiveAndPortableExport(t *testing.T) {
 	if len(files) != 36 {
 		t.Fatalf("want all 36 images, got %d", len(files))
 	}
-	next, err := s.Export(ExportOptions{GroupBy: "company", Name: "示例单位"})
+	next, err := s.Export(ExportOptions{GroupBy: "company", Name: "示例单位", RawOnly: true})
 	if err != nil || next.Directory == result.Directory {
 		t.Fatal("export overwrote an earlier version")
 	}
@@ -265,7 +279,7 @@ func TestOrganizeRejectsBadOutputAndCancellation(t *testing.T) {
 		if !errors.Is(s.Organize(ctx, p, "model", nil), context.Canceled) {
 			t.Fatal("cancellation ignored")
 		}
-		if _, err := s.Export(ExportOptions{GroupBy: "type", Name: "综合"}); err != nil {
+		if _, err := s.Export(ExportOptions{GroupBy: "type", Name: "综合", RawOnly: true}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -167,6 +167,10 @@
     .md .tag-answer { color: #34d399; font-weight: 800; }
     .md .tag-analysis { color: #fbbf24; font-weight: 800; }
 
+    .error-diagnostics { margin-top: 12px; font-size: 13px; }
+    .error-diagnostics summary { cursor: pointer; }
+    .error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+    .error-diagnostics p { line-height: 1.6; }
     .error-box { background: rgba(248, 113, 113, .08); border: 1px solid rgba(248, 113, 113, .35); color: var(--error); }
 
     /* 快捷键提示：只展示服务端下发的动作标签和显示名 */
@@ -262,6 +266,11 @@
       <div class="card error-box" id="error-card" style="display:none">
         <div class="card-title"><span class="ico">⚠️</span> 求解出错</div>
         <div class="md" id="error-text"></div>
+        <details class="error-diagnostics" id="error-diagnostics">
+          <summary>诊断详情</summary>
+          <pre id="error-diagnostics-text"></pre>
+          <p>仅反映当前调用边界，不代表最终上游原因。不会自动重试，重试可能产生费用；详情未写入题库。</p>
+        </details>
       </div>
     </div>
   </div>
@@ -360,6 +369,8 @@
     copyNumberedAnswers.addEventListener('click', function () { return copyDisplayedAnswers(true); });
     var errorCard = document.getElementById('error-card');
     var errorText = document.getElementById('error-text');
+    var errorDiagnostics = document.getElementById('error-diagnostics');
+    var errorDiagnosticsText = document.getElementById('error-diagnostics-text');
     var shortcutCard = document.getElementById('shortcut-card');
     var shortcutHints = document.getElementById('shortcut-hints');
     var histSide = document.getElementById('history-list-side');
@@ -508,6 +519,7 @@
       waitingCard.style.display = 'block';
       answerCard.style.display = 'none';
       errorCard.style.display = 'none';
+      clearErrorDiagnostics();
     }
     function showAnswer(html, payload) {
       setCopyTarget(payload);
@@ -515,8 +527,40 @@
       waitingCard.style.display = 'none';
       answerCard.style.display = 'block';
       errorCard.style.display = 'none';
+      clearErrorDiagnostics();
     }
-    function showError(msg) {
+    function clearErrorDiagnostics() {
+      errorDiagnostics.open = false;
+      errorDiagnosticsText.textContent = '';
+    }
+    function renderErrorDiagnostics(detail) {
+      clearErrorDiagnostics();
+      if (!detail || typeof detail !== 'object') {
+        errorDiagnosticsText.textContent = '暂无信息：此错误未提供结构化诊断。';
+        return;
+      }
+      var codes = ['invalid_config', 'cancelled', 'timeout', 'network_error', 'tls_error',
+        'authentication_failed', 'permission_denied', 'not_found_or_protocol_mismatch',
+        'invalid_request', 'rate_limited', 'quota_exhausted', 'request_too_large',
+        'provider_unavailable', 'empty_response', 'invalid_response', 'incomplete_response',
+        'stream_interrupted', 'refused', 'vision_mismatch', 'vision_inconclusive', 'probe_disabled', 'response_failed'];
+      var stages = ['validate_config', 'build_request', 'send_request', 'read_response',
+        'stream_response', 'validate_response', 'validate_probe'];
+      var protocols = ['openai_chat', 'openai_responses', 'anthropic_messages'];
+      var code = codes.indexOf(detail.code) >= 0 ? detail.code : 'unknown';
+      var status = Number.isInteger(detail.httpStatus) && detail.httpStatus >= 100 && detail.httpStatus <= 599 ? detail.httpStatus : '未知';
+      var retry = code === 'unknown' || code === 'response_failed' ? '未知，请先定位原因' :
+        detail.retryable === true ? '可手动重试' : detail.retryable === false ? '不建议直接重试，请先检查配置或请求' : '未知，请先定位原因';
+      errorDiagnosticsText.textContent = [
+        '错误类别：' + (code === 'unknown' ? '未知（unknown）' : code),
+        '失败阶段：' + (stages.indexOf(detail.stage) >= 0 ? detail.stage : '未知'),
+        'HTTP 状态码：' + status,
+        '实际请求协议：' + (protocols.indexOf(detail.protocol) >= 0 ? detail.protocol : '未知'),
+        '是否建议重试：' + retry
+      ].join(String.fromCharCode(10));
+    }
+    function showError(msg, detail) {
+      renderErrorDiagnostics(detail);
       setCopyTarget(null);
       errorText.innerHTML = escapeHtml(msg || '未知错误');
       waitingCard.style.display = 'none';
@@ -540,6 +584,7 @@
       waitingCard.style.display = 'none';
       answerCard.style.display = 'none';
       errorCard.style.display = 'none';
+      clearErrorDiagnostics();
       shortcutHints.textContent = '';
       shortcutCard.hidden = true;
       histSide.textContent = '';
@@ -740,6 +785,7 @@
         waitingCard.style.display = 'none';
         answerCard.style.display = 'none';
         errorCard.style.display = 'none';
+        clearErrorDiagnostics();
         return;
       }
 
@@ -753,7 +799,7 @@
       }
       if (snap.status === 'error') {
         setBadge('出错', 'error');
-        showError(snap.error || '求解出错');
+        showError(snap.error || '求解出错', snap.errorDetail);
         return;
       }
       if (snap.status === 'done') {
@@ -784,6 +830,7 @@
       waitingCard.style.display = 'none';
       answerCard.style.display = 'none';
       errorCard.style.display = 'none';
+      clearErrorDiagnostics();
     }
 
     // =====================================================================

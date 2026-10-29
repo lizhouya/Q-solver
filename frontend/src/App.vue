@@ -253,7 +253,7 @@ onMounted(() => {
   on('solution-stream-chunk', (token) => solution.handleStreamChunk(token))
   on('solution-stream-thinking', (token) => solution.handleThinkingChunk(token))
 
-  on('solution-error', (rawErrMsg) => {
+  on('solution-error', (rawErrMsg, errorDetail) => {
     if (rawErrMsg && (rawErrMsg.includes('context canceled') || rawErrMsg.includes('canceled'))) {
       handleUserCancellation()
       return
@@ -268,9 +268,10 @@ onMounted(() => {
     } catch (_) {}
     settingsStore.statusText = '出错'
     settingsStore.statusIcon = '!'
-    const usedInline = solution.handleInlineError({ title, desc, icon })
+    const detail = solution.normalizeErrorDetail(errorDetail)
+    const usedInline = solution.handleInlineError({ title, desc, icon, detail })
     if (!usedInline) {
-      Object.assign(solution.errorState, { show: true, title, desc, icon, rawError: rawErrMsg, showDetails: false })
+      Object.assign(solution.errorState, { show: true, title, desc, icon, rawError: rawErrMsg, showDetails: false, detail })
       solution.isLoading = false
       solution.isAppending = false
       solution.shouldOverwriteHistory = true

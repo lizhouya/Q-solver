@@ -1,4 +1,5 @@
 import * as AppBindings from '../../wailsjs/go/app/App'
+import { withModelBridgeTimeout } from './modelBridgeTimeout'
 import {
   CancelRunningTask,
   GetQuestionBankStatus,
@@ -61,6 +62,7 @@ export const api = {
   getQuestionBankExportDraft: (id) => callApp('GetQuestionBankExportDraft', id),
   selectQuestionBankExportDirectory: (current) => callApp('SelectQuestionBankExportDirectory', current),
   prepareQuestionBankSegment: (id) => callApp('PrepareQuestionBankSegment', id),
+  retryFailedQuestionBankRecords: (sessionID) => callApp('RetryFailedQuestionBankRecords', sessionID),
   exportQuestionBankSegment: (request) => callApp('ExportQuestionBankSegment', request),
   listRecentQuestionBankSessions: () => callApp('ListRecentQuestionBankSessions'),
   getQuestionBankSessionDetail: (id) => callApp('GetQuestionBankSessionDetail', id),
@@ -74,6 +76,9 @@ export const api = {
   syncSettings: (json) => UpdateSettings(json),
   updateSettings: (json) => UpdateSettings(json),
 
+  listModelsForDraft: (connection) => withModelBridgeTimeout(callApp('ListModelsForDraft', connection), 'catalog'),
+  probeModelConnection: (request) => withModelBridgeTimeout(callApp('ProbeModelConnection', request), 'probe'),
+  // 旧 binding 保留给旧前端或回滚版本；新设置页只调用结构化接口。
   getModels: (apiKey, baseURL) => callApp('GetModelsForConnection', apiKey, baseURL),
   testConnection: (apiKey, baseURL, model) => callApp('TestConnectionForConnection', apiKey, baseURL, model),
 

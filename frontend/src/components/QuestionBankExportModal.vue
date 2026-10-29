@@ -63,7 +63,10 @@
               <div class="qb-suggestion-heading">
                 <strong>模型元数据建议（待核对）</strong>
                 <span v-if="bank.status.organizing">整理中 {{ bank.status.progress?.done || 0 }}/{{ bank.status.progress?.total || 0 }}</span>
-                <span v-else-if="bank.exportDraft.organizeReady">准备完成</span>
+                <span v-else-if="organizeOutcome === 'complete'">准备完成</span>
+                <span v-else-if="organizeOutcome === 'partial'">部分完成</span>
+                <span v-else-if="organizeOutcome === 'all_failed'">全部整理失败</span>
+                <span v-else-if="organizeOutcome === 'no_eligible'">无可整理记录</span>
                 <span v-else>待整理 {{ bank.exportDraft.pendingOrganize }} 条</span>
               </div>
               <template v-if="bank.exportDraft.metadataSuggestion">
@@ -76,9 +79,34 @@
               </template>
               <p v-else-if="bank.exportDraft.organizeReady">没有可用的元数据建议，请人工核对并填写下方字段。</p>
               <p v-if="bank.exportDraft.suggestionConflict" class="qb-suggestion-warning">不同提交给出的建议存在冲突，请以截图和原答案为准人工确认。</p>
-              <p v-if="bank.exportDraft.failedOrganize" class="qb-suggestion-warning">
-                {{ bank.exportDraft.failedOrganize }} 条记录整理失败；原稿和已完成结果仍保留，可核对后继续导出。
+              <p v-if="organizeOutcome === 'partial'" class="qb-suggestion-warning">
+                已整理 {{ bank.exportDraft.organizedRecords }} 条记录，失败 {{ bank.exportDraft.failedOrganize }} 条，共 {{ bank.exportDraft.structuredQuestions }} 道题。可只重试失败记录，或明确导出已有整理结果。
               </p>
+              <p v-else-if="organizeOutcome === 'all_failed'" class="qb-suggestion-warning">
+                全部整理失败，当前不能生成整理稿；原稿仍完整保留。
+              </p>
+              <p v-else-if="organizeOutcome === 'no_eligible'" class="qb-suggestion-warning">
+                当前没有可整理的已完成记录，只能导出原稿。
+              </p>
+              <div v-if="!bank.status.organizing && ['partial', 'all_failed', 'no_eligible'].includes(organizeOutcome)" class="qb-recovery-actions">
+                <button
+                  v-if="bank.exportDraft.failedOrganize > 0"
+                  type="button"
+                  :disabled="formLocked"
+                  @click="bank.retryFailedExport"
+                >只重试失败记录</button>
+                <button
+                  v-if="organizeOutcome === 'partial'"
+                  type="button"
+                  :disabled="formLocked"
+                  @click="bank.exportPartialResults"
+                >导出已有整理结果</button>
+                <button
+                  type="button"
+                  :disabled="formLocked"
+                  @click="bank.useRawOnlyExport"
+                >改为仅原稿</button>
+              </div>
               <p v-if="bank.status.organizing">关闭窗口不会取消整理；已完成结果会保存在该分段中。</p>
             </section>
 
@@ -154,7 +182,7 @@
             <div class="qb-output-preview">
               <strong>预计输出</strong>
               <span>{{ bank.exportExpectedFile }}</span>
-              <small>每次导出创建新的版本目录，不覆盖旧记录；整理稿不包含图片。</small>
+              <small>每次导出创建新的版本目录，不覆盖旧记录；整理稿按每道题紧跟参考答案和解析排版，不包含图片。</small>
             </div>
 
             <p v-if="bank.exportError" class="qb-export-error" role="alert">{{ bank.exportError }}</p>
@@ -169,7 +197,7 @@
               <button
                 type="submit"
                 class="qb-primary"
-                :disabled="formLocked || bank.exportDirectorySelecting"
+                :disabled="submitDisabled"
               >
                 <Icon v-if="formLocked" name="loader" :size="14" spinning />
                 {{ submitLabel }}
@@ -191,12 +219,27 @@ const bank = useQuestionBankStore()
 const dialog = ref(null)
 
 const formLocked = computed(() => bank.exportSubmitting || bank.status.organizing)
+const organizeOutcome = computed(() => {
+  const outcome = bank.exportDraft.organizeOutcome || 'pending'
+  if (bank.exportDraft.organizeReady && outcome === 'pending' && bank.exportDraft.pendingOrganize === 0) {
+    return bank.exportDraft.failedOrganize > 0 ? 'partial' : 'complete'
+  }
+  return outcome
+})
+const submitDisabled = computed(() => (
+  formLocked.value ||
+  bank.exportDirectorySelecting ||
+  (bank.exportDraft.autoOrganize && ['partial', 'all_failed', 'no_eligible'].includes(organizeOutcome.value))
+))
 const submitLabel = computed(() => {
   if (bank.status.organizing) return '模型整理中…'
   if (bank.exportSubmitting) return bank.exportDraft.autoOrganize && !bank.exportDraft.organizeReady
     ? '正在启动整理…'
     : '正在提交…'
   if (!bank.exportDraft.autoOrganize) return '仅导出原始记录'
+  if (organizeOutcome.value === 'all_failed') return '整理稿不可导出'
+  if (organizeOutcome.value === 'partial') return '请选择处理方式'
+  if (organizeOutcome.value === 'no_eligible') return '请改为仅原稿'
   return bank.exportDraft.organizeReady ? '确认命名并导出' : '整理并生成建议'
 })
 
@@ -352,6 +395,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-mu
 .qb-suggestion-values { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin-top: .55rem; }
 .qb-suggestion-card p { margin: .45rem 0 0; color: var(--text-secondary); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .qb-suggestion-card .qb-suggestion-warning { color: var(--color-warning); font-weight: 600; }
+.qb-recovery-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .65rem; }
+.qb-recovery-actions button { background: var(--surface-card); }
 
 .qb-output-preview {
   display: flex;

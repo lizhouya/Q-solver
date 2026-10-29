@@ -3,11 +3,12 @@
     <section class="overview-card">
       <div class="overview-header">
         <div class="overview-logo">
-          <div v-if="selectedProviderLogo.trim().startsWith('<svg')" v-html="selectedProviderLogo"></div>
+          <span v-if="connectionMode === 'ccr'" class="ccr-logo">CCR</span>
+          <div v-else-if="selectedProviderLogo.trim().startsWith('<svg')" v-html="selectedProviderLogo"></div>
           <img v-else :src="selectedProviderLogo" :alt="selectedProviderName" />
         </div>
         <div class="overview-copy">
-          <span class="overview-tag">OPENAI-COMPATIBLE</span>
+          <span class="overview-tag">{{ selectedProtocolLabel }}</span>
           <h3>{{ selectedProviderName }}</h3>
           <p>{{ selectedProviderDescription }}</p>
         </div>
@@ -16,6 +17,17 @@
 
     <section class="form-card">
       <div class="form-item">
+        <label class="field-label"><span>连接模式</span><span class="field-meta">Mode</span></label>
+        <div class="input-shell">
+          <select class="protocol-select" :value="connectionMode" @change="changeConnectionMode($event.target.value)">
+            <option value="direct">Direct 直连</option>
+            <option value="ccr">CCR 统一网关</option>
+          </select>
+        </div>
+        <p class="field-hint">Direct 由 Q-Solver 直接连接服务商；CCR 由统一网关负责上游路由与协议转换。</p>
+      </div>
+
+      <div v-if="connectionMode === 'direct'" class="form-item">
         <label class="field-label">
           <span>模型提供商</span>
           <span class="field-meta">Provider</span>
@@ -39,9 +51,28 @@
         </div>
       </div>
 
-      <div v-if="selectedProviderCode === 'custom'" class="form-item">
+      <div v-if="connectionMode === 'direct'" class="form-item">
         <label class="field-label">
-          <span>接口地址</span>
+          <span>API 协议</span>
+          <span class="field-meta">Protocol</span>
+        </label>
+        <div class="input-shell">
+          <select
+            class="protocol-select"
+            :value="apiProtocol"
+            @change="emit('update:apiProtocol', $event.target.value)"
+          >
+            <option value="openai_chat">Chat Completions</option>
+            <option value="openai_responses">Responses API</option>
+            <option value="anthropic_messages">Anthropic Messages</option>
+          </select>
+        </div>
+        <p class="field-hint">协议与品牌独立；请按当前服务端实际支持的协议选择。</p>
+      </div>
+
+      <div v-if="connectionMode === 'ccr' || selectedProviderCode === 'custom'" class="form-item">
+        <label class="field-label">
+          <span>{{ connectionMode === 'ccr' ? 'CCR 网关地址' : '接口地址' }}</span>
           <span class="field-meta">Base URL</span>
         </label>
         <div class="input-shell">
@@ -55,16 +86,16 @@
             type="text"
             :value="baseURL"
             @input="emit('update:baseURL', $event.target.value)"
-            placeholder="https://api.openai.com/v1"
+            :placeholder="connectionMode === 'ccr' ? 'http://127.0.0.1:3456/v1' : 'https://api.openai.com/v1'"
             class="text-input"
           />
         </div>
-        <p class="field-hint">仅在自定义模式下需要填写。</p>
+        <p class="field-hint">{{ connectionMode === 'ccr' ? '填写 CCR 根地址或 /v1 API root；不要填写 models 或 chat/completions endpoint。' : '填写 API root，不要填写完整的 messages、responses 或 chat/completions endpoint。' }}</p>
       </div>
 
       <div class="form-item">
         <label class="field-label">
-          <span>{{ selectedProviderName }} API Key</span>
+          <span>{{ connectionMode === 'ccr' ? 'CCR API Key' : `${selectedProviderName} API Key` }}</span>
           <span class="field-meta">Credential</span>
         </label>
         <div class="input-shell">
@@ -77,10 +108,16 @@
             type="password"
             :value="apiKey"
             @input="emit('update:apiKey', $event.target.value)"
-            :placeholder="selectedProviderCode === 'custom' ? '请输入你的 API Key' : `请输入 ${selectedProviderName} 的 API Key`"
+            :placeholder="connectionMode === 'ccr' ? '请输入 CCR API Key' : (selectedProviderCode === 'custom' ? '请输入你的 API Key' : `请输入 ${selectedProviderName} 的 API Key`)"
             class="text-input"
           />
         </div>
+      </div>
+
+      <div v-if="connectionMode === 'ccr'" class="ccr-notice">
+        <strong>固定 Chat Completions 入站</strong>
+        <p>Q-Solver 固定通过 Chat Completions 入站调用；实际 provider、协议转换和路由由 CCR 管理。模型目录同步不会调用模型推理。</p>
+        <button type="button" class="continue-button" @click="emit('continue-to-model')">进入模型页并同步目录</button>
       </div>
     </section>
 
@@ -126,11 +163,13 @@ import {
 } from '../utils/modelCapabilities'
 
 const props = defineProps({
+  connectionMode: { type: String, default: 'direct' },
   apiKey: { type: String, default: '' },
   baseURL: { type: String, default: '' },
+  apiProtocol: { type: String, default: 'openai_chat' },
 })
 
-const emit = defineEmits(['update:apiKey', 'update:baseURL'])
+const emit = defineEmits(['update:connectionMode', 'update:apiKey', 'update:baseURL', 'update:apiProtocol', 'select-provider', 'continue-to-model'])
 
 const isOpen = ref(false)
 const selectRef = ref(null)
@@ -151,22 +190,29 @@ const featuredProviders = computed(() => FEATURED_PROVIDER_CODES.map((code) => (
 })))
 
 const selectedProviderCode = ref(guessProviderFromBaseURL(props.baseURL))
-const selectedProviderName = computed(() => PROVIDERS[selectedProviderCode.value]?.name || '自定义')
+const selectedProviderName = computed(() => props.connectionMode === 'ccr' ? 'CCR 统一网关' : (PROVIDERS[selectedProviderCode.value]?.name || '自定义'))
+const protocolLabels = {
+  openai_chat: 'CHAT COMPLETIONS',
+  openai_responses: 'RESPONSES API',
+  anthropic_messages: 'ANTHROPIC MESSAGES',
+}
+const selectedProtocolLabel = computed(() => props.connectionMode === 'ccr' ? 'CHAT COMPLETIONS VIA CCR' : (protocolLabels[props.apiProtocol] || '未识别协议'))
 const selectedProviderLogo = computed(() => getProviderLogoByCode(selectedProviderCode.value))
 const selectedProviderDescription = computed(() => {
+  if (props.connectionMode === 'ccr') return '读取 CCR 模型目录后可直接切换路由；Q-Solver 不根据模型名猜测上游协议。'
   const descriptions = {
     openai: 'OpenAI 官方接口，适合直接接入 GPT 系列模型和标准兼容能力。',
     google: 'Google Gemini 的兼容接口，适合接入 Gemini 系列模型。',
-    anthropic: 'Anthropic Claude 的兼容接口，适合长上下文和高质量文本生成场景。',
+    anthropic: 'Anthropic 官方服务；默认推荐原生 Messages，也可按网关能力独立选择其他协议。',
     deepseek: 'DeepSeek 兼容接口，适合理解、推理和代码类任务。',
     alibaba: '阿里云百炼兼容接口，可接入 Qwen 等模型服务。',
     moonshot: 'Moonshot AI 兼容接口，适合接入 Kimi 系列模型。',
     openrouter: 'OpenRouter 聚合了多家模型服务商，方便统一切换模型来源。',
-    custom: '自定义兼容地址，适合接入任意 OpenAI-compatible 服务。',
+    custom: '自定义 API root；协议由上方选项显式决定，不根据地址或模型名推断。',
   }
-  return descriptions[selectedProviderCode.value] || '通过 OpenAI-compatible 接口接入你的模型服务。'
+  return descriptions[selectedProviderCode.value] || '选择品牌预设后，仍可独立调整实际 API 协议。'
 })
-const isReady = computed(() => !!props.apiKey && (selectedProviderCode.value !== 'custom' || !!props.baseURL))
+const isReady = computed(() => !!props.apiKey && ((props.connectionMode === 'ccr' || selectedProviderCode.value === 'custom') ? !!props.baseURL : true))
 
 watch(() => props.baseURL, (newBaseURL) => {
   const normalized = (newBaseURL || '').trim()
@@ -192,9 +238,23 @@ function toggle() {
   })
 }
 
+function changeConnectionMode(mode) {
+  emit('update:connectionMode', mode)
+  if (mode !== 'ccr') return
+  emit('update:apiProtocol', 'openai_chat')
+  const current = (props.baseURL || '').trim().replace(/\/$/, '')
+  if (!current || current === 'https://api.openai.com/v1') {
+    emit('update:baseURL', 'http://127.0.0.1:3456/v1')
+  }
+}
+
 function selectProvider(providerCode) {
   selectedProviderCode.value = providerCode
-  emit('update:baseURL', PROVIDER_BASE_URLS[providerCode] ?? '')
+  const recommendedProtocol = providerCode === 'anthropic' ? 'anthropic_messages' : 'openai_chat'
+  emit('select-provider', {
+    baseURL: PROVIDER_BASE_URLS[providerCode] ?? '',
+    apiProtocol: recommendedProtocol,
+  })
   isOpen.value = false
 }
 
@@ -418,6 +478,15 @@ onUnmounted(() => {
 
 .select-arrow.rotated { transform: rotate(180deg); }
 
+.protocol-select {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
 .text-input {
   flex: 1;
   width: 100%;
@@ -460,6 +529,32 @@ onUnmounted(() => {
 }
 
 .status-text { font-size: var(--text-xs); }
+
+.ccr-logo {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
+}
+
+.ccr-notice {
+  padding: var(--sp-4);
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
+  color: var(--text-secondary);
+}
+.ccr-notice strong { color: var(--text-primary); }
+.ccr-notice p { margin: var(--sp-2) 0 var(--sp-3); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.continue-button {
+  min-height: 36px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-inverse);
+  cursor: pointer;
+}
 
 @media (max-height: 740px) {
   .provider-page { gap: var(--sp-3); }

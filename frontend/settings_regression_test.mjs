@@ -7,21 +7,21 @@ const { reactive, ref, computed, watch, nextTick } = require('vue')
 const { defineStore, createPinia, setActivePinia } = require('pinia')
 const source = fs.readFileSync(new URL('./src/stores/settings.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '').replace('export const useSettingsStore', 'const useSettingsStore')
-const fixture = { apiKey: 'fixture-only', baseURL: 'http://localhost/v1', model: 'fixture-model', theme: 'light', windowWidth: 900, interruptThinking: true }
+const fixture = { apiKey: 'fixture-only', baseURL: 'http://localhost/v1', connectionMode: 'direct', apiProtocol: 'openai_chat', model: 'fixture-model', theme: 'light', windowWidth: 900, interruptThinking: true }
 function setup(overrides = {}, platform = 'Win32') {
   setActivePinia(createPinia())
   const calls = []
-  const ui = reactive({ availableModels: [], isLoadingModels: false, showSettings: false, showToast: () => {} })
+  const ui = reactive({ availableModels: [], isLoadingModels: false, showSettings: false, textProbeLoading: false, visionProbeLoading: false, probeStatus: { text: null, vision: null }, showToast: () => {} })
   const api = {
     getSettings: async () => ({ ...fixture }), getDomainCategories: async () => [],
     syncSettings: async (value) => { calls.push(['save', JSON.parse(value)]); return '' },
-    getModels: async (...args) => { calls.push(['models', ...args]); return ['draft-model'] },
-    testConnection: async (...args) => { calls.push(['test', ...args]); return '' },
+    listModelsForDraft: async (draft) => { calls.push(['models', { ...draft }]); return { models: ['draft-model'], error: null } },
+    probeModelConnection: async (request) => { calls.push(['probe', JSON.parse(JSON.stringify(request))]); return { kind: request.kind, outcome: 'passed', protocol: request.connection.apiProtocol, message: '通过', requestSent: true } },
     restoreFocus: async () => {}, removeFocus: async () => {}, ...overrides,
   }
   const currentTheme = ref('light')
   const context = vm.createContext({
-    defineStore, reactive, ref, computed, watch, api, useUIStore: () => ui, currentTheme,
+    defineStore, reactive, ref, computed, watch, URL, api, useUIStore: () => ui, currentTheme,
     setTheme: (value) => { currentTheme.value = value },
     navigator: { platform, userAgent: '' }, window: { addEventListener() {} },
     document: { documentElement: { style: { setProperty() {} }, getAttribute: () => 'light' } },
@@ -56,9 +56,11 @@ assert.equal(h.calls.length, 0, 'opening settings must not call API')
 h.store.tempSettings.baseURL = 'http://localhost:9999/v1'
 h.store.tempSettings.apiKey = 'draft-key'
 await h.store.refreshModels()
-assert.deepEqual(h.calls[0], ['models', 'draft-key', 'http://localhost:9999/v1'])
+assert.deepEqual(h.calls[0], ['models', { connectionMode: 'direct', apiKey: 'draft-key', baseURL: 'http://localhost:9999/v1', model: 'fixture-model', apiProtocol: 'openai_chat' }])
 await h.store.testConnection()
-assert.deepEqual(h.calls[1], ['test', 'draft-key', 'http://localhost:9999/v1', 'draft-model'])
+assert.equal(h.calls[1][0], 'probe')
+assert.equal(h.calls[1][1].kind, 'text')
+assert.equal(h.calls[1][1].connection.model, 'fixture-model')
 assert.equal(h.store.settings.baseURL, fixture.baseURL, 'testing must not change saved state')
 await h.store.saveSettings({ close: false })
 assert.equal(h.calls[2][1].windowWidth, 900, 'unexposed fields must survive save')
@@ -77,12 +79,12 @@ assert.equal(h.store.settings.apiKey, fixture.apiKey)
 
 // 迟到模型列表不可覆盖用户随后修改的连接信息。
 let resolveModels
-h = setup({ getModels: () => new Promise(resolve => { resolveModels = resolve }) })
+h = setup({ listModelsForDraft: () => new Promise(resolve => { resolveModels = resolve }) })
 await h.store.loadSettings()
 await h.store.openSettings()
 const pending = h.store.refreshModels()
 h.store.tempSettings.baseURL = 'http://localhost:9998/v1'
-resolveModels(['stale-model'])
+resolveModels({ models: ['stale-model'], error: null })
 await pending
 assert.equal(h.ui.availableModels.length, 0)
 assert.equal(h.store.tempSettings.model, fixture.model)

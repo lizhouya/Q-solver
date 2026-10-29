@@ -154,6 +154,7 @@ func GetSystemBehaviorPrompt() string {
     <Rule>先理解题目和截图内容，再给出结论与解释。</Rule>
     <Rule>如果是选择题，必须明确给出最终选项。</Rule>
     <Rule>如果信息不足，明确指出缺失条件，不要编造内容。</Rule>
+    <Rule>如果无法读取或看不到当前用户消息中的图片，必须明确说明无法识别图片，不得依据题号摘要、历史对话或任何文本提示生成、猜测或补全题目。</Rule>
     <Rule>不要输出与任务无关的寒暄或空泛套话。</Rule>
   </BehaviorRules>
 

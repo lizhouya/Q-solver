@@ -97,7 +97,7 @@ func TestSealCurrentForNextEndedAndExportedAreIdempotent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		exported, err := s.ExportSession(id, ExportOptions{Name: "下一套前导出"})
+		exported, err := s.ExportSession(id, ExportOptions{Name: "下一套前导出", RawOnly: true})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -69,6 +69,23 @@ func rawAnswerMarkdown(value string) string {
 	return fmt.Sprintf("%s%c%s%c%s%c%c", fence, 10, value, 10, fence, 10, 10)
 }
 
+func writeMarkdownList(builder *strings.Builder, title string, values []string) {
+	fmt.Fprintf(builder, "**%s：**\n\n", title)
+	wroteValue := false
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		fmt.Fprintf(builder, "- %s\n", modelMarkdown(value))
+		wroteValue = true
+	}
+	if !wroteValue {
+		builder.WriteString("- 待核对\n")
+	}
+	builder.WriteString("\n")
+}
+
 func normalizedExportName(value string, session *Session) string {
 	name := strings.TrimSpace(value)
 	name = strings.TrimSuffix(strings.TrimSuffix(name, ".md"), ".MD")
@@ -128,6 +145,9 @@ func (s *Store) ExportSession(id string, opts ExportOptions) (ExportResult, erro
 		if record.Status == Running {
 			return ExportResult{}, fmt.Errorf("分段仍有题目正在处理")
 		}
+	}
+	if !opts.RawOnly && SummarizeOrganizeState(session).StructuredQuestions == 0 {
+		return ExportResult{}, fmt.Errorf("没有可导出的结构化题目；请重试整理或改为仅导出原稿")
 	}
 
 	exportRoot := s.root
@@ -338,17 +358,15 @@ func (s *Store) renderExport(session *Session, base, name string, opts ExportOpt
 	}
 
 	var organized strings.Builder
-	fmt.Fprintf(&organized, "# %s\n\n- 出题方：%s\n- 单位：%s\n- 题型：%s\n- 题目数量：%d\n- 整理时间：%s\n\n> 题干、分类、参考答案与解析由模型辅助提炼，均需人工核对。完整截图和未经改写的原答案见 [原始记录](原始记录.md)。\n\n## 试题\n\n", heading(name), heading(issuer), heading(company), heading(kind), questionCount, time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&organized, "# %s\n\n- 出题方：%s\n- 单位：%s\n- 题型：%s\n- 题目数量：%d\n- 整理时间：%s\n\n> 题干、分类、参考答案与解析由模型辅助提炼，均需人工核对。完整截图和未经改写的原答案见 [原始记录](原始记录.md)。\n\n## 试题与解析\n\n", heading(name), heading(issuer), heading(company), heading(kind), questionCount, time.Now().Format("2006-01-02 15:04:05"))
 	if len(categories) == 0 {
 		organized.WriteString("暂无结构化整理结果。\n\n")
 	}
-	ordered := make([]organizedQuestion, 0, questionCount)
 	for _, category := range categories {
 		fmt.Fprintf(&organized, "### %s\n\n", heading(category))
 		for _, questionType := range typesByCategory[category] {
 			fmt.Fprintf(&organized, "#### %s\n\n", heading(questionType))
 			for _, item := range groups[category][questionType] {
-				ordered = append(ordered, item)
 				question := item.question
 				fmt.Fprintf(&organized, "##### 第 %d 题：%s\n\n%s\n\n", item.number, heading(question.Title), modelMarkdown(question.Stem))
 				for _, option := range question.Options {
@@ -357,35 +375,21 @@ func (s *Store) renderExport(session *Session, base, name string, opts ExportOpt
 				if len(question.Options) > 0 {
 					organized.WriteString("\n")
 				}
-			}
-		}
-	}
 
-	organized.WriteString("## 参考答案与解析\n\n")
-	for _, item := range ordered {
-		question := item.question
-		referenceAnswer := strings.TrimSpace(question.ReferenceAnswer)
-		if referenceAnswer == "" {
-			referenceAnswer = "待核对"
-		}
-		fmt.Fprintf(&organized, "### 第 %d 题：%s\n\n**参考答案：** %s\n\n", item.number, heading(question.Title), modelMarkdown(referenceAnswer))
-		organized.WriteString("**知识点：**\n\n")
-		if len(question.KnowledgePoints) == 0 {
-			organized.WriteString("- 待核对\n")
-		} else {
-			for _, point := range question.KnowledgePoints {
-				fmt.Fprintf(&organized, "- %s\n", modelMarkdown(point))
+				referenceAnswer := strings.TrimSpace(question.ReferenceAnswer)
+				if referenceAnswer == "" {
+					referenceAnswer = "待核对"
+				}
+				fmt.Fprintf(&organized, "###### 参考答案与解析\n\n**参考答案：** %s\n\n", modelMarkdown(referenceAnswer))
+				writeMarkdownList(&organized, "知识点", question.KnowledgePoints)
+				writeMarkdownList(&organized, "解析要点", question.KeyPoints)
+				reviewNote := strings.TrimSpace(question.ReviewNote)
+				if reviewNote == "" {
+					reviewNote = "待核对"
+				}
+				fmt.Fprintf(&organized, "**来源：** [原始提交 %d](原始记录.md#record-%d)\n\n**核对说明：** %s\n\n---\n\n", item.recordIndex, item.recordIndex, modelMarkdown(reviewNote))
 			}
 		}
-		organized.WriteString("\n**解析要点：**\n\n")
-		if len(question.KeyPoints) == 0 {
-			organized.WriteString("- 待核对\n")
-		} else {
-			for _, point := range question.KeyPoints {
-				fmt.Fprintf(&organized, "- %s\n", modelMarkdown(point))
-			}
-		}
-		fmt.Fprintf(&organized, "\n**来源：** [原始提交 %d](原始记录.md#record-%d)\n\n**核对说明：** %s\n\n", item.recordIndex, item.recordIndex, modelMarkdown(question.ReviewNote))
 	}
 
 	if len(unorganized) > 0 {

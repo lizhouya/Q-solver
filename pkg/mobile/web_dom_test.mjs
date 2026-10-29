@@ -348,3 +348,29 @@ if (process.argv[2]) {
   assert.equal(completed, 2, '同一连接应完成两题')
   assert.equal(elements.get('history-list-side').children.length, 2, '两题均应实时进入历史')
 }
+
+// Change 028：错误与诊断同帧到达，旧快照可用；新题、清屏及迟到帧不残留详情。
+const diagnosticSource = StubEventSource.instances.at(-1)
+const diagnostic = { code: 'rate_limited', stage: 'stream_response', protocol: 'openai_chat', httpStatus: 429, retryable: true }
+diagnosticSource.emit('snapshot', snapshot('diagnostic-session', 1, 1, '', 0, '', { status: 'error', error: '请求过于频繁', errorDetail: diagnostic }))
+assert.match(elements.get('error-diagnostics-text').textContent, /429/)
+assert.match(elements.get('error-diagnostics-text').textContent, /rate_limited/)
+assert.match(elements.get('error-diagnostics-text').textContent, /openai_chat/)
+assert.equal(elements.get('error-diagnostics-text').innerHTMLWrites, 0, '诊断必须使用 textContent')
+diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 2, '', 0, '', { status: 'waiting' }))
+assert.equal(elements.get('error-diagnostics-text').textContent, '')
+diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 1, '', 0, '', { status: 'error', errorDetail: diagnostic }))
+assert.equal(elements.get('error-diagnostics-text').textContent, '', '迟到错误不能覆盖新题')
+diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 3, '', 0, '', { status: 'error', error: '旧字符串错误' }))
+assert.match(elements.get('error-diagnostics-text').textContent, /暂无信息/)
+diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 4, '', 0, '', { status: 'error', error: '安全文案', errorDetail: {
+  code: 'TEST_ONLY_PRIVATE_KEY', stage: 'TEST_ONLY_PRIVATE_TOKEN', protocol: 'TEST_ONLY_PRIVATE_URL',
+  httpStatus: 999, retryable: 'TEST_ONLY_PRIVATE_PROMPT', message: 'TEST_ONLY_PRIVATE_RESPONSE',
+} }))
+assert.doesNotMatch(elements.get('error-diagnostics-text').textContent, /TEST_ONLY_PRIVATE/)
+assert.match(elements.get('error-diagnostics-text').textContent, /未知/)
+diagnosticSource.emit('snapshot', snapshot('diagnostic-session', 2, 5, '', 0, '', { status: 'idle' }))
+assert.equal(elements.get('error-diagnostics-text').textContent, '')
+diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 6, '', 0, '', { status: 'error', errorDetail: diagnostic }))
+assert.equal(elements.get('error-diagnostics-text').textContent, '', '旧 clearSeq 错误不得穿透清屏')
+console.log('Mobile error diagnostics DOM regression tests passed')

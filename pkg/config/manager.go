@@ -14,6 +14,7 @@ type ConfigManager struct {
 	loaded      bool
 	config      Config
 	mu          sync.RWMutex
+	updateMu    sync.Mutex
 	configPath  string
 	oldConfig   Config // 这是老配置
 	subscribers []func(NewConfig Config, oldConfig Config)
@@ -82,6 +83,14 @@ func (cm *ConfigManager) Load() error {
 	}
 	migrateClearMobileDisplayShortcut(&cfg, clearMobileDisplayConfigured)
 	migrateStartNextExamShortcut(&cfg, startNextExamConfigured)
+	normalized, normalizeErr := cfg.NormalizedConnectionSettings()
+	if normalizeErr != nil {
+		return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
+	}
+	cfg = normalized
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
+	}
 	cm.config = cfg
 	cm.loaded = true
 	logger.Println("配置已加载")
@@ -89,14 +98,22 @@ func (cm *ConfigManager) Load() error {
 }
 
 func (cm *ConfigManager) Save() error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.updateMu.Lock()
+	defer cm.updateMu.Unlock()
 
+	cm.mu.RLock()
 	if !cm.loaded {
+		cm.mu.RUnlock()
 		return fmt.Errorf("配置尚未成功加载，已阻止保存以保护原配置")
 	}
+	candidate := cm.config
+	cm.mu.RUnlock()
 
-	plain, err := json.MarshalIndent(cm.config, "", "  ")
+	return cm.saveSnapshot(candidate)
+}
+
+func (cm *ConfigManager) saveSnapshot(candidate Config) error {
+	plain, err := json.MarshalIndent(candidate, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %w", err)
 	}
@@ -120,50 +137,79 @@ func (cm *ConfigManager) Get() Config {
 
 // UpdateFromJSON 从前端 JSON 全量更新配置
 func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
+	cm.updateMu.Lock()
+	defer cm.updateMu.Unlock()
+
 	if err := cm.Load(); err != nil {
 		return err
 	}
-	var newConfig Config
+	newConfig := NewDefaultConfig()
 	if err := json.Unmarshal([]byte(jsonStr), &newConfig); err != nil {
 		return fmt.Errorf("解析配置 JSON 失败: %w", err)
 	}
+	normalized, err := newConfig.NormalizedConnectionSettings()
+	if err != nil {
+		return err
+	}
+	newConfig = normalized
+	if err := newConfig.Validate(); err != nil {
+		return err
+	}
+	if err := cm.saveSnapshot(newConfig); err != nil {
+		return err
+	}
 
 	cm.mu.Lock()
-	cm.oldConfig = cm.config //保存当前配置为之前的配置
+	oldConfigCopy := cm.config
+	cm.oldConfig = oldConfigCopy
 	cm.config = newConfig
 	configCopy := cm.config
-	oldConfigCopy := cm.oldConfig
-	subscribers := cm.subscribers
+	subscribers := append([]func(NewConfig Config, oldConfig Config){}, cm.subscribers...)
 	cm.mu.Unlock()
 
-	// 通知订阅者
 	for _, sub := range subscribers {
 		sub(configCopy, oldConfigCopy)
 	}
-
-	return cm.Save()
+	return nil
 }
 
 // Patch 部分更新配置字段（避免全量序列化/反序列化的开销）
 // patchFn 接收当前配置指针，直接修改需要变更的字段
 func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
+	cm.updateMu.Lock()
+	defer cm.updateMu.Unlock()
+
 	if err := cm.Load(); err != nil {
 		return err
 	}
+	cm.mu.RLock()
+	oldConfigCopy := cm.config
+	cm.mu.RUnlock()
+	candidate := oldConfigCopy
+	patchFn(&candidate)
+	normalized, err := candidate.NormalizedConnectionSettings()
+	if err != nil {
+		return err
+	}
+	candidate = normalized
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	if err := cm.saveSnapshot(candidate); err != nil {
+		return err
+	}
+
 	cm.mu.Lock()
-	cm.oldConfig = cm.config
-	patchFn(&cm.config)
+	cm.oldConfig = oldConfigCopy
+	cm.config = candidate
 	configCopy := cm.config
-	oldConfigCopy := cm.oldConfig
-	subscribers := cm.subscribers
+	subscribers := append([]func(NewConfig Config, oldConfig Config){}, cm.subscribers...)
 	cm.mu.Unlock()
 
-	// 通知订阅者
 	for _, sub := range subscribers {
 		sub(configCopy, oldConfigCopy)
 	}
-
-	return cm.Save()
+	return nil
 }
 
 func (cm *ConfigManager) Subscribe(callback func(NewConfig Config, oldConfig Config)) {

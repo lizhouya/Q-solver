@@ -126,7 +126,10 @@ func (s *Service) ParseResume(ctx context.Context) (string, error) {
 
 	logger.Println("开始通过当前模型解析简历")
 
-	adapter := llm.NewOpenAIAdapter(&cfg)
+	provider, err := llm.NewProvider(cfg)
+	if err != nil {
+		return "", err
+	}
 	messages := []llm.Message{
 		llm.NewSystemMessage(prompts.ResumeParsePrompt),
 		llm.NewMultiPartMessage(llm.RoleUser, []llm.ContentPart{
@@ -135,7 +138,7 @@ func (s *Service) ParseResume(ctx context.Context) (string, error) {
 		}),
 	}
 
-	result, err := adapter.GenerateContent(ctx, cfg.Model, messages)
+	result, err := provider.GenerateContent(ctx, cfg.Model, messages)
 	if err != nil {
 		logger.Printf("简历解析失败: %v", err)
 		return "", err

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"Q-Solver/pkg/llm/protocol"
 	"Q-Solver/pkg/shortcut"
 	"encoding/json"
 	"runtime"
@@ -9,6 +10,8 @@ import (
 type Config struct {
 	APIKey             string                         `json:"apiKey,omitempty"`
 	BaseURL            string                         `json:"baseURL,omitempty"`
+	ConnectionMode     string                         `json:"connectionMode,omitempty"`
+	APIProtocol        string                         `json:"apiProtocol,omitempty"`
 	Model              string                         `json:"model,omitempty"`
 	Prompt             string                         `json:"prompt,omitempty"`
 	DomainId           string                         `json:"domainId,omitempty"` // 行业/岗位选择ID
@@ -42,6 +45,8 @@ func NewDefaultConfig() Config {
 	return Config{
 		APIKey:             "",
 		BaseURL:            "https://api.openai.com/v1",
+		ConnectionMode:     ConnectionModeDirect,
+		APIProtocol:        string(protocol.OpenAIChat),
 		Model:              DefaultModel,
 		ResumePath:         "",
 		Prompt:             "",
@@ -171,6 +176,9 @@ func (c *Config) ToJSON() string {
 }
 
 func (c *Config) Validate() error {
+	if _, err := c.NormalizedConnectionSettings(); err != nil {
+		return err
+	}
 	if c.ScreenshotMode != "" && c.ScreenshotMode != "fullscreen" && c.ScreenshotMode != "window" {
 		return &ValidationError{Field: "screenshotMode", Message: "截图模式必须是 'fullscreen' 或 'window'"}
 	}

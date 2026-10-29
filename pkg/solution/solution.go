@@ -122,7 +122,7 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 
 	logger.Println("开始解题流程")
 	systemPrompt := buildSystemPrompt(req.Config)
-	logger.Println("system 提示词:", systemPrompt)
+	logger.Printf("system 提示词长度: %d", len(systemPrompt))
 
 	numberingContext := answersummary.FormatNumberingContext(req.NumberingContext)
 	partCapacity := len(req.Screenshots)
@@ -159,7 +159,7 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 
 	messagesToSend := make([]llm.Message, 0, len(history)+2)
 	messagesToSend = append(messagesToSend, llm.NewSystemMessage(systemPrompt))
-	messagesToSend = append(messagesToSend, history...)
+	messagesToSend = append(messagesToSend, trimHistoryForSend(history)...)
 	messagesToSend = append(messagesToSend, cloneMessage(currentUserMsg))
 
 	if cb.EmitEvent != nil {
@@ -186,26 +186,28 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			logger.Println("当前任务已中断（用户产生新输入）")
 			if cb.EmitEvent != nil {
-				cb.EmitEvent("solution-error", "context canceled")
+				detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorCancelled, llm.StageStreamResponse, "", nil))
+				cb.EmitEvent("solution-error", "context canceled", detail)
 			}
 			return false
 		}
 
-		logger.Printf("LLM 请求失败: %v\n", err)
+		logger.Println("LLM 请求失败")
 		if cb.EmitEvent != nil {
-			cb.EmitEvent("solution-error", err.Error())
+			detail := llm.DiagnoseError(err)
+			cb.EmitEvent("solution-error", detail.Message, detail)
 		}
 		return false
 	}
 
 	logger.Printf("[解题] 模型返回内容长度: %d", len(response.Content))
-	logger.Printf("[解题] 模型返回内容: %s", response.Content)
 	logger.Printf("[解题] 模型返回思考链长度: %d", len(response.Thinking))
 
 	if response.Content == "" && response.Thinking == "" {
 		logger.Println("[解题] 警告: 模型返回内容为空")
 		if cb.EmitEvent != nil {
-			cb.EmitEvent("solution-error", "模型返回内容为空，请检查模型配置或稍后重试")
+			detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorEmptyResponse, llm.StageValidateResponse, "", nil))
+			cb.EmitEvent("solution-error", "模型返回内容为空，请检查模型配置或稍后重试", detail)
 		}
 		return false
 	}
@@ -260,6 +262,23 @@ func (s *Solver) trimChatHistory() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.trimChatHistoryLocked()
+}
+
+// trimHistoryForSend 把历史裁剪到 MaxConversationRounds-1 轮，
+// 为紧随其后的当前轮预留位置，使单次请求的总轮数不超过 MaxConversationRounds。
+// 仅在发送侧生效，不改变 chatHistory 的存储内容。
+func trimHistoryForSend(history []llm.Message) []llm.Message {
+	maxMessages := (MaxConversationRounds - 1) * 2
+	if len(history) <= maxMessages {
+		return history
+	}
+
+	start := len(history) - maxMessages
+	// Preserve the pair boundary even if malformed state was assigned internally.
+	if start%2 != 0 {
+		start++
+	}
+	return history[start:]
 }
 
 func (s *Solver) trimChatHistoryLocked() {

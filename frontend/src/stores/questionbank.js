@@ -38,6 +38,10 @@ const emptyExportDraft = () => ({
   metadataSuggestion: null,
   suggestionConflict: false,
   organizeReady: false,
+  organizeOutcome: 'pending',
+  eligibleOrganize: 0,
+  organizedRecords: 0,
+  structuredQuestions: 0,
   pendingOrganize: 0,
   failedOrganize: 0,
 })
@@ -58,6 +62,10 @@ function normalizeExportDraft(value) {
     nameCustomized: value?.nameCustomized === true,
     suggestionConflict: value?.suggestionConflict === true,
     organizeReady: value?.organizeReady === true,
+    organizeOutcome: value?.organizeOutcome || 'pending',
+    eligibleOrganize: Number(value?.eligibleOrganize || 0),
+    organizedRecords: Number(value?.organizedRecords || 0),
+    structuredQuestions: Number(value?.structuredQuestions || 0),
     pendingOrganize: Number(value?.pendingOrganize || 0),
     failedOrganize: Number(value?.failedOrganize || 0),
     count: Number(value?.count || 0),
@@ -182,7 +190,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
   const exportExpectedFile = computed(() => {
     if (!exportDraft.autoOrganize) return '仅生成 原始记录.md 与 assets/'
     const name = exportDraft.name.trim() || '题库'
-    return `生成 ${name}.md、原始记录.md 与 assets/`
+    return `生成逐题解析整理稿 ${name}.md、原始记录.md 与 assets/`
   })
 
   function reportError(prefix, cause) {
@@ -534,6 +542,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
       const draft = await api.getQuestionBankExportDraft(exportDraft.sessionId)
       if (version !== exportRequestVersion || !exportVisible.value) return false
       Object.assign(exportDraft, normalizeExportDraft(draft))
+      exportDraft.autoOrganize = localDraft.autoOrganize
       if (localDraft.directory) exportDraft.directory = localDraft.directory
       for (const field of ['company', 'issuer', 'type']) {
         if (touched[field]) exportDraft[field] = localDraft[field]
@@ -572,9 +581,41 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     }
   }
 
-  async function submitExport() {
+  function effectiveOrganizeOutcome() {
+    const outcome = exportDraft.organizeOutcome || 'pending'
+    if (exportDraft.organizeReady && outcome === 'pending' && exportDraft.pendingOrganize === 0) {
+      return exportDraft.failedOrganize > 0 ? 'partial' : 'complete'
+    }
+    return outcome
+  }
+
+  function useRawOnlyExport() {
     if (exportSubmitting.value || exportLoading.value || status.value.organizing) return false
-    if (exportDraft.autoOrganize && !exportDraft.organizeReady) return prepareExport()
+    exportDraft.autoOrganize = false
+    exportError.value = ''
+    return true
+  }
+
+  async function retryFailedExport() {
+    if (exportSubmitting.value || exportLoading.value || status.value.organizing || exportDraft.failedOrganize <= 0) return false
+    const version = exportRequestVersion
+    exportSubmitting.value = true
+    exportError.value = ''
+    try {
+      await api.retryFailedQuestionBankRecords(exportDraft.sessionId)
+      if (version !== exportRequestVersion) return false
+      ui.showToast('已开始只重试整理失败记录；成功项不会重复调用模型。', 'success', 3500)
+      await refresh()
+      return true
+    } catch (cause) {
+      if (version === exportRequestVersion) exportError.value = `重试整理失败：${errorMessage(cause)}`
+      return false
+    } finally {
+      if (version === exportRequestVersion) exportSubmitting.value = false
+    }
+  }
+
+  async function performExport(allowPartial = false) {
     const name = exportDraft.name.trim()
     if (!name) {
       exportError.value = '请填写题库名称。'
@@ -594,6 +635,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
       nameCustomized: exportNameEdited.value,
       directory: exportDraft.directory.trim(),
       autoOrganize: exportDraft.autoOrganize === true,
+      allowPartial: allowPartial === true,
     }
     exportSubmitting.value = true
     exportError.value = ''
@@ -612,6 +654,32 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     } finally {
       if (version === exportRequestVersion) exportSubmitting.value = false
     }
+  }
+
+  async function submitExport() {
+    if (exportSubmitting.value || exportLoading.value || status.value.organizing) return false
+    if (!exportDraft.autoOrganize) return performExport(false)
+    const outcome = effectiveOrganizeOutcome()
+    if (outcome === 'pending') return prepareExport()
+    if (outcome === 'partial') {
+      exportError.value = '仍有记录整理失败；请先重试，或点击“导出已有整理结果”。'
+      return false
+    }
+    if (outcome === 'all_failed') {
+      exportError.value = '全部整理失败，不能生成整理稿；请只重试失败记录或改为仅原稿。'
+      return false
+    }
+    if (outcome === 'no_eligible') {
+      exportError.value = '当前没有可整理的已完成记录，请改为仅原稿。'
+      return false
+    }
+    return performExport(false)
+  }
+
+  async function exportPartialResults() {
+    if (exportSubmitting.value || exportLoading.value || status.value.organizing) return false
+    if (!exportDraft.autoOrganize || effectiveOrganizeOutcome() !== 'partial') return false
+    return performExport(true)
   }
 
   async function exportCurrent() {
@@ -752,6 +820,9 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     closeExport,
     selectExportDirectory,
     prepareExport,
+    retryFailedExport,
+    useRawOnlyExport,
+    exportPartialResults,
     submitExport,
     setExportCompany,
     setExportIssuer,

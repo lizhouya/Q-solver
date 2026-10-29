@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+
+const provider = fs.readFileSync(new URL('./src/components/ProviderSelect.vue', import.meta.url), 'utf8')
+assert.ok(provider.includes('connectionMode'), 'provider page must accept connection mode')
+assert.ok(provider.includes('update:connectionMode'), 'provider page must emit connection mode changes')
+assert.ok(provider.includes('Direct 直连'))
+assert.ok(provider.includes('CCR 统一网关'))
+assert.ok(provider.includes("connectionMode === 'direct'"), 'direct provider/protocol controls must be conditional')
+assert.ok(provider.includes("connectionMode === 'ccr'"), 'CCR-specific configuration must be conditional')
+assert.ok(provider.includes('Q-Solver 固定通过 Chat Completions 入站调用'))
+assert.ok(provider.includes("emit('continue-to-model')"), 'CCR CTA must only emit navigation intent')
+assert.ok(provider.includes('http://127.0.0.1:3456/v1'), 'CCR should offer the local canonical default')
+
+const model = fs.readFileSync(new URL('./src/components/ModelSelect.vue', import.meta.url), 'utf8')
+assert.ok(model.includes('connectionMode'), 'model control must receive connection mode')
+assert.ok(model.includes('filteredModels'), 'model suggestions must be filtered locally')
+assert.ok(model.includes('.includes(query)'), 'filter must use case-insensitive substring matching')
+assert.ok(model.includes('const searchQuery = ref'), 'selected model and temporary search query must use separate state')
+assert.ok(!model.includes('const query = props.modelValue.trim().toLowerCase()'), 'saved model must not filter the catalog when reopening the dropdown')
+assert.ok(model.includes("searchQuery.value = ''"), 'opening or selecting must reset the temporary search query')
+assert.ok(model.includes('模型由 CCR 目录提供；Q-Solver 固定通过 Chat Completions 入站调用'))
+assert.ok(model.includes("connectionMode !== 'ccr'"), 'provider and capability inference must be hidden in CCR mode')
+
+const modal = fs.readFileSync(new URL('./src/components/SettingsModal.vue', import.meta.url), 'utf8')
+assert.ok(modal.includes('v-model:connectionMode="settingsStore.tempSettings.connectionMode"'))
+assert.ok(modal.includes('@continue-to-model="continueToCCRModels"'))
+assert.ok(modal.includes(':connection-mode="settingsStore.tempSettings.connectionMode"'))
+assert.ok(modal.includes("settingsStore.tempSettings.connectionMode === 'ccr'"), 'model page must branch for CCR')
+assert.ok(modal.includes("settingsStore.tempSettings.connectionMode !== 'ccr'"), 'paid probes must be direct-only')
+assert.ok(modal.includes('settingsStore.ensureCCRModelCatalog()'), 'model-tab watcher must be the automatic sync trigger')
+assert.ok(modal.includes("ui.activeTab = 'model'"), 'CCR CTA must only navigate to model tab')
+assert.ok(modal.includes('!settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL'), 'catalog refresh must require both key and base URL')
+
+console.log('CCR UI regression tests passed')

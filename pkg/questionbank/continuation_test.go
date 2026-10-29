@@ -379,7 +379,7 @@ func TestActivateHistoricalExportedSessionPreservesExportHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	exported, err := s.ExportSession(targetID, ExportOptions{Name: "历史导出"})
+	exported, err := s.ExportSession(targetID, ExportOptions{Name: "历史导出", RawOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestContinueExportedSessionAppendsAndCreatesNewExportVersion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := s.ExportSession(targetID, ExportOptions{Name: "版本题库"})
+	first, err := s.ExportSession(targetID, ExportOptions{Name: "版本题库", RawOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestContinueExportedSessionAppendsAndCreatesNewExportVersion(t *testing.T) 
 	if _, err = s.SealCurrent(); err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.ExportSession(targetID, ExportOptions{Name: "版本题库"})
+	second, err := s.ExportSession(targetID, ExportOptions{Name: "版本题库", RawOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}

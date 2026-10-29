@@ -34,8 +34,10 @@ export const useUIStore = defineStore('ui', () => {
   const activeTab = ref('api')
   const availableModels = ref([])
   const isLoadingModels = ref(false)
-  const isTestingConnection = ref(false)
-  const connectionStatus = ref(null)
+  const modelCatalog = reactive({ status: 'idle', message: '', errorCode: '', lastSyncedAt: 0 })
+  const textProbeLoading = ref(false)
+  const visionProbeLoading = ref(false)
+  const probeStatus = reactive({ text: null, vision: null })
 
   const initStatus = ref('initializing')
   const showResumeWarning = ref(false)
@@ -48,8 +50,8 @@ export const useUIStore = defineStore('ui', () => {
     toasts, showToast,
     activeButtons, flash,
     isClickThrough, mainVisible, isStealthMode, hasStarted,
-    showSettings, activeTab, availableModels, isLoadingModels,
-    isTestingConnection, connectionStatus,
+    showSettings, activeTab, availableModels, isLoadingModels, modelCatalog,
+    textProbeLoading, visionProbeLoading, probeStatus,
     initStatus, showResumeWarning,
     quit,
   }

@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"Q-Solver/pkg/answersummary"
@@ -209,7 +213,7 @@ func TestAsyncExportKeepsResultWhenStatePersistenceFails(t *testing.T) {
 		a.questionBank.mu.Unlock()
 		t.Fatal(configErr)
 	}
-	a.startQuestionBankExportLocked(targetID, preferences, cfg)
+	a.startQuestionBankExportLocked(targetID, preferences, cfg, nil)
 	a.questionBank.mu.Unlock()
 	a.questionBank.workers.Wait()
 
@@ -257,7 +261,7 @@ func TestQuestionBankExportOperationTracksLifecycle(t *testing.T) {
 	}
 
 	a.questionBank.mu.Lock()
-	a.startQuestionBankExportWithOptionsLocked(targetID, false, questionbank.ExportOptions{RawOnly: true}, config.Config{})
+	a.startQuestionBankExportWithOptionsLocked(targetID, nil, questionbank.ExportOptions{RawOnly: true}, config.Config{})
 	if !a.questionBank.organizing || a.questionBank.operation != "exporting" {
 		a.questionBank.mu.Unlock()
 		t.Fatalf("本地导出未暴露 exporting 状态: organizing=%v operation=%q", a.questionBank.organizing, a.questionBank.operation)
@@ -466,7 +470,11 @@ func (p *fakeQuestionBankProvider) GenerateContentStream(context.Context, []llm.
 func (p *fakeQuestionBankProvider) GetModels(context.Context) ([]string, error) { return nil, nil }
 func (p *fakeQuestionBankProvider) TestChat(context.Context) error              { return nil }
 
-func TestQuestionBankOrganizedExportRequiresPreparationButAllowsRecordedFailure(t *testing.T) {
+func organizedQuestionBankBody(id string) string {
+	return `{"sourceRecordId":"` + id + `","questions":[{"title":"题目","stem":"题干","category":"行测","type":"逻辑判断","options":[],"knowledgePoints":[],"keyPoints":[],"imageIndexes":[1],"reviewNote":"待核对"}]}`
+}
+
+func TestQuestionBankAllFailedBlocksOrganizedExportButAllowsRawOnly(t *testing.T) {
 	a, store, img := archiveApp(t)
 	a.configManager = config.NewConfigManager()
 	emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
@@ -490,16 +498,69 @@ func TestQuestionBankOrganizedExportRequiresPreparationButAllowsRecordedFailure(
 	if err := store.OrganizeSession(context.Background(), current.ID, provider, "fake", nil); err == nil {
 		t.Fatal("无效整理结果应记录失败")
 	}
-	if err := a.ExportQuestionBankSegment(request); err != nil {
-		t.Fatalf("已记录整理失败后应允许导出已有结果和原稿: %v", err)
+	draft, err := a.GetQuestionBankExportDraft(current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.OrganizeOutcome != questionbank.OrganizeOutcomeAllFailed || draft.OrganizeReady || draft.StructuredQuestions != 0 || draft.FailedOrganize != 1 {
+		t.Fatalf("全部失败草稿状态错误: %+v", draft)
+	}
+	if err = a.ExportQuestionBankSegment(request); err == nil {
+		t.Fatal("全部失败后仍允许导出整理稿")
+	}
+	request.AutoOrganize = false
+	if err = a.ExportQuestionBankSegment(request); err != nil {
+		t.Fatalf("全部失败后显式仅原稿应可导出: %v", err)
 	}
 	a.questionBank.workers.Wait()
 	if provider.calls != 1 {
 		t.Fatalf("最终本地导出不应再次调用模型: %d", provider.calls)
 	}
 	status := a.GetQuestionBankStatus()
-	if status.LastExport.Markdown == "" || status.LastExport.RawMarkdown == "" {
-		t.Fatalf("两类文稿没有同时生成: %+v", status.LastExport)
+	if status.LastExport.Markdown != "" || status.LastExport.RawMarkdown == "" {
+		t.Fatalf("仅原稿导出结果错误: %+v", status.LastExport)
+	}
+}
+
+func TestQuestionBankPartialExportRequiresExplicitAllowance(t *testing.T) {
+	a, store, img := archiveApp(t)
+	for i := 0; i < 2; i++ {
+		emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+		emit("solution", "answer")
+		finish()
+	}
+	current, _ := store.Snapshot()
+	if _, err := store.SealCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeQuestionBankProvider{body: organizedQuestionBankBody(current.Records[0].ID)}
+	if err := store.OrganizeSession(context.Background(), current.ID, provider, "fake", nil); err == nil {
+		t.Fatal("第二条来源不匹配应形成部分失败")
+	}
+	draft, err := a.GetQuestionBankExportDraft(current.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.OrganizeOutcome != questionbank.OrganizeOutcomePartial || !draft.OrganizeReady || draft.OrganizedRecords != 1 || draft.StructuredQuestions != 1 || draft.FailedOrganize != 1 {
+		t.Fatalf("部分完成草稿状态错误: %+v", draft)
+	}
+	request := QuestionBankExportRequest{
+		SessionID: current.ID, Type: "综合笔试", Name: "部分整理稿", Directory: t.TempDir(), AutoOrganize: true,
+	}
+	if err = a.ExportQuestionBankSegment(request); err == nil {
+		t.Fatal("部分失败未经明确允许仍导出")
+	}
+	request.AllowPartial = true
+	if err = a.ExportQuestionBankSegment(request); err != nil {
+		t.Fatal(err)
+	}
+	a.questionBank.workers.Wait()
+	status := a.GetQuestionBankStatus()
+	if status.LastExport.Markdown == "" || status.LastExport.RawMarkdown == "" || status.LastExport.Questions != 1 {
+		t.Fatalf("部分整理稿导出错误: %+v", status.LastExport)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("最终本地导出不应再次调用模型: %d", provider.calls)
 	}
 }
 
@@ -554,5 +615,197 @@ func TestStructuredCapturePublishesOnlyAfterPersistence(t *testing.T) {
 				t.Fatal("history copy missing")
 			}
 		})
+	}
+}
+
+func setQuestionBankTestConfig(t *testing.T, a *App, baseURL string) {
+	setQuestionBankTestConfigProtocol(t, a, baseURL, "openai_chat")
+}
+
+func setQuestionBankTestConfigProtocol(t *testing.T, a *App, baseURL, apiProtocol string) {
+	t.Helper()
+	t.Setenv("APPDATA", t.TempDir())
+	manager := config.NewConfigManager()
+	payload, err := json.Marshal(config.Config{
+		APIKey: "test-only-key", BaseURL: baseURL, Model: "test-only-model", APIProtocol: apiProtocol,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = manager.UpdateFromJSON(string(payload)); err != nil {
+		t.Fatal(err)
+	}
+	a.configManager = manager
+}
+
+func makeQuestionBankOrganizeFailure(t *testing.T, store *questionbank.Store, sessionID string) {
+	t.Helper()
+	provider := &fakeQuestionBankProvider{body: "not json"}
+	if err := store.OrganizeSession(context.Background(), sessionID, provider, "fake", nil); err == nil {
+		t.Fatal("测试前置未形成整理失败")
+	}
+}
+
+func TestRetryFailedQuestionBankRecordsPreconditions(t *testing.T) {
+	t.Run("没有失败项", func(t *testing.T) {
+		a, store, img := archiveApp(t)
+		emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+		emit("solution", "answer")
+		finish()
+		snapshot, _ := store.Snapshot()
+		if err := a.RetryFailedQuestionBankRecords(snapshot.ID); err == nil || !strings.Contains(err.Error(), "没有可重试") {
+			t.Fatalf("没有失败项时返回错误不正确: %v", err)
+		}
+	})
+
+	for _, state := range []string{"organizing", "closing"} {
+		t.Run(state, func(t *testing.T) {
+			a, store, img := archiveApp(t)
+			emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+			emit("solution", "answer")
+			finish()
+			snapshot, _ := store.Snapshot()
+			if _, err := store.SealCurrent(); err != nil {
+				t.Fatal(err)
+			}
+			makeQuestionBankOrganizeFailure(t, store, snapshot.ID)
+			if state == "organizing" {
+				a.questionBank.organizing = true
+			} else {
+				a.questionBank.closing = true
+			}
+			if err := a.RetryFailedQuestionBankRecords(snapshot.ID); err == nil {
+				t.Fatalf("%s 状态仍启动失败重试", state)
+			}
+		})
+	}
+
+	t.Run("缺少模型配置", func(t *testing.T) {
+		a, store, img := archiveApp(t)
+		emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+		emit("solution", "answer")
+		finish()
+		snapshot, _ := store.Snapshot()
+		if _, err := store.SealCurrent(); err != nil {
+			t.Fatal(err)
+		}
+		makeQuestionBankOrganizeFailure(t, store, snapshot.ID)
+		t.Setenv("APPDATA", t.TempDir())
+		a.configManager = config.NewConfigManager()
+		if err := a.RetryFailedQuestionBankRecords(snapshot.ID); err == nil {
+			t.Fatal("缺少模型配置时仍启动失败重试")
+		}
+	})
+}
+
+func TestRetryFailedQuestionBankRecordsRetriesOnlyFailureThroughWorker(t *testing.T) {
+	a, store, img := archiveApp(t)
+	for i := 0; i < 2; i++ {
+		emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+		emit("solution", "answer")
+		finish()
+	}
+	snapshot, _ := store.Snapshot()
+	if _, err := store.SealCurrent(); err != nil {
+		t.Fatal(err)
+	}
+	firstPass := &fakeQuestionBankProvider{body: organizedQuestionBankBody(snapshot.Records[0].ID)}
+	if err := store.OrganizeSession(context.Background(), snapshot.ID, firstPass, "fake", nil); err == nil {
+		t.Fatal("第二条来源不匹配应形成部分失败")
+	}
+
+	var calls atomic.Int32
+	body := organizedQuestionBankBody(snapshot.Records[1].ID)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("意外请求路径: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     "test",
+			"object": "chat.completion",
+			"choices": []interface{}{map[string]interface{}{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": body,
+				},
+				"finish_reason": "stop",
+			}},
+		})
+	}))
+	defer server.Close()
+	setQuestionBankTestConfig(t, a, server.URL+"/v1")
+
+	if err := a.RetryFailedQuestionBankRecords(snapshot.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.questionBank.workers.Wait()
+	if calls.Load() != 1 {
+		t.Fatalf("失败重试请求次数错误: %d", calls.Load())
+	}
+	result, err := store.SnapshotByID(snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := questionbank.SummarizeOrganizeState(result)
+	if summary.Outcome != questionbank.OrganizeOutcomeComplete || summary.OrganizedRecords != 2 || summary.StructuredQuestions != 2 || summary.FailedRecords != 0 {
+		t.Fatalf("失败项恢复后的汇总错误: %+v", summary)
+	}
+	if result.Records[0].Questions[0].Title != "题目" || result.Records[1].OrganizeError != "" || result.Records[1].OrganizeFailure != nil {
+		t.Fatal("成功项被改写或失败项错误未清理")
+	}
+	status := a.GetQuestionBankStatus()
+	if status.Organizing || !strings.Contains(status.Message, "整理完成") {
+		t.Fatalf("失败重试完成状态错误: %+v", status)
+	}
+}
+
+func TestPrepareQuestionBankSegmentUsesExplicitAnthropicProvider(t *testing.T) {
+	a, store, img := archiveApp(t)
+	emit, finish := a.captureQuestion(context.Background(), config.Config{}, []string{img}, a.EmitEvent)
+	emit("solution", "answer")
+	finish()
+	snapshot, _ := store.Snapshot()
+	body := organizedQuestionBankBody(snapshot.Records[0].ID)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		messages := request["messages"].([]any)
+		parts := messages[0].(map[string]any)["content"].([]any)
+		imageFound := false
+		for _, part := range parts {
+			if part.(map[string]any)["type"] == "image" {
+				imageFound = true
+			}
+		}
+		if !imageFound {
+			t.Fatalf("native image block missing: %#v", request)
+		}
+		encoded, _ := json.Marshal(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg-test","type":"message","role":"assistant","model":"test-model","stop_reason":"end_turn","stop_sequence":null,"content":[{"type":"text","text":` + string(encoded) + `}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+	setQuestionBankTestConfigProtocol(t, a, server.URL, "anthropic_messages")
+	if err := a.PrepareQuestionBankSegment(snapshot.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.questionBank.workers.Wait()
+	result, err := store.SnapshotByID(snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := questionbank.SummarizeOrganizeState(result)
+	if calls.Load() != 1 || summary.Outcome != questionbank.OrganizeOutcomeComplete || summary.StructuredQuestions != 1 {
+		t.Fatalf("calls=%d summary=%+v", calls.Load(), summary)
 	}
 }

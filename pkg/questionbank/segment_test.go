@@ -78,7 +78,8 @@ func TestDiscardCurrentIsSoftAndNextBeginStartsFresh(t *testing.T) {
 
 func TestExportUsesArchiveDirectoryDirectlyAndSequentialSuffix(t *testing.T) {
 	s := automaticBank(t)
-	add(t, s, Completed)
+	recordID := add(t, s, Completed)
+	setQuestionsForTest(t, s, recordID)
 	target, err := s.SealCurrent()
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func TestFinalizedSegmentsRejectSoftDiscardAndDiscardedRejectOrganize(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = exported.ExportSession(id, ExportOptions{}); err != nil {
+	if _, err = exported.ExportSession(id, ExportOptions{RawOnly: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err = exported.DiscardCurrent(); err == nil {
@@ -358,14 +359,14 @@ func snapshotID(s *Store) string {
 	return snapshot.ID
 }
 
-func TestNamedPaperUsesExamLayoutWithoutImages(t *testing.T) {
+func TestNamedPaperPlacesEachExplanationDirectlyAfterItsQuestion(t *testing.T) {
 	s := automaticBank(t)
 	recordID := add(t, s, Completed)
 	target, err := s.SealCurrent()
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &fakeProvider{body: `{"sourceRecordId":"` + recordID + `","questions":[{"title":"进程题","stem":"下列关于进程的说法正确的是？","category":"计算机基础","type":"操作系统","options":["A. 选项一","B. 选项二"],"referenceAnswer":"B","knowledgePoints":["进程管理"],"keyPoints":["比较进程与线程"],"imageIndexes":[1],"reviewNote":"待核对"}]}`}
+	p := &fakeProvider{body: `{"sourceRecordId":"` + recordID + `","questions":[{"title":"进程题","stem":"下列关于进程的说法正确的是？","category":"计算机基础","type":"操作系统","options":["A. 选项一","B. 选项二"],"referenceAnswer":"B","knowledgePoints":["进程管理"],"keyPoints":["比较进程与线程"],"imageIndexes":[1],"reviewNote":"第一题待核对"},{"title":"线程题","stem":"下列关于线程的说法正确的是？","category":"计算机基础","type":"操作系统","options":[],"referenceAnswer":"","knowledgePoints":[],"keyPoints":[],"imageIndexes":[1],"reviewNote":""}]}`}
 	if err = s.OrganizeSession(context.Background(), target, p, "model", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -385,9 +386,39 @@ func TestNamedPaperUsesExamLayoutWithoutImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, expected := range []string{"## 试题", "## 参考答案与解析", "第 1 题", "**参考答案：** B", "**来源：** [原始提交 1]"} {
+	for _, expected := range []string{
+		"## 试题与解析",
+		"**参考答案：** B",
+		"- 进程管理",
+		"- 比较进程与线程",
+		"**来源：** [原始提交 1]",
+		"**核对说明：** 第一题待核对",
+		"**核对说明：** 模型提炼内容，待人工核对。",
+	} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("试卷缺少 %q:\n%s", expected, text)
+			t.Fatalf("逐题整理稿缺少 %q:\n%s", expected, text)
+		}
+	}
+	firstQuestion := strings.Index(text, "##### 第 1 题：进程题")
+	firstExplanation := strings.Index(text, "###### 参考答案与解析")
+	secondQuestion := strings.Index(text, "##### 第 2 题：线程题")
+	if firstQuestion < 0 || firstExplanation < 0 || secondQuestion < 0 {
+		t.Fatalf("逐题整理稿缺少题目或解析标题:\n%s", text)
+	}
+	secondExplanationRelative := strings.Index(text[secondQuestion:], "###### 参考答案与解析")
+	if firstExplanation < firstQuestion || secondQuestion < firstExplanation || secondExplanationRelative < 0 {
+		t.Fatalf("题目与解析没有按逐题顺序排列:\n%s", text)
+	}
+	if strings.Count(text, "###### 参考答案与解析") != 2 {
+		t.Fatalf("每道题应恰好有一个解析子节:\n%s", text)
+	}
+	if strings.Contains(text, "\n## 参考答案与解析\n") {
+		t.Fatalf("不应再生成末尾集中答案章节:\n%s", text)
+	}
+	secondBlock := text[secondQuestion:]
+	for _, expected := range []string{"**参考答案：** 待核对", "**知识点：**\n\n- 待核对", "**解析要点：**\n\n- 待核对"} {
+		if !strings.Contains(secondBlock, expected) {
+			t.Fatalf("空字段没有安全回退为待核对，缺少 %q:\n%s", expected, secondBlock)
 		}
 	}
 	if strings.Contains(text, "![") || strings.Contains(text, "assets/") {
@@ -469,7 +500,8 @@ func TestRawAnswerMarkdownUsesAdaptiveFence(t *testing.T) {
 
 func TestExportMarkdownIncludesIssuerMetadata(t *testing.T) {
 	s := automaticBank(t)
-	add(t, s, Completed)
+	recordID := add(t, s, Completed)
+	setQuestionsForTest(t, s, recordID)
 	id, err := s.SealCurrent()
 	if err != nil {
 		t.Fatal(err)

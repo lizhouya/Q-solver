@@ -44,9 +44,32 @@ export const useSolutionStore = defineStore('solution', () => {
     desc: '发生了一个未知错误',
     rawError: '',
     showDetails: false,
+    detail: null,
   })
 
   // ---- Helpers ----
+
+  // 不保留任意服务端文本或额外字段；诊断与错误共用同一轮事件。
+  function normalizeErrorDetail(value) {
+    if (!value || typeof value !== 'object') return null
+    const codes = ['invalid_config', 'cancelled', 'timeout', 'network_error', 'tls_error',
+      'authentication_failed', 'permission_denied', 'not_found_or_protocol_mismatch',
+      'invalid_request', 'rate_limited', 'quota_exhausted', 'request_too_large',
+      'provider_unavailable', 'empty_response', 'invalid_response', 'incomplete_response',
+      'stream_interrupted', 'refused', 'vision_mismatch', 'vision_inconclusive',
+      'probe_disabled', 'response_failed']
+    const stages = ['validate_config', 'build_request', 'send_request', 'read_response',
+      'stream_response', 'validate_response', 'validate_probe']
+    const protocols = ['openai_chat', 'openai_responses', 'anthropic_messages']
+    const code = codes.includes(value.code) ? value.code : 'unknown'
+    return {
+      code,
+      stage: stages.includes(value.stage) ? value.stage : 'unknown',
+      protocol: protocols.includes(value.protocol) ? value.protocol : 'unknown',
+      httpStatus: Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599 ? value.httpStatus : null,
+      retryable: code !== 'unknown' && code !== 'response_failed' && typeof value.retryable === 'boolean' ? value.retryable : null,
+    }
+  }
 
   function renderMarkdown(md) {
     if (!md) return ''
@@ -271,6 +294,7 @@ export const useSolutionStore = defineStore('solution', () => {
     resetStreamState()
     legacyStreamTarget.value = null
     errorState.show = false
+    errorState.detail = null
     history.value.forEach(item => { item.isWritable = false })
     let item = history.value.find(candidate => candidate.sessionId === event.sessionId)
     if (!item) {
@@ -303,6 +327,7 @@ export const useSolutionStore = defineStore('solution', () => {
       }
       item.rounds.push(round)
     }
+    round.error = null
     history.value = [item, ...history.value.filter(candidate => candidate !== item)]
     const activeItem = history.value[0]
     const activeRound = activeItem.rounds.find(candidate => candidate.recordId === event.recordId)
@@ -334,6 +359,7 @@ export const useSolutionStore = defineStore('solution', () => {
     const text = event.text || ''
     switch (event.event) {
       case 'solution-stream-start':
+        round.error = null
         resetStreamState()
         break
       case 'solution-stream-thinking':
@@ -354,6 +380,7 @@ export const useSolutionStore = defineStore('solution', () => {
         streamingHtml.value = renderMarkdownWithLatex(streamBuffer)
         break
       case 'solution':
+        round.error = null
         round.answerItems = event.answerItems || []
         round.answerCopyText = event.answerCopyText || ''
         round.aiResponse = text || round.aiResponse
@@ -367,7 +394,7 @@ export const useSolutionStore = defineStore('solution', () => {
         round.answerItems = []
         round.answerCopyText = ''
         round.status = text.includes('canceled') ? 'cancelled' : 'failed'
-        round.error = { title: '请求出错', desc: text || '未知错误', icon: 'x-circle' }
+        round.error = { title: '请求出错', desc: text || '未知错误', icon: 'x-circle', detail: normalizeErrorDetail(event.errorDetail) }
         resetStreamState()
         isLoading.value = false
         isAppending.value = false
@@ -479,6 +506,8 @@ export const useSolutionStore = defineStore('solution', () => {
   }
 
   function handleStreamStart(keepContext) {
+    errorState.show = false
+    errorState.detail = null
     streamBuffer = ''
     thinkingBuffer = ''
     thinkingStartTime = 0
@@ -604,6 +633,7 @@ export const useSolutionStore = defineStore('solution', () => {
         title: errorInfo.title || '请求出错',
         desc: errorInfo.desc || '未知错误',
         icon: errorInfo.icon || '❌',
+        detail: normalizeErrorDetail(errorInfo.detail),
       }
       isLoading.value = false
       isAppending.value = false
@@ -655,6 +685,7 @@ export const useSolutionStore = defineStore('solution', () => {
       desc: '发生了一个未知错误',
       rawError: '',
       showDetails: false,
+      detail: null,
     })
   }
 
@@ -772,7 +803,7 @@ export const useSolutionStore = defineStore('solution', () => {
   return {
     history, activeHistoryIndex, selectedRoundTarget, streamTarget, isLoading, isAppending, shouldOverwriteHistory,
     isThinking, thinkingStatusText, thinkingExpanded, isThinkingStalled,
-    streamingHtml, errorState, historyEntries, currentRounds, currentHistoryItem, isViewingStreamTarget,
+    normalizeErrorDetail, streamingHtml, errorState, historyEntries, currentRounds, currentHistoryItem, isViewingStreamTarget,
     renderMarkdown, getSummary, getRoundSummary, getRoundsCount, getFullContent, getThinkingPreview,
     selectHistory, selectHistoryEntry, isHistoryEntrySelected,
     handleStreamStart, handleStreamChunk, handleThinkingChunk,

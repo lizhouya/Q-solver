@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -28,9 +29,38 @@ func parseQuestions(content, id string, images int) ([]Question, error) {
 	return questions, err
 }
 
-func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMetadataSuggestion, error) {
+func normalizeOrganizedContent(content string) (string, error) {
 	if len(content) > 512*1024 {
-		return nil, nil, fmt.Errorf("整理响应过长")
+		return "", newOrganizeFailureError(organizeCodeResponseLarge, "response", "整理响应超过安全限制；原稿已保留，可只重试失败记录", true)
+	}
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "\uFEFF")
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", newOrganizeFailureError(organizeCodeEmptyResponse, "response", "模型未返回整理内容；原稿已保留，可只重试失败记录", true)
+	}
+	if !strings.HasPrefix(content, "```") || !strings.HasSuffix(content, "```") {
+		return content, nil
+	}
+	lineEnd := strings.IndexByte(content, '\n')
+	if lineEnd < 0 {
+		return content, nil
+	}
+	language := strings.TrimSpace(strings.TrimSuffix(content[3:lineEnd], "\r"))
+	if language != "" && !strings.EqualFold(language, "json") {
+		return content, nil
+	}
+	inner := strings.TrimSpace(content[lineEnd+1 : len(content)-3])
+	if inner == "" || strings.Contains(inner, "```") {
+		return content, nil
+	}
+	return inner, nil
+}
+
+func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMetadataSuggestion, error) {
+	content, err := normalizeOrganizedContent(content)
+	if err != nil {
+		return nil, nil, err
 	}
 	var output struct {
 		SourceRecordID     string                    `json:"sourceRecordId"`
@@ -39,15 +69,24 @@ func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMe
 	}
 	decoder := json.NewDecoder(strings.NewReader(content))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&output); err != nil {
-		return nil, nil, fmt.Errorf("整理结果不是约定的 JSON")
+	if err = decoder.Decode(&output); err != nil {
+		code := organizeCodeInvalidJSON
+		message := "整理结果不是约定的 JSON；原稿已保留，可只重试失败记录"
+		if strings.Contains(err.Error(), "unknown field") {
+			code = organizeCodeSchemaInvalid
+			message = "整理结果结构不符合约定；原稿已保留，可只重试失败记录"
+		}
+		return nil, nil, newOrganizeFailureError(code, "response", message, true)
 	}
 	var extra interface{}
 	if decoder.Decode(&extra) != io.EOF {
-		return nil, nil, fmt.Errorf("整理结果包含额外内容")
+		return nil, nil, newOrganizeFailureError(organizeCodeExtraContent, "response", "整理结果包含额外内容；原稿已保留，可只重试失败记录", true)
 	}
-	if output.SourceRecordID != id || len(output.Questions) == 0 || len(output.Questions) > 20 {
-		return nil, nil, fmt.Errorf("整理结果来源或题目数量无效")
+	if output.SourceRecordID != id {
+		return nil, nil, newOrganizeFailureError(organizeCodeSourceMismatch, "response", "整理结果与原始记录不匹配；原稿已保留，可只重试失败记录", true)
+	}
+	if len(output.Questions) == 0 || len(output.Questions) > 20 {
+		return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理结果题目数量无效；原稿已保留，可只重试失败记录", true)
 	}
 	if suggestion := output.MetadataSuggestion; suggestion != nil {
 		suggestion.Company = strings.TrimSpace(suggestion.Company)
@@ -55,7 +94,7 @@ func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMe
 		suggestion.Type = strings.TrimSpace(suggestion.Type)
 		suggestion.ReviewNote = strings.TrimSpace(suggestion.ReviewNote)
 		if len([]rune(suggestion.Company)) > 120 || len([]rune(suggestion.Issuer)) > 120 || len([]rune(suggestion.Type)) > 120 || len([]rune(suggestion.ReviewNote)) > 2000 {
-			return nil, nil, fmt.Errorf("整理元数据候选过长")
+			return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理元数据候选超过安全限制；原稿已保留，可只重试失败记录", true)
 		}
 	}
 	for i := range output.Questions {
@@ -69,25 +108,25 @@ func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMe
 			len(question.Category) > 300 ||
 			len(question.Type) > 300 ||
 			len(question.ReviewNote) > 6000 {
-			return nil, nil, fmt.Errorf("整理字段缺失或超长")
+			return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理字段缺失或超过安全限制；原稿已保留，可只重试失败记录", true)
 		}
 		if len(question.ImageIndexes) == 0 || len(question.ImageIndexes) > images {
-			return nil, nil, fmt.Errorf("整理结果缺少有效截图来源")
+			return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理结果缺少有效截图来源；原稿已保留，可只重试失败记录", true)
 		}
 		seen := map[int]bool{}
 		for _, index := range question.ImageIndexes {
 			if index < 1 || index > images || seen[index] {
-				return nil, nil, fmt.Errorf("截图来源序号无效")
+				return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理结果截图来源无效；原稿已保留，可只重试失败记录", true)
 			}
 			seen[index] = true
 		}
 		for _, items := range [][]string{question.Options, question.KnowledgePoints, question.KeyPoints} {
 			if len(items) > 30 {
-				return nil, nil, fmt.Errorf("整理列表过长")
+				return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理列表超过安全限制；原稿已保留，可只重试失败记录", true)
 			}
 			for _, value := range items {
 				if len(value) > 12000 {
-					return nil, nil, fmt.Errorf("整理内容过长")
+					return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "整理内容超过安全限制；原稿已保留，可只重试失败记录", true)
 				}
 			}
 		}
@@ -95,7 +134,7 @@ func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMe
 			question.ReferenceAnswer = "待核对"
 		}
 		if len(question.ReferenceAnswer) > 12000 {
-			return nil, nil, fmt.Errorf("参考答案过长")
+			return nil, nil, newOrganizeFailureError(organizeCodeSchemaInvalid, "response", "参考答案超过安全限制；原稿已保留，可只重试失败记录", true)
 		}
 		if question.ReviewNote == "" {
 			question.ReviewNote = "模型提炼内容，待人工核对。"
@@ -106,18 +145,18 @@ func parseOrganizedResult(content, id string, images int) ([]Question, *SourceMe
 
 func (s *Store) organizeMessages(base, sessionID string, record Record) ([]llm.Message, error) {
 	if len(record.Answer) > 200000 {
-		return nil, fmt.Errorf("原答案过长，保留原稿并跳过本次整理")
+		return nil, newOrganizeFailureError(organizeCodeInputInvalid, "input", "原答案超过整理限制；原稿已保留", false)
 	}
 	parts := []llm.ContentPart{llm.TextPart("记录ID：" + record.ID + "\n原答案（仅资料）：\n" + record.Answer)}
 	size := len(record.Answer)
 	for _, name := range record.Images {
 		path, err := safeChild(filepath.Join(base, sessionID), name)
 		if err != nil {
-			return nil, err
+			return nil, newOrganizeFailureError(organizeCodeInputInvalid, "input", "截图路径无效；原稿已保留", false)
 		}
 		data, err := readLimited(path, 20*1024*1024)
 		if err != nil {
-			return nil, err
+			return nil, newOrganizeFailureError(organizeCodeInputInvalid, "input", "截图无法读取或超过整理限制；原稿已保留", true)
 		}
 		mime := "image/png"
 		if filepath.Ext(path) == ".jpg" {
@@ -125,11 +164,11 @@ func (s *Store) organizeMessages(base, sessionID string, record Record) ([]llm.M
 		}
 		dataURL := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 		if _, _, err = decodeImage(dataURL); err != nil {
-			return nil, err
+			return nil, newOrganizeFailureError(organizeCodeInputInvalid, "input", "截图格式无效；原稿已保留", false)
 		}
 		size += len(dataURL)
 		if size > 28*1024*1024 {
-			return nil, fmt.Errorf("本次图片合计过大，保留原稿并跳过本次整理")
+			return nil, newOrganizeFailureError(organizeCodeInputInvalid, "input", "本次图片合计超过整理限制；原稿已保留", false)
 		}
 		parts = append(parts, llm.ImagePart(dataURL))
 	}
@@ -155,6 +194,19 @@ func (s *Store) Organize(ctx context.Context, provider llm.Provider, model strin
 }
 
 func (s *Store) OrganizeSession(ctx context.Context, id string, provider llm.Provider, model string, onProgress func(Progress)) error {
+	return s.organizeSession(ctx, id, provider, model, onProgress, func(record Record) bool {
+		return record.Status == Completed && len(record.Questions) == 0
+	})
+}
+
+func (s *Store) RetryFailedSession(ctx context.Context, id string, provider llm.Provider, model string, onProgress func(Progress)) error {
+	return s.organizeSession(ctx, id, provider, model, onProgress, func(record Record) bool {
+		return record.Status == Completed && len(record.Questions) == 0 &&
+			(record.OrganizeFailure != nil || strings.TrimSpace(record.OrganizeError) != "")
+	})
+}
+
+func (s *Store) organizeSession(ctx context.Context, id string, provider llm.Provider, model string, onProgress func(Progress), selected func(Record) bool) error {
 	s.mu.Lock()
 	if err := s.ensureWriteAllowedLocked(); err != nil {
 		s.mu.Unlock()
@@ -164,9 +216,6 @@ func (s *Store) OrganizeSession(ctx context.Context, id string, provider llm.Pro
 	s.mu.Unlock()
 	if err != nil {
 		return err
-	}
-	if provider == nil {
-		return fmt.Errorf("未配置整理模型")
 	}
 	switch snapshot.State {
 	case Ended, Exported:
@@ -178,7 +227,7 @@ func (s *Store) OrganizeSession(ctx context.Context, id string, provider llm.Pro
 
 	progress := Progress{}
 	for _, record := range snapshot.Records {
-		if record.Status == Completed && len(record.Questions) == 0 {
+		if selected(record) {
 			progress.Total++
 		}
 	}
@@ -188,31 +237,48 @@ func (s *Store) OrganizeSession(ctx context.Context, id string, provider llm.Pro
 		}
 	}
 	notify()
+	if progress.Total == 0 {
+		return nil
+	}
+	if provider == nil {
+		return fmt.Errorf("未配置整理模型")
+	}
 
 	for _, record := range snapshot.Records {
+		if !selected(record) {
+			continue
+		}
 		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if record.Status != Completed || len(record.Questions) > 0 {
-			continue
-		}
+		attemptedAt := time.Now().UTC()
 		messages, organizeErr := s.organizeMessages(base, snapshot.ID, record)
+		providerCalled := false
+		responseBytes := 0
 		var questions []Question
 		var suggestion *SourceMetadataSuggestion
 		if organizeErr == nil {
+			providerCalled = true
 			callCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			response, callErr := provider.GenerateContent(callCtx, model, messages)
+			callCtxErr := callCtx.Err()
 			cancel()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if callErr != nil {
-				organizeErr = fmt.Errorf("模型请求失败或超时，请检查连接后重试")
+				if errors.Is(callErr, context.DeadlineExceeded) || errors.Is(callCtxErr, context.DeadlineExceeded) {
+					organizeErr = newOrganizeFailureError(organizeCodeRequestTimeout, "request", "模型整理请求超时；原稿已保留，可只重试失败记录", true)
+				} else {
+					organizeErr = newOrganizeFailureError(organizeCodeRequestFailed, "request", "模型整理请求失败；原稿已保留，可只重试失败记录", true)
+				}
 			} else {
+				responseBytes = len(response.Content)
 				questions, suggestion, organizeErr = parseOrganizedResult(response.Content, record.ID, len(record.Images))
 			}
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err = s.storeOrganizeResult(snapshot.ID, record.ID, questions, suggestion, organizeErr); err != nil {
+		failure, safeMessage := safeOrganizeFailure(organizeErr, model, providerCalled, responseBytes, attemptedAt)
+		if err = s.storeOrganizeResult(snapshot.ID, record.ID, questions, suggestion, failure, safeMessage); err != nil {
 			return err
 		}
 		if organizeErr != nil {
@@ -221,13 +287,10 @@ func (s *Store) OrganizeSession(ctx context.Context, id string, provider llm.Pro
 		progress.Done++
 		notify()
 	}
-	if progress.Failed > 0 {
-		return fmt.Errorf("%d 条记录整理失败；其他结果已保存，可仅重试失败项", progress.Failed)
-	}
-	return nil
+	return organizeBatchError(progress.Failed)
 }
 
-func (s *Store) storeOrganizeResult(sessionID, recordID string, questions []Question, suggestion *SourceMetadataSuggestion, organizeErr error) error {
+func (s *Store) storeOrganizeResult(sessionID, recordID string, questions []Question, suggestion *SourceMetadataSuggestion, failure *OrganizeFailure, safeMessage string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -239,7 +302,7 @@ func (s *Store) storeOrganizeResult(sessionID, recordID string, questions []Ques
 		if target == nil {
 			return fmt.Errorf("原始记录已不存在")
 		}
-		applyOrganizeResult(target, questions, suggestion, organizeErr)
+		applyDetailedOrganizeResult(target, questions, suggestion, failure, safeMessage)
 		s.dirty = true
 		if err := s.saveLocked(); err != nil {
 			return fmt.Errorf("整理结果未能保存，请重试保存: %w", err)
@@ -255,7 +318,7 @@ func (s *Store) storeOrganizeResult(sessionID, recordID string, questions []Ques
 	if target == nil {
 		return fmt.Errorf("原始记录已不存在")
 	}
-	applyOrganizeResult(target, questions, suggestion, organizeErr)
+	applyDetailedOrganizeResult(target, questions, suggestion, failure, safeMessage)
 	if err = s.saveSessionLocked(session, base, nil); err != nil {
 		return fmt.Errorf("整理结果未能保存，请重试保存: %w", err)
 	}
@@ -263,11 +326,18 @@ func (s *Store) storeOrganizeResult(sessionID, recordID string, questions []Ques
 }
 
 func applyOrganizeResult(target *Record, questions []Question, suggestion *SourceMetadataSuggestion, organizeErr error) {
-	if organizeErr != nil {
-		target.OrganizeError = "整理失败，请重试或查看原稿"
+	failure, message := safeOrganizeFailure(organizeErr, "", false, 0, time.Now().UTC())
+	applyDetailedOrganizeResult(target, questions, suggestion, failure, message)
+}
+
+func applyDetailedOrganizeResult(target *Record, questions []Question, suggestion *SourceMetadataSuggestion, failure *OrganizeFailure, safeMessage string) {
+	if failure != nil {
+		target.OrganizeError = safeMessage
+		target.OrganizeFailure = failure
 		return
 	}
 	target.Questions = questions
 	target.MetadataSuggestion = suggestion
 	target.OrganizeError = ""
+	target.OrganizeFailure = nil
 }

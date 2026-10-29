@@ -46,6 +46,10 @@ const baseDraft = (overrides = {}) => ({
   startedAt: '2026-10-23T08:00:00Z',
   metadataSuggestion: null,
   suggestionConflict: false,
+  organizeOutcome: 'pending',
+  eligibleOrganize: 2,
+  organizedRecords: 0,
+  structuredQuestions: 0,
   organizeReady: false,
   pendingOrganize: 2,
   failedOrganize: 0,
@@ -73,6 +77,10 @@ function setup(overrides = {}) {
     getQuestionBankExportDraft: async () => draft,
     prepareQuestionBankSegment: async id => {
       calls.push(['prepare', id])
+      status = baseStatus({ organizing: true, operation: 'organizing' })
+    },
+    retryFailedQuestionBankRecords: async id => {
+      calls.push(['retry-failed', id])
       status = baseStatus({ organizing: true, operation: 'organizing' })
     },
     exportQuestionBankSegment: async request => { calls.push(['export', { ...request }]) },
@@ -342,6 +350,127 @@ assert.equal(h.store.exportDraft.company, '模型单位')
 assert.equal(h.store.exportDraft.name, '模型单位_模型出题方_模型题型')
 assert.equal(h.store.exportDraft.nameCustomized, false)
 
+// Change 024：全失败不能冒充准备完成，只能显式重试失败项或切换为仅原稿。
+const retryFailed = deferred()
+let retryFailedCalls = 0
+h = setup({
+  retryFailedQuestionBankRecords: id => {
+    retryFailedCalls += 1
+    h.calls.push(['retry-failed', id])
+    return retryFailed.promise
+  },
+})
+await h.store.refresh()
+h.setDraft(baseDraft({
+  autoOrganize: true,
+  organizeOutcome: 'all_failed',
+  eligibleOrganize: 2,
+  organizedRecords: 0,
+  structuredQuestions: 0,
+  organizeReady: false,
+  pendingOrganize: 0,
+  failedOrganize: 2,
+}))
+await h.store.openExport()
+assert.equal(await h.store.submitExport(), false)
+assert.deepEqual(h.calls, [])
+const retryingFailed = h.store.retryFailedExport()
+assert.equal(await h.store.retryFailedExport(), false)
+assert.equal(retryFailedCalls, 1)
+retryFailed.resolve()
+assert.equal(await retryingFailed, true)
+assert.deepEqual(h.calls, [['retry-failed', 'session-a']])
+
+// “改为仅原稿”只改本弹窗草稿，不调用偏好 API，随后按 RawOnly 导出。
+const preferenceBeforeRawOnly = { ...h.store.preferences }
+assert.equal(h.store.useRawOnlyExport(), true)
+assert.equal(h.store.exportDraft.autoOrganize, false)
+assert.deepEqual({ ...h.store.preferences }, preferenceBeforeRawOnly)
+assert.equal(h.calls.length, 1)
+assert.equal(await h.store.submitExport(), true)
+assert.equal(h.calls[1][0], 'export')
+assert.equal(h.calls[1][1].autoOrganize, false)
+assert.equal(h.calls[1][1].allowPartial, false)
+
+// partial 必须通过明确动作导出已有结果，并携带 allowPartial=true；普通提交拒绝。
+h = setup()
+await h.store.refresh()
+h.setDraft(baseDraft({
+  autoOrganize: true,
+  organizeOutcome: 'partial',
+  eligibleOrganize: 5,
+  organizedRecords: 3,
+  structuredQuestions: 8,
+  organizeReady: true,
+  pendingOrganize: 0,
+  failedOrganize: 2,
+}))
+await h.store.openExport()
+assert.equal(h.store.exportDraft.organizedRecords, 3)
+assert.equal(h.store.exportDraft.failedOrganize, 2)
+assert.equal(h.store.exportDraft.structuredQuestions, 8)
+assert.equal(await h.store.submitExport(), false)
+assert.deepEqual(h.calls, [])
+assert.equal(await h.store.exportPartialResults(), true)
+assert.equal(h.calls.length, 1)
+assert.equal(h.calls[0][0], 'export')
+assert.equal(h.calls[0][1].allowPartial, true)
+assert.equal(h.calls[0][1].autoOrganize, true)
+
+// complete 正常导出且不声明部分导出；no_eligible 不启动整理，只能切换仅原稿。
+h = setup()
+await h.store.refresh()
+h.setDraft(baseDraft({
+  autoOrganize: true,
+  organizeOutcome: 'complete',
+  eligibleOrganize: 2,
+  organizedRecords: 2,
+  structuredQuestions: 6,
+  organizeReady: true,
+  pendingOrganize: 0,
+}))
+await h.store.openExport()
+assert.equal(await h.store.submitExport(), true)
+assert.equal(h.calls[0][1].allowPartial, false)
+
+h = setup()
+await h.store.refresh()
+h.setDraft(baseDraft({
+  autoOrganize: true,
+  organizeOutcome: 'no_eligible',
+  eligibleOrganize: 0,
+  organizeReady: false,
+  pendingOrganize: 0,
+}))
+await h.store.openExport()
+assert.equal(await h.store.submitExport(), false)
+assert.deepEqual(h.calls, [])
+assert.equal(h.store.useRawOnlyExport(), true)
+assert.equal(await h.store.submitExport(), true)
+assert.equal(h.calls[0][1].autoOrganize, false)
+
+// 草稿刷新保留本次 autoOrganize 选择和目录，不被后端长期偏好值覆盖。
+h = setup()
+await h.store.refresh()
+h.setDraft(baseDraft({ autoOrganize: true, directory: 'C:/initial', organizeReady: false }))
+await h.store.openExport()
+h.store.exportDraft.directory = 'D:/one-off'
+assert.equal(await h.store.submitExport(), true)
+h.setDraft(baseDraft({
+  autoOrganize: false,
+  directory: 'C:/preference',
+  organizeOutcome: 'complete',
+  eligibleOrganize: 2,
+  organizedRecords: 2,
+  structuredQuestions: 4,
+  organizeReady: true,
+  pendingOrganize: 0,
+}))
+h.setStatus(baseStatus({ organizing: false }))
+await h.store.refresh()
+assert.equal(h.store.exportDraft.autoOrganize, true)
+assert.equal(h.store.exportDraft.directory, 'D:/one-off')
+
 // RawOnly 仍是单阶段、零模型准备。
 h = setup()
 await h.store.refresh()
@@ -377,18 +506,29 @@ assert.doesNotMatch(panel, /\.qb-session-meta\s*\{[^}]*flex-shrink:\s*0;/)
 assert.match(panel, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.qb-session-row\s*\{[^}]*grid-template-columns:\s*1fr;/)
 assert.match(panel, /@media\s*\(max-width:\s*560px\)[\s\S]*?\.qb-session-actions\s*\{[^}]*width:\s*100%;/)
 
+const apiSource = fs.readFileSync(new URL('./src/services/api.js', import.meta.url), 'utf8')
+const questionBankStore = fs.readFileSync(new URL('./src/stores/questionbank.js', import.meta.url), 'utf8')
 const modal = fs.readFileSync(new URL('./src/components/QuestionBankExportModal.vue', import.meta.url), 'utf8')
 assert.ok(modal.includes('模型元数据建议（待核对）'))
 assert.ok(modal.includes("return bank.exportDraft.organizeReady ? '确认命名并导出' : '整理并生成建议'"))
 assert.ok(modal.includes('@input="bank.setExportIssuer($event.target.value)"'))
 assert.ok(modal.includes('@click="bank.restoreAutomaticExportName"'))
 assert.ok(modal.includes('最终确认导出不会再次调用模型'))
+assert.ok(modal.includes('每道题紧跟参考答案和解析'))
+assert.ok(questionBankStore.includes('生成逐题解析整理稿 ${name}.md、原始记录.md 与 assets/'))
+assert.equal(modal.includes('v-html'), false)
+assert.ok(modal.includes('全部整理失败'))
+assert.ok(modal.includes('只重试失败记录'))
+assert.ok(modal.includes('导出已有整理结果'))
+assert.ok(modal.includes('改为仅原稿'))
+assert.ok(modal.includes('已整理 {{ bank.exportDraft.organizedRecords }} 条记录'))
+assert.ok(modal.includes('共 {{ bank.exportDraft.structuredQuestions }} 道题'))
+assert.ok(apiSource.includes("retryFailedQuestionBankRecords: (sessionID) => callApp('RetryFailedQuestionBankRecords', sessionID)"))
 
 // Change 021 静态接线契约：按钮与快捷键共用 Store 请求函数，App 只挂一个独立确认层。
 const actionBar = fs.readFileSync(new URL('./src/components/ActionBar.vue', import.meta.url), 'utf8')
 const app = fs.readFileSync(new URL('./src/App.vue', import.meta.url), 'utf8')
 const nextExamConfirm = fs.readFileSync(new URL('./src/components/NextExamConfirm.vue', import.meta.url), 'utf8')
-const apiSource = fs.readFileSync(new URL('./src/services/api.js', import.meta.url), 'utf8')
 assert.ok(actionBar.includes('开始下一套'))
 assert.ok(actionBar.includes('@click="questionBank.requestStartNextExam"'))
 assert.ok(app.includes("on('request-start-next-exam', questionBank.requestStartNextExam)"))

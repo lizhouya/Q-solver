@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"Q-Solver/pkg/answersummary"
+	"Q-Solver/pkg/llm"
 	"sync"
 )
 
@@ -142,8 +143,15 @@ func (b *Bridge) publishLocked(event string, data []interface{}) bool {
 			}
 		}
 		b.state.Error = ""
+		b.state.ErrorDetail = nil
 
 	case "solution-error":
+		b.state.ErrorDetail = nil
+		if len(data) > 1 {
+			if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
+				b.state.ErrorDetail = llm.CleanDiagnostic(&detail)
+			}
+		}
 		b.seq++
 		b.state.Ts = nowMillis()
 		b.state.Status = StatusError
@@ -305,6 +313,7 @@ func cloneHints(hints []ShortcutHint) []ShortcutHint {
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
+	snapshot.ErrorDetail = llm.CleanDiagnostic(snapshot.ErrorDetail)
 	snapshot.Hints = cloneHints(snapshot.Hints)
 	snapshot.Payload.AnswerItems = append([]answersummary.Item(nil), snapshot.Payload.AnswerItems...)
 	return snapshot

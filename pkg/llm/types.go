@@ -1,5 +1,11 @@
 package llm
 
+import (
+	"encoding/base64"
+	"fmt"
+	"strings"
+)
+
 // ChunkType 流式输出块类型
 type ChunkType string
 
@@ -125,4 +131,38 @@ func ParseBase64DataURL(dataURL string) (mimeType string, data string) {
 	}
 
 	return mimeType, dataURL[commaIdx+1:]
+}
+
+// ParseBase64DataURLStrict 严格校验并解析 Base64 data URL。
+func ParseBase64DataURLStrict(dataURL string) (mimeType string, data string, err error) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return "", "", fmt.Errorf("缺少 data URL 前缀")
+	}
+	comma := strings.IndexByte(dataURL, ',')
+	if comma < 0 {
+		return "", "", fmt.Errorf("data URL 缺少数据分隔符")
+	}
+	header := dataURL[len("data:"):comma]
+	fields := strings.Split(header, ";")
+	if len(fields) != 2 || fields[0] == "" || !strings.EqualFold(fields[1], "base64") {
+		return "", "", fmt.Errorf("data URL 不是 Base64 格式")
+	}
+	mimeType = strings.ToLower(strings.TrimSpace(fields[0]))
+	data = dataURL[comma+1:]
+	if data == "" {
+		return "", "", fmt.Errorf("Base64 数据为空")
+	}
+	if _, decodeErr := base64.StdEncoding.DecodeString(data); decodeErr != nil {
+		return "", "", fmt.Errorf("Base64 数据无效")
+	}
+	return mimeType, data, nil
+}
+
+func isSupportedImageMIME(mimeType string) bool {
+	switch mimeType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	default:
+		return false
+	}
 }

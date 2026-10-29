@@ -5,6 +5,7 @@
     </div>
     <div class="error-title">{{ errorState.title }}</div>
     <div class="error-desc">{{ errorState.desc }}</div>
+    <ErrorDiagnostics :detail="errorState.detail" />
     <div class="error-hint">
       按 <kbd class="shortcut-key">{{ solveShortcut }}</kbd> 重试
     </div>
@@ -13,6 +14,7 @@
 
 <script setup>
 import Icon from './Icon.vue'
+import ErrorDiagnostics from './ErrorDiagnostics.vue'
 
 defineProps({
   errorState: Object,

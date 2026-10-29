@@ -44,8 +44,8 @@ export const PROVIDER_BASE_URLS = {
     // Gemini OpenAI compatibility endpoint
     google: 'https://generativelanguage.googleapis.com/v1beta/openai',
     openai: 'https://api.openai.com/v1',
-    // Anthropic OpenAI SDK compatibility endpoint
-    anthropic: 'https://api.anthropic.com/v1',
+    // Anthropic 原生 SDK 使用 API root，并自行追加 /v1 endpoint
+    anthropic: 'https://api.anthropic.com',
     // DeepSeek supports OpenAI-compatible access; /v1 is the drop-in form
     deepseek: 'https://api.deepseek.com/v1',
     alibaba: 'https://dashscope.aliyuncs.com/compatible-mode/v1',

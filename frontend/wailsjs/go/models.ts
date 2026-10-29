@@ -23,6 +23,26 @@ export namespace answersummary {
 
 export namespace app {
 
+	export class ConnectionDraft {
+	    connectionMode: string;
+	    apiKey: string;
+	    baseURL: string;
+	    model: string;
+	    apiProtocol: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionDraft(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectionMode = source["connectionMode"];
+	        this.apiKey = source["apiKey"];
+	        this.baseURL = source["baseURL"];
+	        this.model = source["model"];
+	        this.apiProtocol = source["apiProtocol"];
+	    }
+	}
 	export class MobileInfo {
 	    available: boolean;
 	    url: string;
@@ -63,6 +83,133 @@ export namespace app {
 	        this.success = source["success"];
 	        this.code = source["code"];
 	        this.info = this.convertValues(source["info"], MobileInfo);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class ProviderErrorDTO {
+	    code: string;
+	    stage: string;
+	    message: string;
+	    retryable: boolean;
+	    httpStatus: number;
+	    protocol: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ProviderErrorDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.stage = source["stage"];
+	        this.message = source["message"];
+	        this.retryable = source["retryable"];
+	        this.httpStatus = source["httpStatus"];
+	        this.protocol = source["protocol"];
+	    }
+	}
+	export class ModelListResult {
+	    models: string[];
+	    error?: ProviderErrorDTO;
+
+	    static createFrom(source: any = {}) {
+	        return new ModelListResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.models = source["models"];
+	        this.error = this.convertValues(source["error"], ProviderErrorDTO);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ModelProbeRequest {
+	    connection: ConnectionDraft;
+	    kind: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ModelProbeRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connection = this.convertValues(source["connection"], ConnectionDraft);
+	        this.kind = source["kind"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ModelProbeResult {
+	    kind: string;
+	    outcome: string;
+	    protocol: string;
+	    message: string;
+	    error?: ProviderErrorDTO;
+	    requestSent: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ModelProbeResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.outcome = source["outcome"];
+	        this.protocol = source["protocol"];
+	        this.message = source["message"];
+	        this.error = this.convertValues(source["error"], ProviderErrorDTO);
+	        this.requestSent = source["requestSent"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -257,6 +404,10 @@ export namespace app {
 	    metadataSuggestion?: questionbank.SourceMetadataSuggestion;
 	    suggestionConflict?: boolean;
 	    organizeReady: boolean;
+	    organizeOutcome: string;
+	    eligibleOrganize: number;
+	    organizedRecords: number;
+	    structuredQuestions: number;
 	    pendingOrganize: number;
 	    failedOrganize: number;
 
@@ -280,6 +431,10 @@ export namespace app {
 	        this.metadataSuggestion = this.convertValues(source["metadataSuggestion"], questionbank.SourceMetadataSuggestion);
 	        this.suggestionConflict = source["suggestionConflict"];
 	        this.organizeReady = source["organizeReady"];
+	        this.organizeOutcome = source["organizeOutcome"];
+	        this.eligibleOrganize = source["eligibleOrganize"];
+	        this.organizedRecords = source["organizedRecords"];
+	        this.structuredQuestions = source["structuredQuestions"];
 	        this.pendingOrganize = source["pendingOrganize"];
 	        this.failedOrganize = source["failedOrganize"];
 	    }
@@ -311,6 +466,7 @@ export namespace app {
 	    nameCustomized: boolean;
 	    directory: string;
 	    autoOrganize: boolean;
+	    allowPartial: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new QuestionBankExportRequest(source);
@@ -326,6 +482,7 @@ export namespace app {
 	        this.nameCustomized = source["nameCustomized"];
 	        this.directory = source["directory"];
 	        this.autoOrganize = source["autoOrganize"];
+	        this.allowPartial = source["allowPartial"];
 	    }
 	}
 
@@ -492,6 +649,8 @@ export namespace config {
 	export class Config {
 	    apiKey?: string;
 	    baseURL?: string;
+	    connectionMode?: string;
+	    apiProtocol?: string;
 	    model?: string;
 	    prompt?: string;
 	    domainId?: string;
@@ -520,6 +679,8 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiKey = source["apiKey"];
 	        this.baseURL = source["baseURL"];
+	        this.connectionMode = source["connectionMode"];
+	        this.apiProtocol = source["apiProtocol"];
 	        this.model = source["model"];
 	        this.prompt = source["prompt"];
 	        this.domainId = source["domainId"];

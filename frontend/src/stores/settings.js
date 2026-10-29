@@ -10,6 +10,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = reactive({
     apiKey: '',
     baseURL: 'https://api.openai.com/v1',
+    connectionMode: 'direct',
+    apiProtocol: 'openai_chat',
     model: '',
     assistantModel: '',
     prompt: '',
@@ -31,8 +33,17 @@ export const useSettingsStore = defineStore('settings', () => {
   const settingsLoadError = ref('')
   let backendSnapshot = {}
   let loadPromise = null
+  let sessionRevision = 0
+  let catalogRevision = 0
+  let probeRevision = 0
   let modelRequestVersion = 0
-  let connectionRequestVersion = 0
+  let catalogPromise = null
+  let catalogPromiseSession = -1
+  let catalogPromiseRevision = -1
+  let catalogLoadedSession = -1
+  let catalogLoadedRevision = -1
+  let textProbeRequestVersion = 0
+  let visionProbeRequestVersion = 0
 
   const tempSettings = reactive({ ...settings })
   const shortcuts = reactive({})
@@ -96,7 +107,7 @@ export const useSettingsStore = defineStore('settings', () => {
       statusText.value = '未配置'
       statusIcon.value = '!'
     } else {
-      statusText.value = '已连接'
+      statusText.value = '已配置 / 未验证'
       statusIcon.value = '✓'
     }
   }
@@ -201,6 +212,8 @@ export const useSettingsStore = defineStore('settings', () => {
   function applyConfig(config) {
     settings.apiKey = config.apiKey || ''
     settings.baseURL = config.baseURL || 'https://api.openai.com/v1'
+    settings.connectionMode = config.connectionMode || 'direct'
+    settings.apiProtocol = config.apiProtocol || 'openai_chat'
     settings.model = config.model || ''
     settings.assistantModel = config.assistantModel || ''
     settings.prompt = config.prompt || ''
@@ -221,73 +234,260 @@ export const useSettingsStore = defineStore('settings', () => {
     Object.assign(tempSettings, JSON.parse(JSON.stringify(settings)))
   }
 
-  async function fetchModels(apiKey, baseURL = tempSettings.baseURL) {
-    if (!apiKey) return false
-    const version = ++modelRequestVersion
-    ui.isLoadingModels = true
-    try {
-      const models = await api.getModels(apiKey, baseURL)
-      if (version !== modelRequestVersion || apiKey !== tempSettings.apiKey || baseURL !== tempSettings.baseURL) return false
-      ui.availableModels = models || []
-      if (models?.length > 0) {
-        if (!tempSettings.model || !models.includes(tempSettings.model)) tempSettings.model = models[0]
-        return true
-      }
-      ui.showToast('接口未返回模型，请检查服务商的模型列表支持情况', 'warning')
+  function effectiveConnectionMode() {
+    return tempSettings.connectionMode === 'ccr' ? 'ccr' : 'direct'
+  }
+
+  function effectiveCatalogProtocol() {
+    return effectiveConnectionMode() === 'ccr' ? 'openai_chat' : (tempSettings.apiProtocol || 'openai_chat')
+  }
+
+  function connectionDraft() {
+    return {
+      connectionMode: effectiveConnectionMode(),
+      apiKey: tempSettings.apiKey || '',
+      baseURL: tempSettings.baseURL || '',
+      model: tempSettings.model || '',
+      apiProtocol: effectiveCatalogProtocol(),
+    }
+  }
+
+  function modelCatalogState() {
+    if (!ui.modelCatalog) {
+      ui.modelCatalog = reactive({ status: 'idle', message: '', errorCode: '', lastSyncedAt: 0 })
+    }
+    return ui.modelCatalog
+  }
+
+  function setModelCatalog(status, message = '', errorCode = '', lastSyncedAt = modelCatalogState().lastSyncedAt || 0) {
+    Object.assign(modelCatalogState(), { status, message, errorCode, lastSyncedAt })
+  }
+
+  function clearCatalogResults() {
+    modelRequestVersion++
+    catalogPromise = null
+    catalogLoadedSession = -1
+    catalogLoadedRevision = -1
+    ui.availableModels = []
+    ui.isLoadingModels = false
+    setModelCatalog('idle', '', '', 0)
+  }
+
+  function clearProbeResults() {
+    textProbeRequestVersion++
+    visionProbeRequestVersion++
+    ui.textProbeLoading = false
+    ui.visionProbeLoading = false
+    ui.probeStatus.text = null
+    ui.probeStatus.vision = null
+  }
+
+  function clearConnectionResults({ clearModels = true } = {}) {
+    if (clearModels) clearCatalogResults()
+    clearProbeResults()
+  }
+
+  watch(
+    () => [
+      effectiveConnectionMode(),
+      tempSettings.apiKey,
+      tempSettings.baseURL,
+      effectiveCatalogProtocol(),
+    ],
+    () => {
+      catalogRevision++
+      probeRevision++
+      clearCatalogResults()
+      clearProbeResults()
+    }
+  )
+
+  watch(() => tempSettings.model, () => {
+    probeRevision++
+    clearProbeResults()
+  })
+
+  async function fetchModels() {
+    const draft = connectionDraft()
+    if (!draft.apiKey || !draft.baseURL) {
+      setModelCatalog('needs_config', '请先填写 API Key 和接口地址')
       return false
-    } catch (_) {
-      if (version !== modelRequestVersion || apiKey !== tempSettings.apiKey || baseURL !== tempSettings.baseURL) return false
+    }
+    const version = ++modelRequestVersion
+    const requestSession = sessionRevision
+    const requestCatalog = catalogRevision
+    const isCurrent = () => (
+      version === modelRequestVersion &&
+      requestSession === sessionRevision &&
+      requestCatalog === catalogRevision
+    )
+    ui.isLoadingModels = true
+    setModelCatalog('syncing', '正在同步模型目录')
+    try {
+      const result = await api.listModelsForDraft(draft)
+      if (!isCurrent()) return false
+      if (result?.error) {
+        ui.availableModels = []
+        setModelCatalog('failed', result.error.message || '获取模型列表失败', result.error.code || '')
+        ui.showToast(result.error.message || '获取模型列表失败', 'error')
+        return false
+      }
+      ui.availableModels = Array.isArray(result?.models) ? result.models : []
+      const syncedAt = Date.now()
+      if (ui.availableModels.length === 0) {
+        setModelCatalog('empty', '接口未返回模型；仍可手动填写模型名称', '', syncedAt)
+        ui.showToast('接口未返回模型；仍可手动填写模型名称', 'warning')
+        return false
+      }
+      catalogLoadedSession = requestSession
+      catalogLoadedRevision = requestCatalog
+      setModelCatalog('synced', `已同步 ${ui.availableModels.length} 个模型`, '', syncedAt)
+      return true
+    } catch (error) {
+      if (!isCurrent()) return false
       ui.availableModels = []
-      ui.showToast('获取模型列表失败，请检查本次接口地址、API Key 和网络连接', 'error')
+      if (error?.code === 'frontend_wait_timeout') {
+        setModelCatalog('ui_timeout', error.message, error.code)
+        ui.showToast(error.message, 'warning')
+      } else {
+        setModelCatalog('failed', '获取模型列表失败；仍可手动填写模型名称')
+        ui.showToast('获取模型列表失败；仍可手动填写模型名称', 'error')
+      }
       return false
     } finally {
-      if (version === modelRequestVersion) ui.isLoadingModels = false
+      if (isCurrent()) ui.isLoadingModels = false
     }
   }
 
   async function refreshModels() {
-    if (!tempSettings.apiKey) {
-      ui.showToast('请先填写 API Key', 'warning')
-      return
+    if (!tempSettings.apiKey || !tempSettings.baseURL) {
+      setModelCatalog('needs_config', '请先填写 API Key 和接口地址')
+      ui.showToast('请先填写 API Key 和接口地址', 'warning')
+      return false
     }
-    const success = await fetchModels(tempSettings.apiKey)
-    if (success && ui.availableModels.length > 0) {
-      ui.showToast(`已加载 ${ui.availableModels.length} 个模型`, 'success')
+    catalogPromise = null
+    const success = await fetchModels()
+    if (success) ui.showToast(`已加载 ${ui.availableModels.length} 个模型建议`, 'success')
+    return success
+  }
+
+  function ensureCCRModelCatalog() {
+    if (effectiveConnectionMode() !== 'ccr') return Promise.resolve(false)
+    if (!tempSettings.apiKey || !tempSettings.baseURL) {
+      setModelCatalog('needs_config', '请先填写 CCR API Key 和网关地址')
+      return Promise.resolve(false)
+    }
+    if (
+      catalogLoadedSession === sessionRevision &&
+      catalogLoadedRevision === catalogRevision &&
+      modelCatalogState().status === 'synced'
+    ) {
+      return Promise.resolve(true)
+    }
+    if (
+      catalogPromise &&
+      catalogPromiseSession === sessionRevision &&
+      catalogPromiseRevision === catalogRevision
+    ) {
+      return catalogPromise
+    }
+    catalogPromiseSession = sessionRevision
+    catalogPromiseRevision = catalogRevision
+    const request = fetchModels()
+    const tracked = request.finally(() => {
+      if (catalogPromise === tracked) catalogPromise = null
+    })
+    catalogPromise = tracked
+    return tracked
+  }
+
+  async function runProbe(kind) {
+    const draft = connectionDraft()
+    if (draft.connectionMode === 'ccr') {
+      const message = 'CCR 模式不执行付费模型实测，请通过模型目录选择路由'
+      ui.probeStatus[kind] = {
+        kind, outcome: 'failed', message, requestSent: false,
+        error: { code: 'probe_disabled', stage: 'validate_probe', protocol: 'openai_chat' },
+      }
+      ui.showToast(message, 'info')
+      return false
+    }
+    if (!draft.apiKey || !draft.baseURL || !draft.model) {
+      ui.showToast('请先填写 API Key、接口地址和模型', 'warning')
+      return false
+    }
+    const isText = kind === 'text'
+    const version = isText ? ++textProbeRequestVersion : ++visionProbeRequestVersion
+    const requestSession = sessionRevision
+    const requestProbe = probeRevision
+    const isCurrent = () => (
+      requestSession === sessionRevision &&
+      requestProbe === probeRevision &&
+      version === (isText ? textProbeRequestVersion : visionProbeRequestVersion)
+    )
+    if (isText) ui.textProbeLoading = true
+    else ui.visionProbeLoading = true
+    ui.probeStatus[kind] = null
+    try {
+      const result = await api.probeModelConnection({ connection: draft, kind })
+      if (!isCurrent()) return false
+      ui.probeStatus[kind] = result || {
+        kind, outcome: 'failed', message: '模型测试未返回有效结果',
+      }
+      if (result?.outcome === 'passed') {
+        ui.showToast(kind === 'text' ? '文字实测通过' : '图片实测通过', 'success')
+        return true
+      }
+      ui.showToast(result?.message || '模型实测失败', result?.outcome === 'inconclusive' ? 'warning' : 'error')
+      return false
+    } catch (error) {
+      if (!isCurrent()) return false
+      const timedOut = error?.code === 'frontend_wait_timeout'
+      ui.probeStatus[kind] = {
+        kind,
+        outcome: 'failed',
+        message: timedOut ? error.message : '模型测试调用失败，请检查应用状态',
+        ...(timedOut ? { error: { code: error.code, operation: error.operation } } : {}),
+      }
+      ui.showToast(ui.probeStatus[kind].message, timedOut ? 'warning' : 'error')
+      return false
+    } finally {
+      if (isCurrent()) {
+        if (isText) ui.textProbeLoading = false
+        else ui.visionProbeLoading = false
+      }
     }
   }
 
-  async function testConnection() {
-    if (!tempSettings.apiKey || !tempSettings.model) {
-      ui.showToast('请先填写 API Key 并选择模型', 'warning')
-      return
+  const testTextConnection = () => runProbe('text')
+  const testVisionConnection = () => runProbe('vision')
+  const testConnection = testTextConnection
+
+  function connectionOrigin(value) {
+    try { return new URL(value).origin.toLowerCase() } catch (_) { return '' }
+  }
+
+  function applyProviderPreset(preset) {
+    if (effectiveConnectionMode() === 'ccr') return
+    const nextURL = preset?.baseURL || ''
+    const currentOrigin = connectionOrigin(tempSettings.baseURL)
+    const nextOrigin = connectionOrigin(nextURL)
+    if (!currentOrigin || !nextOrigin || currentOrigin !== nextOrigin) {
+      tempSettings.apiKey = ''
+      tempSettings.model = ''
     }
-    const version = ++connectionRequestVersion
-    const { apiKey, baseURL, model } = tempSettings
-    const isCurrent = () => version === connectionRequestVersion && apiKey === tempSettings.apiKey && baseURL === tempSettings.baseURL && model === tempSettings.model
-    ui.isTestingConnection = true
-    ui.connectionStatus = null
-    try {
-      const result = await api.testConnection(apiKey, baseURL, model)
-      if (!isCurrent()) return
-      if (result === '') {
-        ui.connectionStatus = { type: 'success', icon: '✓', message: '本次模型连接成功' }
-        ui.showToast('连接测试成功', 'success')
-      } else {
-        ui.connectionStatus = { type: 'error', icon: '!', message: '连接测试失败，请检查接口地址、密钥和模型' }
-        ui.showToast('连接测试失败', 'error')
-      }
-    } catch (_) {
-      if (isCurrent()) ui.connectionStatus = { type: 'error', icon: '!', message: '连接测试失败，请检查网络与接口配置' }
-    } finally {
-      if (version === connectionRequestVersion) ui.isTestingConnection = false
-    }
+    tempSettings.baseURL = nextURL
+    tempSettings.apiProtocol = preset?.apiProtocol || 'openai_chat'
+    clearConnectionResults()
   }
 
   function buildConfigToSave(sourceSettings, sourceShortcuts) {
     return {
       ...backendSnapshot,
+      connectionMode: sourceSettings.connectionMode === 'ccr' ? 'ccr' : 'direct',
       apiKey: sourceSettings.apiKey,
       baseURL: sourceSettings.baseURL,
+      apiProtocol: sourceSettings.connectionMode === 'ccr' ? 'openai_chat' : (sourceSettings.apiProtocol || 'openai_chat'),
       model: sourceSettings.model,
       assistantModel: sourceSettings.assistantModel,
       prompt: '',
@@ -313,6 +513,8 @@ export const useSettingsStore = defineStore('settings', () => {
       return false
     }
     const draft = JSON.parse(JSON.stringify(tempSettings))
+    draft.connectionMode = draft.connectionMode === 'ccr' ? 'ccr' : 'direct'
+    if (draft.connectionMode === 'ccr') draft.apiProtocol = 'openai_chat'
     const draftShortcuts = JSON.parse(JSON.stringify(tempShortcuts))
     const payload = buildConfigToSave(draft, draftShortcuts)
     try {
@@ -339,7 +541,10 @@ export const useSettingsStore = defineStore('settings', () => {
     if (!settingsLoaded.value) await loadSettings()
     Object.assign(tempSettings, JSON.parse(JSON.stringify(settings)))
     Object.assign(tempShortcuts, JSON.parse(JSON.stringify(shortcuts)))
-    ui.connectionStatus = null
+    sessionRevision++
+    catalogRevision++
+    probeRevision++
+    clearConnectionResults()
     if (settings.resumeContent) resumeRawContent.value = settings.resumeContent
     ui.showSettings = true
   }
@@ -349,10 +554,10 @@ export const useSettingsStore = defineStore('settings', () => {
       ui.showToast('简历正在解析中，请稍候...', 'warning')
       return
     }
-    modelRequestVersion++
-    connectionRequestVersion++
-    ui.isLoadingModels = false
-    ui.isTestingConnection = false
+    sessionRevision++
+    catalogRevision++
+    probeRevision++
+    clearConnectionResults()
     api.removeFocus()
     ui.showSettings = false
     if (recordingAction.value) api.stopRecordingKey()
@@ -424,7 +629,8 @@ export const useSettingsStore = defineStore('settings', () => {
     recordingAction, recordingText, shortcutActions, shortcutDisplayName,
     maskedKey, solveShortcut, sendShortcut, deleteShortcut, toggleShortcut,
     statusText, statusIcon, resetStatus,
-    loadSettings, fetchModels, refreshModels, testConnection,
+    loadSettings, fetchModels, refreshModels, ensureCCRModelCatalog, testConnection,
+    testTextConnection, testVisionConnection, applyProviderPreset,
     saveSettings, saveSettingsSilent, openSettings, closeSettings, resetTempSettings,
     recordKey, selectResume, clearResume, parseResume,
     applyTransparency,

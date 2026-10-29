@@ -82,6 +82,7 @@
               <div class="inline-error-content">
                 <div class="inline-error-title">{{ round.error.title }}</div>
                 <div class="inline-error-desc">{{ round.error.desc }}</div>
+                <ErrorDiagnostics :detail="round.error.detail" />
               </div>
             </div>
 
@@ -128,6 +129,7 @@ import Icon from './Icon.vue'
 import HistoryItem from './HistoryItem.vue'
 import EmptyState from './EmptyState.vue'
 import ErrorView from './ErrorView.vue'
+import ErrorDiagnostics from './ErrorDiagnostics.vue'
 import LoadingView from './LoadingView.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ActionBar from './ActionBar.vue'

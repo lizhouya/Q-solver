@@ -126,6 +126,10 @@ export function IsInterruptThinkingEnabled() {
   return window['go']['app']['App']['IsInterruptThinkingEnabled']();
 }
 
+export function ListModelsForDraft(arg1) {
+  return window['go']['app']['App']['ListModelsForDraft'](arg1);
+}
+
 export function ListQuestionBankSessions() {
   return window['go']['app']['App']['ListQuestionBankSessions']();
 }
@@ -162,6 +166,10 @@ export function PrepareQuestionBankSegment(arg1) {
   return window['go']['app']['App']['PrepareQuestionBankSegment'](arg1);
 }
 
+export function ProbeModelConnection(arg1) {
+  return window['go']['app']['App']['ProbeModelConnection'](arg1);
+}
+
 export function RemoveFocus() {
   return window['go']['app']['App']['RemoveFocus']();
 }
@@ -192,6 +200,10 @@ export function RestoreFocus() {
 
 export function ResumeQuestionBankSession() {
   return window['go']['app']['App']['ResumeQuestionBankSession']();
+}
+
+export function RetryFailedQuestionBankRecords(arg1) {
+  return window['go']['app']['App']['RetryFailedQuestionBankRecords'](arg1);
 }
 
 export function RetryMobileOutput() {

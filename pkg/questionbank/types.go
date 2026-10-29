@@ -41,6 +41,16 @@ type SourceMetadataSuggestion struct {
 	ReviewNote string `json:"reviewNote,omitempty"`
 }
 
+type OrganizeFailure struct {
+	Code           string    `json:"code"`
+	Stage          string    `json:"stage"`
+	Retryable      bool      `json:"retryable"`
+	ProviderCalled bool      `json:"providerCalled"`
+	AttemptedAt    time.Time `json:"attemptedAt"`
+	Model          string    `json:"model,omitempty"`
+	ResponseBytes  int       `json:"responseBytes,omitempty"`
+}
+
 const (
 	ConversationQualityPersisted     = "persisted"
 	ConversationQualityReconstructed = "record-reconstructed"
@@ -75,6 +85,7 @@ type Record struct {
 	Status             string                    `json:"status"`
 	Questions          []Question                `json:"questions,omitempty"`
 	OrganizeError      string                    `json:"organizeError,omitempty"`
+	OrganizeFailure    *OrganizeFailure          `json:"organizeFailure,omitempty"`
 	MetadataSuggestion *SourceMetadataSuggestion `json:"metadataSuggestion,omitempty"`
 	KeepContext        *bool                     `json:"keepContext,omitempty"`
 }

@@ -1,8 +1,11 @@
 package solution
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 	"testing"
@@ -570,5 +573,45 @@ func TestCancelledRequestCannotPublishSuccessfulProviderReply(t *testing.T) {
 	}})
 	if ok || completed || len(solver.SnapshotConversation().Turns) != 0 {
 		t.Fatal("cancelled reply published as completed")
+	}
+}
+
+func TestSolveLogsOnlySafeMetadata(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
+
+	const (
+		resumeSentinel = "PRIVATE-RESUME-SENTINEL"
+		answerSentinel = "PRIVATE-ANSWER-SENTINEL"
+		errorSentinel  = "PRIVATE-SDK-ERROR-SENTINEL"
+	)
+
+	success := NewSolver(&fakeProvider{reply: answerSentinel})
+	success.Solve(context.Background(), Request{
+		Config: config.Config{APIKey: "fixture", ResumeContent: resumeSentinel},
+	}, Callbacks{})
+
+	failure := NewSolver(&fakeProvider{err: errors.New(errorSentinel)})
+	failure.Solve(context.Background(), Request{
+		Config: config.Config{APIKey: "fixture", ResumeContent: resumeSentinel},
+	}, Callbacks{})
+
+	output := logs.String()
+	for _, sentinel := range []string{resumeSentinel, answerSentinel, errorSentinel} {
+		if strings.Contains(output, sentinel) {
+			t.Fatalf("sensitive model data leaked to logs: %s", sentinel)
+		}
+	}
+	for _, safe := range []string{"system 提示词长度", "模型返回内容长度", "LLM 请求失败"} {
+		if !strings.Contains(output, safe) {
+			t.Fatalf("missing safe log metadata %q in %q", safe, output)
+		}
 	}
 }

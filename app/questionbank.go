@@ -43,22 +43,26 @@ type QuestionBankPreferences struct {
 }
 
 type QuestionBankExportDraft struct {
-	SessionID          string                                 `json:"sessionId"`
-	Company            string                                 `json:"company"`
-	Issuer             string                                 `json:"issuer"`
-	Type               string                                 `json:"type"`
-	Name               string                                 `json:"name"`
-	NameCustomized     bool                                   `json:"nameCustomized"`
-	Directory          string                                 `json:"directory"`
-	AutoOrganize       bool                                   `json:"autoOrganize"`
-	NumberedPrefix     string                                 `json:"numberedPrefix"`
-	Count              int                                    `json:"count"`
-	StartedAt          string                                 `json:"startedAt"`
-	MetadataSuggestion *questionbank.SourceMetadataSuggestion `json:"metadataSuggestion,omitempty"`
-	SuggestionConflict bool                                   `json:"suggestionConflict,omitempty"`
-	OrganizeReady      bool                                   `json:"organizeReady"`
-	PendingOrganize    int                                    `json:"pendingOrganize"`
-	FailedOrganize     int                                    `json:"failedOrganize"`
+	SessionID           string                                 `json:"sessionId"`
+	Company             string                                 `json:"company"`
+	Issuer              string                                 `json:"issuer"`
+	Type                string                                 `json:"type"`
+	Name                string                                 `json:"name"`
+	NameCustomized      bool                                   `json:"nameCustomized"`
+	Directory           string                                 `json:"directory"`
+	AutoOrganize        bool                                   `json:"autoOrganize"`
+	NumberedPrefix      string                                 `json:"numberedPrefix"`
+	Count               int                                    `json:"count"`
+	StartedAt           string                                 `json:"startedAt"`
+	MetadataSuggestion  *questionbank.SourceMetadataSuggestion `json:"metadataSuggestion,omitempty"`
+	SuggestionConflict  bool                                   `json:"suggestionConflict,omitempty"`
+	OrganizeReady       bool                                   `json:"organizeReady"`
+	OrganizeOutcome     string                                 `json:"organizeOutcome"`
+	EligibleOrganize    int                                    `json:"eligibleOrganize"`
+	OrganizedRecords    int                                    `json:"organizedRecords"`
+	StructuredQuestions int                                    `json:"structuredQuestions"`
+	PendingOrganize     int                                    `json:"pendingOrganize"`
+	FailedOrganize      int                                    `json:"failedOrganize"`
 }
 
 type QuestionBankExportRequest struct {
@@ -70,6 +74,7 @@ type QuestionBankExportRequest struct {
 	NameCustomized bool   `json:"nameCustomized"`
 	Directory      string `json:"directory"`
 	AutoOrganize   bool   `json:"autoOrganize"`
+	AllowPartial   bool   `json:"allowPartial"`
 }
 
 type questionBankPreferencesFile struct {
@@ -738,17 +743,8 @@ func automaticQuestionBankName(numberedPrefix, company, issuer, kind string) str
 }
 
 func questionBankOrganizeState(session *questionbank.Session) (pending, failed int) {
-	for _, record := range session.Records {
-		if record.Status != questionbank.Completed || len(record.Questions) > 0 {
-			continue
-		}
-		if record.OrganizeError != "" {
-			failed++
-		} else {
-			pending++
-		}
-	}
-	return pending, failed
+	summary := questionbank.SummarizeOrganizeState(session)
+	return summary.PendingRecords, summary.FailedRecords
 }
 
 func (a *App) questionBankExportDraftLocked(id string) (QuestionBankExportDraft, error) {
@@ -796,24 +792,28 @@ func (a *App) questionBankExportDraftLocked(id string) (QuestionBankExportDraft,
 	if session.NameCustomized && strings.TrimSpace(session.Name) != "" {
 		name = session.Name
 	}
-	pending, failed := questionBankOrganizeState(session)
+	summary := questionbank.SummarizeOrganizeState(session)
 	return QuestionBankExportDraft{
-		SessionID:          session.ID,
-		Company:            company,
-		Issuer:             issuer,
-		Type:               kind,
-		Name:               name,
-		NameCustomized:     session.NameCustomized,
-		Directory:          b.store.Root(),
-		AutoOrganize:       b.preferences.AutoOrganize,
-		NumberedPrefix:     numberedPrefix,
-		Count:              len(session.Records),
-		StartedAt:          session.StartedAt.Format(time.RFC3339Nano),
-		MetadataSuggestion: suggestion,
-		SuggestionConflict: conflict,
-		OrganizeReady:      pending == 0,
-		PendingOrganize:    pending,
-		FailedOrganize:     failed,
+		SessionID:           session.ID,
+		Company:             company,
+		Issuer:              issuer,
+		Type:                kind,
+		Name:                name,
+		NameCustomized:      session.NameCustomized,
+		Directory:           b.store.Root(),
+		AutoOrganize:        b.preferences.AutoOrganize,
+		NumberedPrefix:      numberedPrefix,
+		Count:               len(session.Records),
+		StartedAt:           session.StartedAt.Format(time.RFC3339Nano),
+		MetadataSuggestion:  suggestion,
+		SuggestionConflict:  conflict,
+		OrganizeReady:       summary.PendingRecords == 0 && summary.StructuredQuestions > 0,
+		OrganizeOutcome:     summary.Outcome,
+		EligibleOrganize:    summary.EligibleRecords,
+		OrganizedRecords:    summary.OrganizedRecords,
+		StructuredQuestions: summary.StructuredQuestions,
+		PendingOrganize:     summary.PendingRecords,
+		FailedOrganize:      summary.FailedRecords,
 	}, nil
 }
 
@@ -895,33 +895,46 @@ func (a *App) sealQuestionBankTargetLocked(snapshot *questionbank.Session) (stri
 	return targetID, nil
 }
 
-func (a *App) startQuestionBankOrganizeLocked(targetID string, cfg config.Config) {
+func (a *App) startQuestionBankOrganizeLocked(targetID string, cfg config.Config, provider llm.Provider, retryFailedOnly bool) {
 	b := a.questionBank
 	ctx, cancel := context.WithCancel(context.Background())
 	b.cancel = cancel
 	b.organizing = true
 	b.operation = "organizing"
 	b.progress = questionbank.Progress{}
-	b.message = "正在整理分段并生成待核对建议"
+	if retryFailedOnly {
+		b.message = "正在重试整理失败记录"
+	} else {
+		b.message = "正在整理分段并生成待核对建议"
+	}
 	store := b.store
-	provider := llm.NewOpenAIAdapter(&cfg)
 	b.workers.Add(1)
 
 	go func() {
 		defer b.workers.Done()
 		defer cancel()
-		organizeErr := store.OrganizeSession(ctx, targetID, provider, cfg.Model, func(progress questionbank.Progress) {
+		run := store.OrganizeSession
+		if retryFailedOnly {
+			run = store.RetryFailedSession
+		}
+		organizeErr := run(ctx, targetID, provider, cfg.Model, func(progress questionbank.Progress) {
 			b.mu.Lock()
 			b.progress = progress
 			b.mu.Unlock()
 			a.notifyQuestionBank()
 		})
+		snapshot, _ := store.SnapshotByID(targetID)
+		summary := questionbank.SummarizeOrganizeState(snapshot)
 		b.mu.Lock()
 		switch {
 		case errors.Is(organizeErr, context.Canceled):
-			b.message = "整理已取消；已完成的题目和建议仍保留，可稍后继续"
+			b.message = "整理已取消；已完成结果仍保留，取消未记为整理失败"
+		case summary.Outcome == questionbank.OrganizeOutcomeAllFailed:
+			b.message = "全部记录整理失败；原稿已保留，可只重试失败记录或改为仅原稿"
+		case summary.Outcome == questionbank.OrganizeOutcomePartial:
+			b.message = fmt.Sprintf("整理部分完成：%d 条记录成功，%d 条失败，共 %d 道结构化题", summary.OrganizedRecords, summary.FailedRecords, summary.StructuredQuestions)
 		case organizeErr != nil:
-			b.message = organizeErr.Error() + "；可核对已有结果后导出，或稍后重试"
+			b.message = organizeErr.Error()
 		default:
 			b.message = "整理完成；模型建议尚未成为权威元数据，请核对后再导出"
 		}
@@ -955,18 +968,63 @@ func (a *App) PrepareQuestionBankSegment(sessionID string) error {
 		b.mu.Unlock()
 		return err
 	}
+	provider, err := llm.NewProvider(cfg)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
 	targetID, err := a.sealQuestionBankTargetLocked(snapshot)
 	if err != nil {
 		b.mu.Unlock()
 		return err
 	}
-	a.startQuestionBankOrganizeLocked(targetID, cfg)
+	a.startQuestionBankOrganizeLocked(targetID, cfg, provider, false)
 	b.mu.Unlock()
 	a.notifyQuestionBank()
 	return nil
 }
 
-func (a *App) startQuestionBankExportWithOptionsLocked(targetID string, autoOrganize bool, options questionbank.ExportOptions, cfg config.Config) {
+func (a *App) RetryFailedQuestionBankRecords(sessionID string) error {
+	b := a.questionBank
+	if b == nil {
+		return fmt.Errorf("题库服务不可用")
+	}
+	b.mu.Lock()
+	if err := a.bankAvailableLocked(); err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	snapshot, err := a.questionBankTargetLocked(sessionID)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	if questionbank.SummarizeOrganizeState(snapshot).FailedRecords == 0 {
+		b.mu.Unlock()
+		return fmt.Errorf("当前分段没有可重试的整理失败记录")
+	}
+	cfg, err := a.questionBankExportConfigForLocked(true)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	provider, err := llm.NewProvider(cfg)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	targetID, err := a.sealQuestionBankTargetLocked(snapshot)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
+	a.startQuestionBankOrganizeLocked(targetID, cfg, provider, true)
+	b.mu.Unlock()
+	a.notifyQuestionBank()
+	return nil
+}
+
+func (a *App) startQuestionBankExportWithOptionsLocked(targetID string, provider llm.Provider, options questionbank.ExportOptions, cfg config.Config) {
 	b := a.questionBank
 	ctx, cancel := context.WithCancel(context.Background())
 	b.cancel = cancel
@@ -975,9 +1033,7 @@ func (a *App) startQuestionBankExportWithOptionsLocked(targetID string, autoOrga
 	b.progress = questionbank.Progress{}
 	b.message = "正在导出分段"
 	store := b.store
-	var provider llm.Provider
-	if autoOrganize {
-		provider = llm.NewOpenAIAdapter(&cfg)
+	if provider != nil {
 		b.operation = "organizing"
 		b.message = "正在整理并导出分段"
 	}
@@ -1020,8 +1076,8 @@ func (a *App) startQuestionBankExportWithOptionsLocked(targetID string, autoOrga
 	}()
 }
 
-func (a *App) startQuestionBankExportLocked(targetID string, preferences QuestionBankPreferences, cfg config.Config) {
-	a.startQuestionBankExportWithOptionsLocked(targetID, preferences.AutoOrganize, questionbank.ExportOptions{RawOnly: !preferences.AutoOrganize}, cfg)
+func (a *App) startQuestionBankExportLocked(targetID string, preferences QuestionBankPreferences, cfg config.Config, provider llm.Provider) {
+	a.startQuestionBankExportWithOptionsLocked(targetID, provider, questionbank.ExportOptions{RawOnly: !preferences.AutoOrganize}, cfg)
 }
 
 func (a *App) ExportQuestionBankSegment(request QuestionBankExportRequest) error {
@@ -1063,10 +1119,18 @@ func (a *App) ExportQuestionBankSegment(request QuestionBankExportRequest) error
 		return err
 	}
 	if request.AutoOrganize {
-		pending, _ := questionBankOrganizeState(snapshot)
-		if pending > 0 {
+		summary := questionbank.SummarizeOrganizeState(snapshot)
+		if summary.PendingRecords > 0 {
 			b.mu.Unlock()
-			return fmt.Errorf("请先整理并生成建议，再核对元数据后导出")
+			return fmt.Errorf("请先完成待整理记录，再核对元数据后导出")
+		}
+		if summary.StructuredQuestions == 0 {
+			b.mu.Unlock()
+			return fmt.Errorf("全部整理失败或没有可导出的结构化题目；请重试失败记录或改为仅原稿")
+		}
+		if summary.Outcome == questionbank.OrganizeOutcomePartial && !request.AllowPartial {
+			b.mu.Unlock()
+			return fmt.Errorf("仍有记录整理失败；请重试失败记录，或明确导出已有整理结果")
 		}
 	}
 	targetID, err := a.sealQuestionBankTargetLocked(snapshot)
@@ -1086,7 +1150,7 @@ func (a *App) ExportQuestionBankSegment(request QuestionBankExportRequest) error
 		Directory: cleanDirectory,
 		RawOnly:   !request.AutoOrganize,
 	}
-	a.startQuestionBankExportWithOptionsLocked(targetID, false, options, config.Config{})
+	a.startQuestionBankExportWithOptionsLocked(targetID, nil, options, config.Config{})
 	b.mu.Unlock()
 	a.notifyQuestionBank()
 	return nil
@@ -1104,12 +1168,20 @@ func (a *App) ExportCurrentQuestionBankSegment() error {
 		b.mu.Unlock()
 		return err
 	}
+	var provider llm.Provider
+	if preferences.AutoOrganize {
+		provider, err = llm.NewProvider(cfg)
+		if err != nil {
+			b.mu.Unlock()
+			return err
+		}
+	}
 	targetID, err := b.store.SealCurrent()
 	if err != nil {
 		b.mu.Unlock()
 		return err
 	}
-	a.startQuestionBankExportLocked(targetID, preferences, cfg)
+	a.startQuestionBankExportLocked(targetID, preferences, cfg, provider)
 	b.mu.Unlock()
 	a.notifyQuestionBank()
 	return nil
@@ -1130,6 +1202,14 @@ func (a *App) ExportQuestionBankSession(id string) error {
 		b.mu.Unlock()
 		return err
 	}
+	var provider llm.Provider
+	if preferences.AutoOrganize {
+		provider, err = llm.NewProvider(cfg)
+		if err != nil {
+			b.mu.Unlock()
+			return err
+		}
+	}
 	snapshot, err := b.store.SnapshotByID(strings.TrimSpace(id))
 	if err != nil {
 		b.mu.Unlock()
@@ -1149,7 +1229,7 @@ func (a *App) ExportQuestionBankSession(id string) error {
 			return fmt.Errorf("所选分段仍有题目正在处理")
 		}
 	}
-	a.startQuestionBankExportLocked(snapshot.ID, preferences, cfg)
+	a.startQuestionBankExportLocked(snapshot.ID, preferences, cfg, provider)
 	b.mu.Unlock()
 	a.notifyQuestionBank()
 	return nil
@@ -1192,6 +1272,11 @@ func (a *App) OrganizeQuestionBank(options questionbank.ExportOptions, confirmed
 		b.mu.Unlock()
 		return fmt.Errorf("请先配置支持图片的模型")
 	}
+	provider, err := llm.NewProvider(cfg)
+	if err != nil {
+		b.mu.Unlock()
+		return err
+	}
 	targetID, err := b.store.SealCurrent()
 	if err != nil {
 		b.mu.Unlock()
@@ -1204,7 +1289,6 @@ func (a *App) OrganizeQuestionBank(options questionbank.ExportOptions, confirmed
 	b.progress = questionbank.Progress{}
 	b.message = "正在整理当前段"
 	store := b.store
-	provider := llm.NewOpenAIAdapter(&cfg)
 	b.workers.Add(1)
 	b.mu.Unlock()
 

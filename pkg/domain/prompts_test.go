@@ -55,3 +55,14 @@ func TestSystemBehaviorPromptPreservesSceneBoundaries(t *testing.T) {
 		"不得混入“最终答案汇总”",
 	)
 }
+
+// 上游未把截图送达时，模型必须明确说明无法识别图片，
+// 而不是依据文本提示生成或猜测题目。
+func TestSystemBehaviorPromptRequiresExplicitVisionFailure(t *testing.T) {
+	prompt := GetSystemBehaviorPrompt()
+	requirePromptFragments(t, prompt,
+		"无法读取或看不到当前用户消息中的图片",
+		"必须明确说明无法识别图片",
+		"不得依据题号摘要、历史对话或任何文本提示生成、猜测或补全题目",
+	)
+}

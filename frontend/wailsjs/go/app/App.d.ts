@@ -68,6 +68,8 @@ export function HideWindow():Promise<void>;
 
 export function IsInterruptThinkingEnabled():Promise<boolean>;
 
+export function ListModelsForDraft(arg1:app.ConnectionDraft):Promise<app.ModelListResult>;
+
 export function ListQuestionBankSessions():Promise<Array<questionbank.SessionInfo>>;
 
 export function ListRecentQuestionBankSessions():Promise<app.QuestionBankSessionList>;
@@ -86,6 +88,8 @@ export function ParseResume():Promise<string>;
 
 export function PrepareQuestionBankSegment(arg1:string):Promise<void>;
 
+export function ProbeModelConnection(arg1:app.ModelProbeRequest):Promise<app.ModelProbeResult>;
+
 export function RemoveFocus():Promise<void>;
 
 export function RemoveLastScreenshot():Promise<void>;
@@ -101,6 +105,8 @@ export function ResetMobileOutputLink(arg1:boolean):Promise<app.MobileCommandRes
 export function RestoreFocus():Promise<void>;
 
 export function ResumeQuestionBankSession():Promise<void>;
+
+export function RetryFailedQuestionBankRecords(arg1:string):Promise<void>;
 
 export function RetryMobileOutput():Promise<app.MobileInfo>;
 

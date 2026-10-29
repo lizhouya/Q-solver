@@ -55,13 +55,13 @@
               >结束本段</button>
               <button v-if="!confirmDiscard" class="qb-danger" :disabled="!bank.canDiscardCurrent || bank.busy" @click="confirmDiscard = true">清空本段</button>
               <template v-else>
-                <span class="qb-confirm-text">仅标记清空，原始文件不会物理删除。确认？</span>
-                <button class="qb-danger qb-danger-solid" :disabled="bank.busy" @click="discardCurrent">确认清空</button>
+                <span class="qb-confirm-text">将永久删除当前分段的题库记录、答案和截图文件，无法恢复。已导出的文件不受影响。确认？</span>
+                <button class="qb-danger qb-danger-solid" :disabled="bank.busy" @click="discardCurrent">永久删除</button>
                 <button :disabled="bank.busy" @click="confirmDiscard = false">取消</button>
               </template>
               <button v-if="bank.status.organizing && bank.status.operation === 'organizing'" :disabled="bank.working" @click="bank.cancelOrganizing">取消整理</button>
             </div>
-            <p class="qb-hint">“结束本段”只封存，不导出；答案旁的“导出题库”会先打开确认窗口，导出成功后也会自动封段。</p>
+            <p class="qb-hint">“结束本段”会保留本地记录并清理解题界面，不导出；答案旁的“导出题库”会先打开确认窗口，导出成功后也会自动封段。</p>
           </section>
 
           <section v-if="bank.status.lastExport?.directory" class="qb-result" aria-labelledby="qb-result-title">

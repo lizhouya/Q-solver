@@ -547,19 +547,50 @@ func (a *App) SplitQuestionBankSegment() error {
 
 func (a *App) DiscardQuestionBankSegment(confirmed bool) error {
 	if !confirmed {
-		return fmt.Errorf("请确认清空当前段；原始文件将保留，但不再参与后续导出")
+		return fmt.Errorf("请确认永久删除当前分段；题库记录、答案和截图文件将无法恢复")
+	}
+
+	a.conversationMu.Lock()
+	if a.taskManager != nil && a.taskManager.HasInFlightTask() {
+		a.conversationMu.Unlock()
+		return fmt.Errorf("请等待解题任务完全结束后再永久删除当前分段")
 	}
 	b := a.questionBank
+	if b == nil {
+		a.conversationMu.Unlock()
+		return fmt.Errorf("题库服务不可用")
+	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if err := a.bankAvailableLocked(); err != nil {
+		b.mu.Unlock()
+		a.conversationMu.Unlock()
 		return err
 	}
-	if err := b.store.DiscardCurrent(); err != nil {
+	if b.operation == "organizing" || b.operation == "exporting" {
+		b.mu.Unlock()
+		a.conversationMu.Unlock()
+		return fmt.Errorf("请等待整理或导出任务完成后再永久删除当前分段")
+	}
+	if a.solver == nil {
+		b.mu.Unlock()
+		a.conversationMu.Unlock()
+		return fmt.Errorf("解题服务尚未就绪")
+	}
+	if _, err := b.store.DeleteCurrent(); err != nil {
+		b.mu.Unlock()
+		a.conversationMu.Unlock()
 		return err
 	}
-	b.message = "当前段已软清空；原始文件仍保留"
+
+	a.solver.ClearHistory()
+	a.conversationRefs = nil
+	a.conversationEpoch++
+	b.message = "当前分段和截图已从本地永久删除"
 	b.lastExport = questionbank.ExportResult{}
+	b.mu.Unlock()
+	a.conversationMu.Unlock()
+
+	a.notifyQuestionBank()
 	return nil
 }
 

@@ -692,10 +692,14 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
   }
 
   async function splitCurrent() {
-    return run(
+    const success = await run(
       () => api.splitQuestionBankSegment(),
-      { successMessage: '当前段已结束，下一题将自动进入新段。' },
+      { successMessage: '当前段已结束并清理解题界面；本地记录仍保留，下一题将自动进入新段。' },
     )
+    if (!success) return false
+    solution.resetLiveHistory()
+    ui.hasStarted = false
+    return true
   }
 
   function requestStartNextExam() {
@@ -736,7 +740,7 @@ export const useQuestionBankStore = defineStore('questionbank', () => {
     if (!confirmed) return false
     const success = await run(
       () => api.discardQuestionBankSegment(true),
-      { successMessage: '桌面历史已清空；题库原始记录和模型上下文仍保留。' },
+      { successMessage: '当前分段、答案和截图已从本地永久删除。' },
     )
     if (!success) return false
     solution.resetLiveHistory()

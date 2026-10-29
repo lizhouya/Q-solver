@@ -9,6 +9,10 @@ const { defineStore, createPinia, setActivePinia } = require('pinia')
 const source = fs.readFileSync(new URL('./src/stores/questionbank.js', import.meta.url), 'utf8')
   .replace(/^import .*$/gm, '')
   .replace('export const useQuestionBankStore', 'const useQuestionBankStore')
+const panelSource = fs.readFileSync(new URL('./src/components/QuestionBankPanel.vue', import.meta.url), 'utf8')
+assert.match(panelSource, /永久删除当前分段的题库记录、答案和截图文件/)
+assert.match(panelSource, />永久删除<\/button>/)
+assert.doesNotMatch(panelSource, /原始文件不会物理删除/)
 
 function deferred() {
   let resolve
@@ -84,6 +88,7 @@ function setup(overrides = {}) {
       status = baseStatus({ organizing: true, operation: 'organizing' })
     },
     exportQuestionBankSegment: async request => { calls.push(['export', { ...request }]) },
+    splitQuestionBankSegment: async () => { calls.push(['split']) },
     discardQuestionBankSegment: async confirmed => { calls.push(['discard', confirmed]) },
     startNextExam: async confirmed => { calls.push(['start-next-exam', confirmed]) },
     restoreFocus: async () => {},
@@ -115,7 +120,7 @@ function setup(overrides = {}) {
   }
 }
 
-// 软清空只有在后端成功后才清桌面实时历史，且不调用其他清理接口。
+// 永久清空只有在后端成功后才清桌面实时历史，且不调用其他清理接口。
 let h = setup()
 assert.equal(await h.store.discardCurrent(false), false)
 assert.equal(h.resets.length, 0)
@@ -123,12 +128,26 @@ assert.equal(await h.store.discardCurrent(true), true)
 assert.deepEqual(h.calls, [['discard', true]])
 assert.equal(h.resets.length, 1)
 assert.equal(h.ui.hasStarted, false)
+assert.match(h.toasts.at(-1)[0], /本地永久删除/)
 for (const forbidden of ['cancelTask', 'clearScreenshots', 'clearMobileDisplay', 'clearHistory']) {
   assert.equal(h.calls.some(call => call[0] === forbidden), false)
 }
 
 h = setup({ discardQuestionBankSegment: async () => { throw Error('synthetic discard failure') } })
 assert.equal(await h.store.discardCurrent(true), false)
+assert.equal(h.resets.length, 0)
+assert.equal(h.ui.hasStarted, true)
+
+// 结束本段保留后端分段，但成功后清理解题界面；失败时不清理。
+h = setup()
+assert.equal(await h.store.splitCurrent(), true)
+assert.deepEqual(h.calls, [['split']])
+assert.equal(h.resets.length, 1)
+assert.equal(h.ui.hasStarted, false)
+assert.match(h.toasts.at(-1)[0], /本地记录仍保留/)
+
+h = setup({ splitQuestionBankSegment: async () => { throw Error('synthetic split failure') } })
+assert.equal(await h.store.splitCurrent(), false)
 assert.equal(h.resets.length, 0)
 assert.equal(h.ui.hasStarted, true)
 

@@ -27,6 +27,8 @@ type Store struct {
 	dirty             bool
 	lastSave          time.Time
 	saveSessionHook   func(*Session, string) error
+	renamePathHook    func(string, string) error
+	removeAllHook     func(string) error
 	writeBlocked      error
 	pendingCompletion *Session
 }
@@ -505,6 +507,122 @@ func (s *Store) Split() error {
 func (s *Store) End() error {
 	_, err := s.SealCurrent()
 	return err
+}
+
+func verifySessionFiles(dir string, session *Session) error {
+	manifest, err := safeChild(dir, "session.json")
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(manifest)
+	if err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("分段清单缺失或类型异常")
+	}
+	for _, record := range session.Records {
+		for _, image := range record.Images {
+			path, childErr := safeChild(dir, image)
+			if childErr != nil {
+				return childErr
+			}
+			imageInfo, statErr := os.Lstat(path)
+			if statErr != nil || !imageInfo.Mode().IsRegular() {
+				return fmt.Errorf("分段截图缺失或类型异常")
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) DeleteCurrent() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return "", err
+	}
+	if s.dirty || len(s.pending) > 0 {
+		return "", fmt.Errorf("当前分段存在未落盘内容，请先重试保存")
+	}
+	if s.current == nil || len(s.current.Records) == 0 {
+		return "", fmt.Errorf("当前分段暂无记录")
+	}
+	for _, record := range s.current.Records {
+		if record.Status == Running {
+			return "", fmt.Errorf("还有题目正在处理，不能永久删除当前分段")
+		}
+	}
+	switch s.current.State {
+	case Active, Paused, Ended:
+	case Exported:
+		return "", fmt.Errorf("当前分段已导出，不能通过清空删除导出历史")
+	case Discarded:
+		return "", fmt.Errorf("当前分段已清空；旧版软清空记录不会追溯删除")
+	default:
+		return "", fmt.Errorf("当前分段状态不支持永久删除")
+	}
+	if !validID(s.current.ID) {
+		return "", fmt.Errorf("当前分段标识无效，已拒绝删除")
+	}
+	base := s.currentBase
+	if base == "" {
+		base = s.recordsRoot
+	}
+	cleanBase := filepath.Clean(base)
+	allowedBase := cleanBase == filepath.Clean(s.recordsRoot)
+	if !allowedBase {
+		for _, legacy := range s.legacyRoots {
+			if cleanBase == filepath.Clean(legacy) {
+				allowedBase = true
+				break
+			}
+		}
+	}
+	if !allowedBase {
+		return "", fmt.Errorf("当前分段目录不在受管理的题库记录范围内，已拒绝删除")
+	}
+
+	id := s.current.ID
+	dir := filepath.Join(cleanBase, id)
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return "", fmt.Errorf("当前分段目录不可访问，未执行删除: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("当前分段目录类型异常，已拒绝删除")
+	}
+	stagingID, err := newID()
+	if err != nil {
+		return "", err
+	}
+	staging := filepath.Join(cleanBase, ".deleting-"+id+"-"+stagingID)
+	renamePath := os.Rename
+	if s.renamePathHook != nil {
+		renamePath = s.renamePathHook
+	}
+	removeAll := os.RemoveAll
+	if s.removeAllHook != nil {
+		removeAll = s.removeAllHook
+	}
+	if err = renamePath(dir, staging); err != nil {
+		return "", fmt.Errorf("当前分段未能进入安全删除阶段，原记录保持不变: %w", err)
+	}
+	if err = removeAll(staging); err != nil {
+		if restoreErr := renamePath(staging, dir); restoreErr != nil {
+			s.writeBlocked = fmt.Errorf("删除失败且原目录无法恢复: %w", restoreErr)
+			return "", fmt.Errorf("当前分段删除失败且无法恢复原目录，请停止继续操作并保留现场: %w", err)
+		}
+		if integrityErr := verifySessionFiles(dir, s.current); integrityErr != nil {
+			s.writeBlocked = fmt.Errorf("删除失败后记录无法完整恢复: %w", integrityErr)
+			return "", fmt.Errorf("当前分段删除失败且无法完整恢复，请停止继续操作并保留现场")
+		}
+		return "", fmt.Errorf("当前分段删除失败，原记录已恢复: %w", err)
+	}
+
+	s.current = nil
+	s.currentBase = ""
+	s.pending = make(map[string][]byte)
+	s.dirty = false
+	s.lastSave = time.Time{}
+	return id, nil
 }
 
 func (s *Store) DiscardCurrent() error {

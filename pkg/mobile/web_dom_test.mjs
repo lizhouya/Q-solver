@@ -6,6 +6,9 @@ const html = fs.readFileSync(new URL('./web/index.html', import.meta.url), 'utf8
 const match = html.match(/<script>([\s\S]*?)<\/script>/)
 assert.ok(match, '未找到手机页内联脚本')
 assert.doesNotMatch(match[1], /\b(?:localStorage|sessionStorage)\b|console\./, '手机页不得写浏览器存储或 console')
+assert.match(html, /<details\s+id="shortcut-details"/, '快捷键区域必须使用可折叠 details')
+assert.doesNotMatch(html, /<details\s+id="shortcut-details"[^>]*\sopen(?:\s|>|=)/, '快捷键区域必须默认折叠')
+assert.match(html, /id="shortcut-count"/, '快捷键折叠摘要必须显示数量')
 
 class StubElement {
   constructor(id = '') {
@@ -14,6 +17,7 @@ class StubElement {
     this.listeners = new Map()
     this.style = {}
     this.hidden = false
+    this.open = false
     this.className = ''
     this.attributes = new Map()
     this.innerHTMLWrites = 0
@@ -55,8 +59,12 @@ class StubElement {
 }
 
 const elements = new Map()
+const documentRoot = { clientHeight: 700, scrollHeight: 2400 }
+const documentBody = { scrollHeight: 2300, appendChild() {} }
 const document = {
-  documentElement: { clientHeight: 700 },
+  documentElement: documentRoot,
+  scrollingElement: documentRoot,
+  body: documentBody,
   visibilityState: 'visible',
   getElementById(id) {
     if (!elements.has(id)) elements.set(id, new StubElement(id))
@@ -88,10 +96,12 @@ class StubEventSource {
 }
 
 const scrollCalls = []
+const answerScrollCalls = []
 const rafCallbacks = []
 const window = {
   innerHeight: 800,
   scrollBy(options) { scrollCalls.push(options) },
+  scrollTo(options) { answerScrollCalls.push(options) },
 }
 
 const context = {
@@ -136,10 +146,26 @@ const snapshot = (sessionId, clearSeq, seq, answer, controlSeq = 0, control = ''
 
 source.emit('snapshot', snapshot('session-a', 2, 10, '答案一', 5, 'down'))
 assert.equal(scrollCalls.length, 0, '首帧不得重放旧控制')
-assert.equal(rafCallbacks.length, 0, '首帧不得排队旧控制')
+assert.equal(rafCallbacks.length, 1, '首帧答案应排队一次自动滚底，不得重放旧控制')
+assert.equal(elements.get('shortcut-details').open, false, '快捷键必须默认折叠')
+assert.equal(elements.get('shortcut-count').textContent, '1', '快捷键摘要应显示有效提示数量')
+elements.get('shortcut-details').open = true
+context.renderHints([
+  { label: '向上滚动', keyName: 'Alt+PgUp' },
+  { label: '向下滚动', keyName: 'Alt+PgDn' },
+])
+assert.equal(elements.get('shortcut-details').open, true, '快捷键数据更新不得强制收起用户已展开区域')
+assert.equal(elements.get('shortcut-count').textContent, '2', '快捷键摘要数量应随有效提示更新')
+context.renderHints(hints)
+elements.get('shortcut-details').open = false
 assert.match(elements.get('answer-text').innerHTML, /答案一/, '首帧应渲染业务答案')
 assert.equal(elements.get('history-list-side').children.length, 1, '首帧应写入宽屏历史')
 assert.equal(elements.get('history-list-strip').children.length, 1, '首帧应写入窄屏历史')
+flushAnimationFrames()
+assert.equal(answerScrollCalls.length, 1, '最新答案渲染后应执行一次自动滚底')
+assert.equal(answerScrollCalls[0].top, 2400, '最新答案应滚动到文档底部')
+assert.equal(answerScrollCalls[0].behavior, 'smooth', '答案自动滚动应保持平滑')
+assert.equal(scrollCalls.length, 0, '答案自动跟随不得冒充远程键盘控制')
 
 const answerAfterFirstFrame = elements.get('answer-text').innerHTML
 const historyAfterFirstFrame = elements.get('history-list-side').textClears
@@ -164,13 +190,13 @@ const historySide = elements.get('history-list-side')
 assert.equal(historySide.children.length, 2, '同一清屏代次的新业务快照应增加历史答案')
 historySide.children[0].click()
 assert.match(elements.get('answer-text').innerHTML, /答案一/, '测试前提：已选择历史答案')
-assert.equal(rafCallbacks.length, 1, '新 controlSeq 应排队一次滚动')
+assert.equal(rafCallbacks.length, 2, '新答案与新 controlSeq 应分别排队滚底和控制滚动')
 
 const answerWritesBeforeDuplicate = elements.get('answer-text').innerHTMLWrites
 const historyRendersBeforeDuplicate = historySide.textClears
 const hintsRendersBeforeDuplicate = elements.get('shortcut-hints').textClears
 source.emit('message', snapshot('session-a', 2, 11, '答案二', 6, 'down'))
-assert.equal(rafCallbacks.length, 1, '相同 clear 下重复 controlSeq 不得重复排队')
+assert.equal(rafCallbacks.length, 2, '相同 clear 下重复 controlSeq 不得重复排队')
 assert.equal(elements.get('answer-text').innerHTMLWrites, answerWritesBeforeDuplicate, '相同 clear 下重复业务帧不得重建答案 DOM')
 assert.equal(historySide.textClears, historyRendersBeforeDuplicate, '相同 clear 下重复业务帧不得重建历史 DOM')
 assert.equal(elements.get('shortcut-hints').textClears, hintsRendersBeforeDuplicate, '相同 clear 下重复帧不得重建快捷键 DOM')
@@ -192,7 +218,8 @@ assert.equal(elements.get('history-list-strip').children.length, 0, '更高 clea
 assert.equal(elements.get('shortcut-card').hidden, true, '更高 clearSeq 应清除快捷键视觉状态')
 assert.equal(elements.get('model-label').textContent, '等待桌面连接…', '更高 clearSeq 应重置模型视觉状态')
 flushAnimationFrames()
-assert.equal(scrollCalls.length, 0, '清屏前已排队的 rAF 必须因 epoch 变化失效')
+assert.equal(scrollCalls.length, 0, '清屏前已排队的控制 rAF 必须因 epoch 变化失效')
+assert.equal(answerScrollCalls.length, 1, '清屏前已排队的答案滚底必须因 epoch 变化失效')
 
 const writesAfterClear = elements.get('answer-text').innerHTMLWrites
 const sideRendersAfterClear = historySide.textClears
@@ -215,6 +242,8 @@ assert.equal(rafCallbacks.length, 0, '旧 clearSeq 不得执行控制')
 source.emit('message', snapshot('session-a', 3, 1, '清后新题', 1))
 assert.match(elements.get('answer-text').innerHTML, /清后新题/, '清屏后低业务序号的新题应正常渲染')
 assert.equal(elements.get('history-list-side').children.length, 1, '清屏后新题应建立新历史')
+flushAnimationFrames()
+assert.equal(answerScrollCalls.length, 2, '清屏后的新题仍应自动滚底')
 
 source.emit('message', snapshot('session-a', 3, 2, '', 2, '', {
   status: 'error',
@@ -233,10 +262,12 @@ assert.equal(rafCallbacks.length, 0, 'snapshot 首帧只同步 control 基线，
 
 source.emit('message', snapshot('session-a', 4, 1, '再次清后新题', 21))
 assert.match(elements.get('answer-text').innerHTML, /再次清后新题/, '更高 clear 后应重置业务去重命名空间')
+flushAnimationFrames()
 source.emit('snapshot', snapshot('session-b', 0, 1, '新进程答案', 50, 'down'))
 assert.match(elements.get('answer-text').innerHTML, /新进程答案/, '新 session 的低序号业务应被接受')
 assert.equal(elements.get('history-list-side').children.length, 1, '新 session 应先清除旧会话历史')
-assert.equal(rafCallbacks.length, 0, '新 session 的 snapshot 只同步控制基线')
+assert.equal(rafCallbacks.length, 1, '新 session 的 snapshot 应只排队答案滚底，不得重放控制')
+flushAnimationFrames()
 
 source.emit('message', snapshot('session-b', 0, 1, '新进程答案', 51, 'up'))
 assert.equal(rafCallbacks.length, 1, '新 session 的后续实时控制应使用新去重命名空间')
@@ -246,8 +277,22 @@ assert.match(elements.get('answer-text').innerHTML, /新进程答案/, '切到�
 assert.equal(rafCallbacks.length, 1, '已淘汰会话不得排入滚动控制')
 flushAnimationFrames()
 assert.equal(scrollCalls.length, 1, '有效实时控制应执行一次')
-assert.equal(scrollCalls[0].top, -560)
+assert.equal(scrollCalls[0].top, -320)
 assert.equal(scrollCalls[0].behavior, 'smooth')
+
+const streamingScrollsBefore = answerScrollCalls.length
+source.emit('message', snapshot('session-b', 0, 2, '流式最新答案', 51, '', { status: 'streaming' }))
+assert.equal(rafCallbacks.length, 1, '流式答案更新应排队自动滚底')
+flushAnimationFrames()
+assert.equal(answerScrollCalls.length, streamingScrollsBefore + 1, '流式答案更新后应滚动到底部')
+
+source.emit('message', snapshot('session-b', 0, 3, '最终最新答案', 51))
+flushAnimationFrames()
+context.selectHistory(1)
+const historyScrollsBefore = answerScrollCalls.length
+source.emit('message', snapshot('session-b', 0, 4, '后台新答案', 51))
+assert.equal(rafCallbacks.length, 0, '查看历史时后台新答案不得排队自动滚动')
+assert.equal(answerScrollCalls.length, historyScrollsBefore, '查看历史时不得被拉回最新答案底部')
 
 const safeMarkdown = context.renderMarkdown('[安全](https://example.com?a=1&b=2) [邮件](mailto:test@example.com)')
 assert.match(safeMarkdown, /rel="noopener noreferrer"/, '安全外链必须同时声明 noopener 与 noreferrer')

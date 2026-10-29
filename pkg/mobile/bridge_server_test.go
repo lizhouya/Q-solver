@@ -409,7 +409,7 @@ func TestIndexHTML(t *testing.T) {
 	}
 	for _, mark := range []string{
 		"Q-Solver", "手机同步端", "EventSource",
-		"shortcut-hints", "syncControlBaseline", "applyRealtimeControl", "viewportHeight * 0.7",
+		"shortcut-hints", "shortcut-details", "syncControlBaseline", "applyRealtimeControl", "viewportHeight * 0.4",
 	} {
 		if !strings.Contains(string(body), mark) {
 			t.Fatalf("页面缺少固定文本 %q（可能命中降级占位页）", mark)

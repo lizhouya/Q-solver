@@ -173,7 +173,25 @@
     .error-diagnostics p { line-height: 1.6; }
     .error-box { background: rgba(248, 113, 113, .08); border: 1px solid rgba(248, 113, 113, .35); color: var(--error); }
 
-    /* 快捷键提示：只展示服务端下发的动作标签和显示名 */
+    /* 快捷键提示：默认折叠，只展示服务端下发的动作标签和显示名 */
+    #shortcut-card { padding: 0; }
+    #shortcut-details { border-radius: inherit; }
+    .shortcut-summary {
+      display: flex; align-items: center; gap: 8px; min-height: 42px;
+      padding: 9px 14px; cursor: pointer; color: var(--muted);
+      font-size: 12px; font-weight: 700; letter-spacing: .3px;
+      list-style: none; user-select: none;
+    }
+    .shortcut-summary::-webkit-details-marker { display: none; }
+    .shortcut-summary-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+    .shortcut-count-badge {
+      margin-left: auto; padding: 1px 7px; border: 1px solid var(--border);
+      border-radius: 999px; color: var(--muted); font-size: 10.5px; font-weight: 600;
+    }
+    .shortcut-toggle::before { content: '展开'; font-size: 10.5px; font-weight: 500; color: var(--accent-bright); }
+    #shortcut-details[open] .shortcut-toggle::before { content: '收起'; }
+    .shortcut-content { padding: 0 14px 14px; border-top: 1px solid var(--border); }
+    .shortcut-content .copy-note { margin: 10px 0; }
     .hints-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;
     }
@@ -238,9 +256,17 @@
     <div id="answer-panel">
       <!-- 实际快捷键提示（由 Snapshot.hints 提供，不含 VK/路径/Token） -->
       <div class="card" id="shortcut-card" hidden>
-        <div class="card-title"><span class="ico">⌨</span> 答题端快捷键</div>
-        <p class="copy-note">以下按键在答题电脑使用，不是浏览器快捷键。</p>
-        <div class="hints-grid" id="shortcut-hints"></div>
+        <details id="shortcut-details">
+          <summary class="shortcut-summary">
+            <span class="shortcut-summary-title"><span class="ico">⌨</span> 答题端快捷键</span>
+            <span class="shortcut-count-badge"><span id="shortcut-count">0</span> 项</span>
+            <span class="shortcut-toggle" aria-hidden="true"></span>
+          </summary>
+          <div class="shortcut-content">
+            <p class="copy-note">以下按键在答题电脑使用，不是浏览器快捷键。</p>
+            <div class="hints-grid" id="shortcut-hints"></div>
+          </div>
+        </details>
       </div>
 
       <!-- 等待中 -->
@@ -291,6 +317,8 @@
     var lastControlSeq = -1;   // 独立的一次性控制序号；SSE snapshot 只负责同步基线
     var lastBusinessSeq = -1;  // 最近真正渲染的业务快照；控制帧不得触发重渲染
     var lastHintsSignature = '';
+    var answerScrollPending = false;
+    var answerScrollVersion = 0;
 
     // =====================================================================
     // DOM 引用
@@ -372,6 +400,8 @@
     var errorDiagnostics = document.getElementById('error-diagnostics');
     var errorDiagnosticsText = document.getElementById('error-diagnostics-text');
     var shortcutCard = document.getElementById('shortcut-card');
+    var shortcutDetails = document.getElementById('shortcut-details');
+    var shortcutCount = document.getElementById('shortcut-count');
     var shortcutHints = document.getElementById('shortcut-hints');
     var histSide = document.getElementById('history-list-side');
     var histStrip = document.getElementById('history-list-strip');
@@ -529,6 +559,22 @@
       errorCard.style.display = 'none';
       clearErrorDiagnostics();
     }
+    function scheduleLatestAnswerScroll() {
+      if (selectedSeq >= 0 || answerScrollPending) return false;
+      answerScrollPending = true;
+      var scheduledEpoch = renderEpoch;
+      var scheduledVersion = ++answerScrollVersion;
+      requestAnimationFrame(function () {
+        if (scheduledVersion !== answerScrollVersion) return;
+        answerScrollPending = false;
+        if (scheduledEpoch !== renderEpoch || selectedSeq >= 0) return;
+        var root = document.scrollingElement || document.documentElement;
+        var rootHeight = root && Number(root.scrollHeight) || 0;
+        var bodyHeight = document.body && Number(document.body.scrollHeight) || 0;
+        window.scrollTo({ top: Math.max(rootHeight, bodyHeight), behavior: 'smooth' });
+      });
+      return true;
+    }
     function clearErrorDiagnostics() {
       errorDiagnostics.open = false;
       errorDiagnosticsText.textContent = '';
@@ -570,6 +616,8 @@
     function clearDisplayState() {
       setCopyTarget(null);
       renderEpoch++;
+      answerScrollVersion++;
+      answerScrollPending = false;
       sessionHistory = [];
       latestSnapshot = null;
       selectedSeq = -1;
@@ -586,6 +634,8 @@
       errorCard.style.display = 'none';
       clearErrorDiagnostics();
       shortcutHints.textContent = '';
+      shortcutCount.textContent = '0';
+      shortcutDetails.open = false;
       shortcutCard.hidden = true;
       histSide.textContent = '';
       histStrip.textContent = '';
@@ -677,6 +727,7 @@
     function renderHints(hints) {
       shortcutHints.textContent = '';
       if (!Array.isArray(hints) || hints.length === 0) {
+        shortcutCount.textContent = '0';
         shortcutCard.hidden = true;
         return;
       }
@@ -692,6 +743,7 @@
         item.appendChild(key);
         shortcutHints.appendChild(item);
       });
+      shortcutCount.textContent = String(shortcutHints.childElementCount);
       shortcutCard.hidden = shortcutHints.childElementCount === 0;
     }
     function applyHintsIfChanged(hints) {
@@ -720,7 +772,7 @@
       requestAnimationFrame(function () {
         if (scheduledEpoch !== renderEpoch) return;
         var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        var distance = Math.max(1, Math.round(viewportHeight * 0.7));
+        var distance = Math.max(1, Math.round(viewportHeight * 0.4));
         window.scrollBy({ top: direction === 'up' ? -distance : distance, behavior: 'smooth' });
       });
       return true;
@@ -807,6 +859,7 @@
         selectedSeq = -1;              // 新答案完成 → 自动选中最新
         setBadge('已完成', 'live');
         showAnswer(renderMarkdown(payload.answer || ''), payload);
+        scheduleLatestAnswerScroll();
         renderHistoryList();
         return;
       }
@@ -815,6 +868,7 @@
         // 不显示 analysis：streaming-thinking 阶段仅业务状态，不渲染正文
         if (payload.answer && (selectedSeq === -1 || isLatest(selectedSeq))) {
           showAnswer(renderMarkdown(payload.answer));
+          scheduleLatestAnswerScroll();
         } else {
           showWaiting('正在分析题目…');
         }

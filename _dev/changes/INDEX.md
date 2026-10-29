@@ -39,6 +39,7 @@
 | `029` | build-artifact-lifecycle（构建产物生命周期与整合提交） | 产物整理、全量自动验证、最终 EXE 晋升与边界审计完成 / 纳入本轮治理提交 / 未发布 | 2026-10-29 | `029-build-artifact-lifecycle/` |
 | `030` | latest-validation-build（当前工作树独立验证版） | 自动验证完成 / 验证产物已归档 / 被 Change 029 最终版取代 / 纳入本轮治理提交 / 未发布 | 2026-10-28 | `030-latest-validation-build/` |
 | `031` | inline-question-explanations（整理稿固定逐题解析） | 本轮全量自动验证通过 / GUI 真实导出 NEEDS_USER / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-28 | `031-inline-question-explanations/` |
+| `032` | model-dropdown-scroll-lock（模型下拉滚动锁定） | 自动验证与 GUI 人工验收通过 / 最终版已晋升 / 已纳入双提交 / 未发布 | 2026-10-29 | `032-model-dropdown-scroll-lock/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 
@@ -353,3 +354,12 @@
 - **历史再生成**：仅处理明确归属的 TCL 与中国移动；TCL 27 题位由完整离线恢复稿确定性迁移为 `_03`，中国移动 106 道结构化题重导为 `_02`；原始记录和 assets 哈希一致，未调用模型。经用户明确选择，已删除被 `_03` 取代的 TCL `_02` 目录；最初原始版、最新 `_03` 与仓库外保护副本保留。
 - **安全边界**：不新增模型调用，不改 Prompt、JSON schema、题库持久化、Wails API、bindings 或依赖；不覆盖历史导出。
 - **授权边界**：用户批准本地实现与验证；不含 commit、push、Tag 或 Release 授权。
+
+## Change 032
+
+- **名称**：model-dropdown-scroll-lock（模型下拉滚动锁定）。
+- **目录**：[032-model-dropdown-scroll-lock](032-model-dropdown-scroll-lock/00-request.md)。
+- **状态**：TDD、14 份前端回归、Vite、Go test/vet/build、Wails 构建、用户 GUI 人工验收及晋升后启动验证通过；最终版已晋升；已纳入经授权双提交，未发布。
+- **范围**：模型下拉打开时锁定外层模型页，隔离 wheel/touchmove 和边界滚动链；不改 Go、CCR、模型请求或配置。
+- **最终产物**：`build/bin/Q-Solver.exe`；42,331,648 字节；SHA-256 `C1F1873F054520F0F45FADFCCBCC087056D1556381DD1EFC66D4CD3748085F7B`。
+- **授权边界**：当前仅批准本地实施验证，不含 commit、push、Tag、Release 或 RC。

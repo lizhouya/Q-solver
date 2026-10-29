@@ -49,4 +49,4 @@
 - 不删除导出目录、其他分段、旧软清空记录、用户配置或题库根目录。
 - 不改变题库 JSON schema、整理 Prompt、模型请求、CCR、Mobile 协议或依赖。
 - 不修改 Change 033 功能文件；当前工作区中的 Change 033 未提交差异保持独立。
-- 用户后续明确授权本地候选构建及本轮 Change 033/034 提交、推送到 `origin/dev/qsolver-custom`；仍不包含 Tag、Release 或稳定版晋升授权。
+- 用户后续明确授权本地候选构建、Change 033/034 提交推送及稳定版更新，均已完成；仍不包含 Tag 或 Release 授权。

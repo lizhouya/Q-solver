@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-业务实现、自动验证、候选构建和用户 GUI 人工验收完成。原 Change 033 候选已归档到 `build/bin/archive/transient/`，用户已在最新组合候选中确认 Change 033 行为验证通过；根目录稳定版未晋升。
+业务实现、自动验证、候选构建、用户 GUI 人工验收和稳定版晋升完成。Change 033 已包含在根目录最新稳定版中。
 
 ## 结果摘要
 
@@ -16,10 +16,10 @@
 
 原 Change 033 候选已归档到 `build/bin/archive/transient/`，原始 SHA-256：`19495E67DE3E84781E2E8598EE016EAB4AB4FD5599786817DD3F9EBE757016E9`。
 
-当前最新组合验证入口：`build/bin/testing/current/Q-Solver-candidate-change034.exe`，同时包含 Change 033 与 Change 034。
+当前稳定版：`build/bin/Q-Solver.exe`，同时包含 Change 033 与 Change 034；42,345,472 字节，SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。组合候选归档位于 `build/bin/archive/validation/change-034/`。
 
 启动前需正常退出当前正在运行的稳定版 Q-Solver，避免固定 `SingleInstanceLock` 将候选转交给旧进程后立即退出。不得通过强制终止破坏用户当前任务。
 
 ## 授权边界
 
-用户已明确授权本轮 Change 033/034 提交并推送到 `origin/dev/qsolver-custom`；不含 Tag、Release、RC 或稳定版晋升授权。二进制继续由 Git 忽略，根目录稳定版保持不变。
+用户已明确授权并完成本轮 Change 033/034 提交、推送及稳定版晋升；不含 Tag、Release 或 RC 授权。二进制继续由 Git 忽略。

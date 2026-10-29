@@ -24,10 +24,9 @@
 ## 候选构建
 
 - 原 Change 033 候选已归档到 `build/bin/archive/transient/`；原大小为 42,334,208 字节，SHA-256 为 `19495E67DE3E84781E2E8598EE016EAB4AB4FD5599786817DD3F9EBE757016E9`。
-- 当前最新组合验证入口为 `build/bin/testing/current/Q-Solver-candidate-change034.exe`，同时包含 Change 033 与 Change 034。
-- 测试前稳定版副本仍为 `build/bin/testing/current/Q-Solver-stable-before-test.exe`。
-- 根目录稳定版保持为 `build/bin/Q-Solver.exe`，未覆盖、未晋升。
-- `testing/current/SHA256SUMS` 对两个文件均验证通过。
+- 包含 Change 033 与 Change 034 的组合候选已归档到 `build/bin/archive/validation/change-034/`。
+- 2026-10-29，组合候选晋升为根目录 `build/bin/Q-Solver.exe`；大小 42,345,472 字节，SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。
+- 测试前稳定版已归档到 `build/bin/archive/superseded/change-034/`，`testing/current/` 已清空。
 - `go version -m`：候选链接 `github.com/wailsapp/wails/v2 v2.11.0`。
 
 ## 构建保护
@@ -46,8 +45,8 @@
 
 - 首次独立启动曾被当时运行中的稳定版固定单实例锁阻塞，未将该次退出冒充启动成功。
 - 2026-10-29，用户正常退出旧进程后启动最新组合候选，并明确确认验证通过：快捷键折叠、答案自动滚底、历史浏览保护和 40% 键盘滚动的人工验收记为 `VERIFIED_BY_USER`。
-- 根目录稳定版未因本次验收自动晋升。
+- 2026-10-29，用户随后明确要求更新版本，组合候选已晋升为根目录稳定版；晋升后启动、WebView2、无 Node/Vite 子进程、正常退出和退出码 0 均通过。
 
 ## 结论
 
-代码、DOM、Mobile Go、全量 Go、桌面前端、候选构建和用户 GUI 人工验收通过。原 Change 033 候选已归档，当前组合候选验证通过；根目录稳定版保持不变。
+代码、DOM、Mobile Go、全量 Go、桌面前端、候选构建、用户 GUI 人工验收和稳定版晋升验证通过。Change 033 已包含在根目录最新稳定版中。

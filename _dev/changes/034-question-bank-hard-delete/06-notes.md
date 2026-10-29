@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-实现、TDD、全量 Go、全部前端回归、Vite build、依赖校验、独立候选构建和用户 GUI 人工验收通过。根目录稳定版未晋升；本轮按授权提交并推送源码、测试与治理档案。
+实现、TDD、全量 Go、全部前端回归、Vite build、依赖校验、独立候选构建、用户 GUI 人工验收和稳定版晋升通过。Change 034 已成为根目录最新稳定版。
 
-验证入口：`build/bin/testing/current/Q-Solver-candidate-change034.exe`；42,345,472 字节；SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。
+稳定版入口：`build/bin/Q-Solver.exe`；42,345,472 字节；SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。候选与旧稳定版分别归档在 `archive/validation/change-034/` 和 `archive/superseded/change-034/`。
 
 ## 行为摘要
 
@@ -26,4 +26,4 @@ Change 034 与 Change 033 曾同时存在于未提交工作区，但功能文件
 
 ## 授权边界
 
-用户已明确授权本轮 Change 033/034 提交并推送到 `origin/dev/qsolver-custom`；仍不包含 Tag、Release 或稳定版晋升授权。
+用户已明确授权并完成本轮 Change 033/034 提交、推送和稳定版晋升；仍不包含 Tag 或 Release 授权。

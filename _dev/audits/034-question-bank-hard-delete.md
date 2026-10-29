@@ -47,10 +47,11 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 
 ## 人工验收与发布门禁
 
-- Change 034 组合候选已构建：`build/bin/testing/current/Q-Solver-candidate-change034.exe`，42,345,472 字节，SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。
+- Change 034 组合候选已归档到 `build/bin/archive/validation/change-034/`，42,345,472 字节，SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。
 - 候选链接 Wails runtime v2.11.0，依赖、bindings/runtime、Frontend dist、Release 和目录哈希保护通过。
 - 2026-10-29，用户启动组合候选并明确确认 Change 034 验证通过，GUI 人工验收记为 `VERIFIED_BY_USER`。
-- 本轮不晋升根目录稳定版，不创建 Tag、Release 或 RC。
+- 2026-10-29，用户随后明确要求更新版本；组合候选已晋升为根目录 `build/bin/Q-Solver.exe`，晋升后启动冒烟验证通过。
+- 旧稳定版已归档到 `build/bin/archive/superseded/change-034/`，测试区已清空；本轮未创建 Tag、Release 或 RC。
 
 ## 排除项
 
@@ -62,4 +63,4 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 
 ## Git 授权
 
-用户已明确授权本轮 Change 033/034 提交并推送，目标仅限 `origin/dev/qsolver-custom`；不授权 upstream、main、force push、Tag、Release、RC 或稳定版晋升。
+用户已明确授权并完成本轮 Change 033/034 提交、推送和稳定版晋升；不授权 upstream、main、force push、Tag、Release 或 RC。

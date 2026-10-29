@@ -40,12 +40,13 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 - Vite build、Go 全量测试、`go vet`、`go build`、`go mod verify` 通过。
 - 候选链接 Wails runtime v2.11.0；依赖、bindings/runtime、Frontend dist、Release 和 Git index 语义保护通过。
 - 原 Change 033 候选 SHA-256：`19495E67DE3E84781E2E8598EE016EAB4AB4FD5599786817DD3F9EBE757016E9`；该候选已归档到 `build/bin/archive/transient/`。
-- 当前最新组合验证入口：`build/bin/testing/current/Q-Solver-candidate-change034.exe`，同时包含 Change 033 与 Change 034。
+- 包含 Change 033 与 Change 034 的组合候选已归档到 `build/bin/archive/validation/change-034/`，并晋升为根目录 `build/bin/Q-Solver.exe`；SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`。
 
 ## 人工验收与发布门禁
 
 - 2026-10-29，用户启动最新组合候选并明确确认 Change 033 验证通过，人工验收记为 `VERIFIED_BY_USER`。
-- 本轮不晋升根目录稳定版，不创建 Tag、Release 或 RC。
+- 2026-10-29，用户随后明确要求更新版本，组合候选已完成稳定版晋升和启动冒烟验证。
+- 本轮未创建 Tag、Release 或 RC。
 
 ## 排除项
 
@@ -58,4 +59,4 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 
 ## Git 授权
 
-用户已明确授权本轮 Change 033/034 提交并推送，目标仅限 `origin/dev/qsolver-custom`；不授权 upstream、main、force push、Tag、Release、RC 或稳定版晋升。
+用户已明确授权并完成本轮 Change 033/034 提交、推送和稳定版晋升；不授权 upstream、main、force push、Tag、Release 或 RC。

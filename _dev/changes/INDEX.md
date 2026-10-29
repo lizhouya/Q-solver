@@ -40,8 +40,8 @@
 | `030` | latest-validation-build（当前工作树独立验证版） | 自动验证完成 / 验证产物已归档 / 被 Change 029 最终版取代 / 纳入本轮治理提交 / 未发布 | 2026-10-28 | `030-latest-validation-build/` |
 | `031` | inline-question-explanations（整理稿固定逐题解析） | 本轮全量自动验证通过 / GUI 真实导出 NEEDS_USER / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-28 | `031-inline-question-explanations/` |
 | `032` | model-dropdown-scroll-lock（模型下拉滚动锁定） | 自动验证与 GUI 人工验收通过 / 最终版已晋升 / 已纳入双提交 / 未发布 | 2026-10-29 | `032-model-dropdown-scroll-lock/` |
-| `033` | mobile-answer-follow（同步端答案空间与滚动优化） | 已完成 / 自动与用户 GUI 验证通过 / 本轮提交推送 / 未发布 | 2026-10-29 | `033-mobile-answer-follow/` |
-| `034` | question-bank-hard-delete（题库当前分段物理清空） | 已完成 / 自动与用户 GUI 验证通过 / 本轮提交推送 / 未发布 | 2026-10-29 | `034-question-bank-hard-delete/` |
+| `033` | mobile-answer-follow（同步端答案空间与滚动优化） | 已完成 / 自动与用户 GUI 验证通过 / 已提交推送并纳入最新稳定版 / 未发布 | 2026-10-29 | `033-mobile-answer-follow/` |
+| `034` | question-bank-hard-delete（题库当前分段物理清空） | 已完成 / 自动与用户 GUI 验证通过 / 已提交推送并晋升稳定版 / 未发布 | 2026-10-29 | `034-question-bank-hard-delete/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 
@@ -370,19 +370,19 @@
 
 - **名称**：mobile-answer-follow（同步端答案空间与滚动优化）。
 - **目录**：[033-mobile-answer-follow](033-mobile-answer-follow/00-request.md)。
-- **状态**：TDD、Mobile Go、14 份桌面前端回归、Vite、Go test/vet/build/mod verify、候选构建和用户 GUI 人工验收通过；本轮按授权提交并推送；未晋升、未发布。
+- **状态**：TDD、Mobile Go、14 份桌面前端回归、Vite、Go test/vet/build/mod verify、候选构建、用户 GUI 人工验收和稳定版晋升验证通过；已提交推送，未发布。
 - **范围**：快捷键默认折叠并显示有效项数；最新流式/最终答案自动滚底，历史浏览不强拉回；远程键盘单次滚动由视口 70% 降至 40%。不改 Go 生产代码、SSE 协议、配置、依赖或模型链路。
-- **验证入口**：原 Change 033 候选已归档到 `build/bin/archive/transient/`，原始 SHA-256 `19495E67DE3E84781E2E8598EE016EAB4AB4FD5599786817DD3F9EBE757016E9`；当前最新组合验证入口为 `build/bin/testing/current/Q-Solver-candidate-change034.exe`，同时包含 Change 033 与 Change 034。
-- **稳定版边界**：根目录 `build/bin/Q-Solver.exe` 未覆盖；测试前稳定版副本和用户验证通过的最新组合候选保留在 `testing/current`，本轮不执行晋升。
-- **授权边界**：用户明确授权本轮 Change 033/034 提交并推送到 `origin/dev/qsolver-custom`；不含 Tag、Release、RC 或候选晋升授权。
+- **验证入口**：原 Change 033 候选已归档到 `build/bin/archive/transient/`，原始 SHA-256 `19495E67DE3E84781E2E8598EE016EAB4AB4FD5599786817DD3F9EBE757016E9`；包含 Change 033 与 Change 034 的组合候选已归档并晋升为根目录稳定版。
+- **稳定版边界**：`build/bin/Q-Solver.exe` 为最新稳定版，42,345,472 字节，SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`；旧稳定版位于 `archive/superseded/change-034/`。
+- **授权边界**：用户已明确授权并完成 Change 033/034 提交、推送和稳定版晋升；不含 Tag、Release 或 RC 授权。
 
 ## Change 034
 
 - **名称**：question-bank-hard-delete（题库当前分段物理清空）。
 - **目录**：[034-question-bank-hard-delete](034-question-bank-hard-delete/00-request.md)。
-- **状态**：TDD、Store/App 聚焦测试、Go test/vet/build/mod verify、14 份前端回归、Vite build、组合候选构建和用户 GUI 人工验收通过；本轮按授权提交并推送；未发布。
-- **验证入口**：`build/bin/testing/current/Q-Solver-candidate-change034.exe`；42,345,472 字节；SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`；实际链接 Wails runtime v2.11.0。
+- **状态**：TDD、Store/App 聚焦测试、Go test/vet/build/mod verify、14 份前端回归、Vite build、组合候选构建、用户 GUI 人工验收和稳定版晋升验证通过；已提交推送，未发布。
+- **稳定版入口**：`build/bin/Q-Solver.exe`；42,345,472 字节；SHA-256 `C033EAB4844721EB233841915C82583D213095965357E77091738D9FBC21B0B8`；候选归档于 `archive/validation/change-034/`，旧稳定版归档于 `archive/superseded/change-034/`。
 - **范围**：“清空本段”二次确认后物理删除当前分段记录、答案和截图，成功后清理实时历史及该分段模型上下文；“结束本段”保留本地记录并清理解题界面；导出流程不变。
 - **删除安全**：仅允许受管理记录根和合法 Session ID；同目录原子暂存后删除；失败恢复并逐文件校验，无法完整恢复时阻止继续写入；旧软清空历史不追溯删除。
 - **数据边界**：自动测试只使用 `t.TempDir()`，未触碰用户题库、其他分段或导出目录；用户已确认组合候选 GUI 验证通过。
-- **授权边界**：用户明确授权本轮 Change 033/034 提交并推送到 `origin/dev/qsolver-custom`；不含 Tag、Release 或稳定版晋升授权。
+- **授权边界**：用户已明确授权并完成 Change 033/034 提交、推送和稳定版晋升；不含 Tag 或 Release 授权。

@@ -147,6 +147,21 @@ wails build
 - Wails 构建可能改动 `frontend/wailsjs`、`go.mod`、`go.sum` 等生成或依赖文件；构建前后核对差异，不能混入提交或未检查就批量恢复。
 - 纯规则文档任务可只做文档完整性、链接和 diff 检查，明确说明未运行业务测试/构建，不宣称业务验证通过。
 
+## 6.1 构建产物生命周期执行规则
+
+完整政策见 [_dev/build-artifact-policy.md](_dev/build-artifact-policy.md)。Claude Code 处理独立 EXE 时按以下顺序执行：
+
+1. **先盘点**：在仓库外记录 `build/bin/**` 的相对路径、大小和 SHA-256；单独冻结 `build/bin/releases/**` 哈希及 `go.mod`、`go.sum`、`frontend/wailsjs/**` 保护哈希。
+2. **准备测试区**：确认根目录只有 `Q-Solver.exe`，将其复制为 `build/bin/testing/current/Q-Solver-stable-before-test.exe`；候选固定命名为 `Q-Solver-candidate-changeNNN.exe`。`current/` 同时只能有一个候选。
+3. **固定 Wails runtime**：项目模块为 Wails v2.11.0。首选同版本 CLI；若权限或环境只能使用较新本机 CLI，必须启用 `-skipbindings -skipembedcreate -nosyncgomod -m -nocolour -v 1`，并用 `go version -m` 证明候选实际链接 v2.11.0。构建前后逐文件比较 bindings/runtime、依赖和 Git index，清除并复核较新 CLI 生成噪音后才能晋升。
+4. **保护工作树**：构建前后比较依赖、bindings/runtime、`frontend/dist`、Git index 和暂存区；发现新增生成噪音先停止晋升，不批量恢复用户已有改动。
+5. **逐项验证**：记录相关 Go 测试、`go test ./... -count=1`、`go vet ./...`、`go build ./...`、前端回归、Vite build、独立启动、WebView2、无 Node/Vite 子进程、正常退出和残留进程结果。`FAIL`/`BLOCKED`/必要的 `NEEDS_USER` 不能冒充 PASS。
+6. **哈希晋升**：候选通过后，先把测试前稳定版归档到 `archive/superseded/change-NNN/`，再把候选复制为根目录临时文件；临时文件哈希与候选一致后才替换 `Q-Solver.exe`。通过候选另存 `archive/validation/change-NNN/`。
+7. **结束状态**：验证所有 `SHA256SUMS`，清空已归档完毕的 `testing/current/`，确认根目录唯一 EXE 为 `Q-Solver.exe`，并复核 `releases/` 哈希不变。
+8. **失败和回滚**：失败时根目录稳定版不变；回滚只使用 `archive/superseded/change-NNN/` 中哈希通过的旧稳定版。清单缺失或不一致时停止，不猜测文件身份。
+9. **Git 边界**：`build/bin/**` 继续 ignored，不执行 `git add -f`。提交中只记录规则、验证摘要和最终路径/大小/SHA-256；严禁纳入用户配置、CCR 文件、日志、仓库外探针或 secret。
+10. **Release 边界**：普通候选测试不修改 `build/bin/releases/`，不创建 Tag、GitHub Release 或 RC；这些动作继续按第 8 节单独授权。
+
 ## 7. GitHub CLI 管理规则
 
 项目使用 **GitHub CLI `gh`**，GitHub 操作优先使用 gh。执行前核实目标仓库，优先显式指定个人 fork，避免 fork 环境默认指向 upstream：

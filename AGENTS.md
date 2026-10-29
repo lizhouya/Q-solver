@@ -101,6 +101,20 @@ _dev/
 - 工作区只能存在已说明的预期改动；未提交时如实报告“仅预期未提交修改”，不称为 clean，不为清理状态丢弃用户改动。
 - 本规则文件的任何调整也应记录原因（可在 `_dev` 相应变更或本文件内注明）。
 
+## 七、构建产物生命周期
+
+`build/bin/` 虽由 Git 忽略，仍属于受治理的验证和交付资产，统一遵守 [_dev/build-artifact-policy.md](_dev/build-artifact-policy.md)：
+
+1. **根目录唯一稳定版**：空闲和收尾状态下，`build/bin/` 根目录只允许存在 `Q-Solver.exe` 一个 EXE；历史验证版、开发版和临时备份必须归档。
+2. **通过前稳定版不动**：测试前稳定版与唯一最新候选放在 `build/bin/testing/current/`，候选未满足既定门禁前不得覆盖根目录稳定版。
+3. **按结果归档**：通过候选归档到 `archive/validation/change-NNN/`，被替代稳定版归档到 `archive/superseded/change-NNN/`，有诊断价值的失败候选归档到 `archive/failed/change-NNN/`；开发版和 `.exe~` 放入 `archive/transient/`。
+4. **哈希先行**：移动、去重、晋升和回滚前后必须核对 SHA-256；同名不同哈希时停止自动处理。含 EXE 的测试和归档目录维护 `SHA256SUMS`。
+5. **失败不影响稳定版**：`FAIL`、`BLOCKED`、未满足门禁的 `NEEDS_USER` 均不得自动晋升；不得以整理目录为由删除唯一可回滚副本。
+6. **Release 独立授权**：`build/bin/releases/` 不参与普通测试产物整理。没有明确 Release 授权不得迁移、覆盖、删除或新增其内容。
+7. **二进制不入 Git**：不得使用 `git add -f` 提交 `build/bin/**`。Git 只记录政策、Change 验证中的路径/大小/SHA-256 和提交边界审计。
+
+本节是所有 Agent 的长期底线。具体构建命令、启动验证和原子晋升步骤由 CLAUDE.md 与产物政策细化，不得放宽本节约束。
+
 ## 2026-10-22 v1.1.0-rc.1 一次性授权例外
 
 用户在确认提交边界、公开目标仓库、RC Tag、自动发布影响和已知验证缺口后，明确批准“RC 整理与发布”。仅本次允许：

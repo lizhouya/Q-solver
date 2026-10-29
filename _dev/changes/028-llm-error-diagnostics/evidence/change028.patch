@@ -1,0 +1,1332 @@
+--- before/pkg/llm/errors.go
++++ after/pkg/llm/errors.go
+@@ -18,6 +18,8 @@
+ type ErrorCode string
+ 
+ const (
++	ErrorUnknown                    ErrorCode = "unknown"
++	ErrorResponseFailed             ErrorCode = "response_failed"
+ 	ErrorInvalidConfig              ErrorCode = "invalid_config"
+ 	ErrorCancelled                  ErrorCode = "cancelled"
+ 	ErrorTimeout                    ErrorCode = "timeout"
+@@ -85,6 +87,10 @@
+ 	if err == nil {
+ 		return nil
+ 	}
++	var providerErr *ProviderError
++	if errors.As(err, &providerErr) && providerErr != nil {
++		return providerErr
++	}
+ 	if errors.Is(err, context.Canceled) {
+ 		return NewProviderError(ErrorCancelled, stage, p, err)
+ 	}
+@@ -121,7 +127,7 @@
+ 		}
+ 		return NewProviderError(ErrorNetwork, stage, p, err)
+ 	}
+-	return NewProviderError(ErrorNetwork, stage, p, err)
++	return NewProviderError(ErrorUnknown, stage, p, err)
+ }
+ 
+ func errorCodeForAnthropic(status int, sdkType string) ErrorCode {
+@@ -227,8 +233,10 @@
+ 	case ErrorVisionInconclusive:
+ 		return "无法确认当前通道是否成功识别图片"
+ 	case ErrorNetwork:
+-		fallthrough
+-	default:
+ 		return "无法连接模型服务，请检查网络和接口地址"
+-	}
+-}
++	case ErrorResponseFailed:
++		return "模型响应失败，暂无法确定原因，请查看诊断详情"
++	default:
++		return "模型请求失败，原因未知，请查看诊断详情"
++	}
++}
+--- before/pkg/llm/errors_test.go
++++ after/pkg/llm/errors_test.go
+@@ -34,7 +34,7 @@
+ 		{name: "429", err: &openai.Error{StatusCode: 429}, wantCode: ErrorRateLimited, wantStatus: 429, wantRetry: true},
+ 		{name: "quota", err: &openai.Error{StatusCode: 429, Code: "insufficient_quota"}, wantCode: ErrorQuotaExhausted, wantStatus: 429},
+ 		{name: "500", err: &openai.Error{StatusCode: 500}, wantCode: ErrorProviderUnavailable, wantStatus: 500, wantRetry: true},
+-		{name: "unknown", err: errors.New("opaque failure"), wantCode: ErrorNetwork, wantRetry: true},
++		{name: "unknown", err: errors.New("opaque failure"), wantCode: ErrorUnknown},
+ 	}
+ 
+ 	for _, tt := range tests {
+--- before/pkg/llm/openai_responses.go
++++ after/pkg/llm/openai_responses.go
+@@ -173,7 +173,7 @@
+ 			terminalErr = validateResponsesTerminal(variant.Response, content.String(), refused)
+ 		case responses.ResponseFailedEvent:
+ 			terminal = true
+-			terminalErr = NewProviderError(ErrorProviderUnavailable, StageValidateResponse, protocol.OpenAIResponses, nil)
++			terminalErr = classifyResponsesFailure(string(variant.Response.Error.Code), StageValidateResponse)
+ 		case responses.ResponseIncompleteEvent:
+ 			terminal = true
+ 			terminalErr = NewProviderError(ErrorIncompleteResponse, StageValidateResponse, protocol.OpenAIResponses, nil)
+@@ -219,7 +219,7 @@
+ 		}
+ 		return nil
+ 	case responses.ResponseStatusFailed:
+-		return NewProviderError(ErrorProviderUnavailable, StageValidateResponse, protocol.OpenAIResponses, nil)
++		return classifyResponsesFailure(string(resp.Error.Code), StageValidateResponse)
+ 	case responses.ResponseStatusIncomplete:
+ 		return NewProviderError(ErrorIncompleteResponse, StageValidateResponse, protocol.OpenAIResponses, nil)
+ 	case responses.ResponseStatusCancelled:
+@@ -241,16 +241,36 @@
+ }
+ 
+ func classifyResponsesEventError(code string) error {
++	return classifyResponsesFailure(code, StageStreamResponse)
++}
++
++// 仅映射明确的业务错误码；事件没有 HTTP 状态，不能从业务码合成状态码。
++func classifyResponsesFailure(code string, stage ErrorStage) *ProviderError {
++	category := ErrorResponseFailed
+ 	switch strings.ToLower(strings.TrimSpace(code)) {
+ 	case "rate_limit_exceeded":
+-		return NewProviderError(ErrorRateLimited, StageStreamResponse, protocol.OpenAIResponses, nil)
++		category = ErrorRateLimited
+ 	case "server_error":
+-		return NewProviderError(ErrorProviderUnavailable, StageStreamResponse, protocol.OpenAIResponses, nil)
+-	case "invalid_prompt", "invalid_image", "invalid_image_format", "invalid_base64_image", "invalid_image_url", "unsupported_image_media_type":
+-		return NewProviderError(ErrorInvalidRequest, StageStreamResponse, protocol.OpenAIResponses, nil)
+-	default:
+-		return NewProviderError(ErrorInvalidResponse, StageStreamResponse, protocol.OpenAIResponses, nil)
+-	}
++		category = ErrorProviderUnavailable
++	case "vector_store_timeout":
++		category = ErrorTimeout
++	case "image_too_large", "image_file_too_large":
++		category = ErrorRequestTooLarge
++	case "image_content_policy_violation":
++		category = ErrorRefused
++	case "invalid_prompt", "invalid_image", "invalid_image_format", "invalid_base64_image", "invalid_image_url",
++		"image_too_small", "image_parse_error", "invalid_image_mode", "unsupported_image_media_type",
++		"empty_image_file", "failed_to_download_image", "image_file_not_found", "invalid_request_error":
++		category = ErrorInvalidRequest
++	// SDK 的 Code 是字符串类型；这些是兼容端点的显式扩展码，不推测模型或服务商。
++	case "invalid_api_key", "authentication_error":
++		category = ErrorAuthentication
++	case "permission_denied", "permission_error":
++		category = ErrorPermission
++	case "insufficient_quota":
++		category = ErrorQuotaExhausted
++	}
++	return NewProviderError(category, stage, protocol.OpenAIResponses, nil)
+ }
+ 
+ func (a *OpenAIResponsesAdapter) TestChat(ctx context.Context) error {
+--- before/pkg/llm/openai_responses_test.go
++++ after/pkg/llm/openai_responses_test.go
+@@ -119,7 +119,7 @@
+ 		{name: "completed", status: "completed", output: completedResponsesOutput("answer"), want: "answer"},
+ 		{name: "empty", status: "completed", output: `[]`, code: ErrorEmptyResponse},
+ 		{name: "refusal", status: "completed", output: `[{"id":"msg-test","type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"no"}]}]`, code: ErrorRefused},
+-		{name: "failed", status: "failed", output: `[]`, code: ErrorProviderUnavailable},
++		{name: "failed", status: "failed", output: `[]`, code: ErrorResponseFailed},
+ 		{name: "incomplete", status: "incomplete", output: completedResponsesOutput("partial"), code: ErrorIncompleteResponse},
+ 		{name: "in progress", status: "in_progress", output: completedResponsesOutput("partial"), code: ErrorInvalidResponse},
+ 	}
+@@ -162,7 +162,7 @@
+ 			want: "answer", think: "reason",
+ 		},
+ 		{name: "eof without terminal", events: []string{`{"type":"response.output_text.delta","delta":"partial"}`}, code: ErrorStreamInterrupted},
+-		{name: "failed", events: []string{`{"type":"response.failed","response":{"id":"resp-test","object":"response","status":"failed","output":[]}}`}, code: ErrorProviderUnavailable},
++		{name: "failed", events: []string{`{"type":"response.failed","response":{"id":"resp-test","object":"response","status":"failed","output":[]}}`}, code: ErrorResponseFailed},
+ 		{name: "incomplete", events: []string{`{"type":"response.incomplete","response":{"id":"resp-test","object":"response","status":"incomplete","output":[]}}`}, code: ErrorIncompleteResponse},
+ 		{name: "error event", events: []string{`{"type":"error","code":"server_error","message":"private payload","param":""}`}, code: ErrorProviderUnavailable},
+ 		{name: "refusal", events: []string{`{"type":"response.refusal.delta","delta":"no"}`, `{"type":"response.completed","response":{"id":"resp-test","object":"response","status":"completed","output":[]}}`}, code: ErrorRefused},
+--- before/_dev/changes/INDEX.md
++++ after/_dev/changes/INDEX.md
+@@ -34,6 +34,8 @@
+ | `025` | multi-protocol-model-connectivity（多协议模型连接兼容） | 实现、普通自动验证、固定 Wails bindings 与独立验证构建完成 / GUI 与真实 provider NEEDS_USER / race BLOCKED / 未提交 | 2026-10-25 | `025-multi-protocol-model-connectivity/` |
+ | `026` | ccr-gateway-validation（CCR 网关接入与连接诊断修复） | 实现、普通自动验证、固定 Wails bindings 与独立验证构建完成 / GUI 与真实 CCR NEEDS_USER / race BLOCKED / 未提交 | 2026-10-25 | `026-ccr-gateway-validation/` |
+ 
++| `028` | llm-error-diagnostics（主解题安全诊断与 Responses 失败分类） | 实现、普通自动验证与独立 Wails 构建完成 / GUI 与真实上游 NEEDS_USER / race BLOCKED / 基线检查失败已记录 / 未提交 | 2026-10-26 | `028-llm-error-diagnostics/` |
++
+ > 分配规则：新增变更时，交叉核对本表、实际目录及历史记录，取最小未用三位编号；已使用编号不得因索引遗漏而复用。创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
+ 
+ ## 变更状态说明
+@@ -300,3 +302,12 @@
+ - [完整提交边界审计](../audits/016-023-commit-boundary.md)列明精确文件、完整消息、验证与排除项。
+ - 上述分段历史摘要中的未提交/未推送是当时状态，最新结果以 Git 历史与远端分支头为准；本次不创建 Tag 或 Release。
+ - Change 023 用户人工验收通过；其他未明确验收和 race 环境阻塞保持原状态，未自动 Close。
++
++## Change 028
++
++- **目录**：[028-llm-error-diagnostics](028-llm-error-diagnostics/00-request.md)。
++- **范围**：主解题安全诊断、事件兼容、Responses 失败分类；不改变 CCR 或模型路由。
++- **状态**：实现、普通自动验证与独立 Wails 构建完成；GUI/真实上游 NEEDS_USER，race BLOCKED，prod 旧日志测试与原有 bindings 空白失败已单列；未暂存、未提交、未关闭。
++- **审计**：[028 差异边界审计](../audits/028-llm-error-diagnostics.md)。
++- **验证入口**：`build/bin/Q-Solver-change028-llm-error-diagnostics.exe`。
++- **结论边界**：未调用真实模型，不宣称 GPT/Claude 已恢复；诊断不写入题库。
+--- before/app/mobile.go
++++ after/app/mobile.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"Q-Solver/pkg/answersummary"
+ 	"Q-Solver/pkg/config"
++	"Q-Solver/pkg/llm"
+ 	"Q-Solver/pkg/logger"
+ 	"Q-Solver/pkg/mobile"
+ 	"Q-Solver/pkg/shortcut"
+@@ -10,6 +11,7 @@
+ )
+ 
+ type DesktopSolveEvent struct {
++	ErrorDetail    *llm.ErrorDiagnostic `json:"errorDetail,omitempty"`
+ 	AnswerItems    []answersummary.Item `json:"answerItems,omitempty"`
+ 	AnswerCopyText string               `json:"answerCopyText,omitempty"`
+ 	Epoch          uint64               `json:"epoch"`
+@@ -182,21 +184,7 @@
+ 		}
+ 	}
+ 
+-	envelope := DesktopSolveEvent{
+-		Epoch:     target.epoch,
+-		SessionID: target.sessionID,
+-		RecordID:  target.recordID,
+-		Event:     event,
+-	}
+-	if len(data) > 0 {
+-		envelope.Text, _ = data[0].(string)
+-	}
+-	if event == "solution" && len(data) > 1 {
+-		if result, ok := data[1].(answersummary.Result); ok {
+-			envelope.AnswerItems = append([]answersummary.Item(nil), result.Items...)
+-			envelope.AnswerCopyText, _ = answersummary.BuildCopyText(result.Items)
+-		}
+-	}
++	envelope := newDesktopSolveEvent(target, event, data...)
+ 	if decision.needDesktop {
+ 		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
+ 	} else if event == "solution" || event == "solution-error" {
+@@ -205,6 +193,31 @@
+ 		envelope.Success = &success
+ 		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
+ 	}
++}
++
++// newDesktopSolveEvent 把错误和安全诊断放入同一个带轮次标识的封套。
++func newDesktopSolveEvent(target desktopSolveTarget, event string, data ...interface{}) DesktopSolveEvent {
++	envelope := DesktopSolveEvent{
++		Epoch:     target.epoch,
++		SessionID: target.sessionID,
++		RecordID:  target.recordID,
++		Event:     event,
++	}
++	if len(data) > 0 {
++		envelope.Text, _ = data[0].(string)
++	}
++	if event == "solution-error" && len(data) > 1 {
++		if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
++			envelope.ErrorDetail = llm.CleanDiagnostic(&detail)
++		}
++	}
++	if event == "solution" && len(data) > 1 {
++		if result, ok := data[1].(answersummary.Result); ok {
++			envelope.AnswerItems = append([]answersummary.Item(nil), result.Items...)
++			envelope.AnswerCopyText, _ = answersummary.BuildCopyText(result.Items)
++		}
++	}
++	return envelope
+ }
+ 
+ // setupMobile 启动 Mobile 链路（失败仅降级，绝不影响主功能）。
+--- before/frontend/src/App.vue
++++ after/frontend/src/App.vue
+@@ -253,7 +253,7 @@
+   on('solution-stream-chunk', (token) => solution.handleStreamChunk(token))
+   on('solution-stream-thinking', (token) => solution.handleThinkingChunk(token))
+ 
+-  on('solution-error', (rawErrMsg) => {
++  on('solution-error', (rawErrMsg, errorDetail) => {
+     if (rawErrMsg && (rawErrMsg.includes('context canceled') || rawErrMsg.includes('canceled'))) {
+       handleUserCancellation()
+       return
+@@ -268,9 +268,10 @@
+     } catch (_) {}
+     settingsStore.statusText = '出错'
+     settingsStore.statusIcon = '!'
+-    const usedInline = solution.handleInlineError({ title, desc, icon })
++    const detail = solution.normalizeErrorDetail(errorDetail)
++    const usedInline = solution.handleInlineError({ title, desc, icon, detail })
+     if (!usedInline) {
+-      Object.assign(solution.errorState, { show: true, title, desc, icon, rawError: rawErrMsg, showDetails: false })
++      Object.assign(solution.errorState, { show: true, title, desc, icon, rawError: rawErrMsg, showDetails: false, detail })
+       solution.isLoading = false
+       solution.isAppending = false
+       solution.shouldOverwriteHistory = true
+--- before/frontend/src/components/ErrorView.vue
++++ after/frontend/src/components/ErrorView.vue
+@@ -5,6 +5,7 @@
+     </div>
+     <div class="error-title">{{ errorState.title }}</div>
+     <div class="error-desc">{{ errorState.desc }}</div>
++    <ErrorDiagnostics :detail="errorState.detail" />
+     <div class="error-hint">
+       按 <kbd class="shortcut-key">{{ solveShortcut }}</kbd> 重试
+     </div>
+@@ -13,6 +14,7 @@
+ 
+ <script setup>
+ import Icon from './Icon.vue'
++import ErrorDiagnostics from './ErrorDiagnostics.vue'
+ 
+ defineProps({
+   errorState: Object,
+--- before/frontend/src/components/SolveView.vue
++++ after/frontend/src/components/SolveView.vue
+@@ -82,6 +82,7 @@
+               <div class="inline-error-content">
+                 <div class="inline-error-title">{{ round.error.title }}</div>
+                 <div class="inline-error-desc">{{ round.error.desc }}</div>
++                <ErrorDiagnostics :detail="round.error.detail" />
+               </div>
+             </div>
+ 
+@@ -128,6 +129,7 @@
+ import HistoryItem from './HistoryItem.vue'
+ import EmptyState from './EmptyState.vue'
+ import ErrorView from './ErrorView.vue'
++import ErrorDiagnostics from './ErrorDiagnostics.vue'
+ import LoadingView from './LoadingView.vue'
+ import ThinkingBlock from './ThinkingBlock.vue'
+ import ActionBar from './ActionBar.vue'
+--- before/frontend/src/stores/solution.js
++++ after/frontend/src/stores/solution.js
+@@ -44,9 +44,32 @@
+     desc: '发生了一个未知错误',
+     rawError: '',
+     showDetails: false,
++    detail: null,
+   })
+ 
+   // ---- Helpers ----
++
++  // 不保留任意服务端文本或额外字段；诊断与错误共用同一轮事件。
++  function normalizeErrorDetail(value) {
++    if (!value || typeof value !== 'object') return null
++    const codes = ['invalid_config', 'cancelled', 'timeout', 'network_error', 'tls_error',
++      'authentication_failed', 'permission_denied', 'not_found_or_protocol_mismatch',
++      'invalid_request', 'rate_limited', 'quota_exhausted', 'request_too_large',
++      'provider_unavailable', 'empty_response', 'invalid_response', 'incomplete_response',
++      'stream_interrupted', 'refused', 'vision_mismatch', 'vision_inconclusive',
++      'probe_disabled', 'response_failed']
++    const stages = ['validate_config', 'build_request', 'send_request', 'read_response',
++      'stream_response', 'validate_response', 'validate_probe']
++    const protocols = ['openai_chat', 'openai_responses', 'anthropic_messages']
++    const code = codes.includes(value.code) ? value.code : 'unknown'
++    return {
++      code,
++      stage: stages.includes(value.stage) ? value.stage : 'unknown',
++      protocol: protocols.includes(value.protocol) ? value.protocol : 'unknown',
++      httpStatus: Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599 ? value.httpStatus : null,
++      retryable: code !== 'unknown' && code !== 'response_failed' && typeof value.retryable === 'boolean' ? value.retryable : null,
++    }
++  }
+ 
+   function renderMarkdown(md) {
+     if (!md) return ''
+@@ -271,6 +294,7 @@
+     resetStreamState()
+     legacyStreamTarget.value = null
+     errorState.show = false
++    errorState.detail = null
+     history.value.forEach(item => { item.isWritable = false })
+     let item = history.value.find(candidate => candidate.sessionId === event.sessionId)
+     if (!item) {
+@@ -303,6 +327,7 @@
+       }
+       item.rounds.push(round)
+     }
++    round.error = null
+     history.value = [item, ...history.value.filter(candidate => candidate !== item)]
+     const activeItem = history.value[0]
+     const activeRound = activeItem.rounds.find(candidate => candidate.recordId === event.recordId)
+@@ -334,6 +359,7 @@
+     const text = event.text || ''
+     switch (event.event) {
+       case 'solution-stream-start':
++        round.error = null
+         resetStreamState()
+         break
+       case 'solution-stream-thinking':
+@@ -354,6 +380,7 @@
+         streamingHtml.value = renderMarkdownWithLatex(streamBuffer)
+         break
+       case 'solution':
++        round.error = null
+         round.answerItems = event.answerItems || []
+         round.answerCopyText = event.answerCopyText || ''
+         round.aiResponse = text || round.aiResponse
+@@ -367,7 +394,7 @@
+         round.answerItems = []
+         round.answerCopyText = ''
+         round.status = text.includes('canceled') ? 'cancelled' : 'failed'
+-        round.error = { title: '请求出错', desc: text || '未知错误', icon: 'x-circle' }
++        round.error = { title: '请求出错', desc: text || '未知错误', icon: 'x-circle', detail: normalizeErrorDetail(event.errorDetail) }
+         resetStreamState()
+         isLoading.value = false
+         isAppending.value = false
+@@ -479,6 +506,8 @@
+   }
+ 
+   function handleStreamStart(keepContext) {
++    errorState.show = false
++    errorState.detail = null
+     streamBuffer = ''
+     thinkingBuffer = ''
+     thinkingStartTime = 0
+@@ -604,6 +633,7 @@
+         title: errorInfo.title || '请求出错',
+         desc: errorInfo.desc || '未知错误',
+         icon: errorInfo.icon || '❌',
++        detail: normalizeErrorDetail(errorInfo.detail),
+       }
+       isLoading.value = false
+       isAppending.value = false
+@@ -655,6 +685,7 @@
+       desc: '发生了一个未知错误',
+       rawError: '',
+       showDetails: false,
++      detail: null,
+     })
+   }
+ 
+@@ -772,7 +803,7 @@
+   return {
+     history, activeHistoryIndex, selectedRoundTarget, streamTarget, isLoading, isAppending, shouldOverwriteHistory,
+     isThinking, thinkingStatusText, thinkingExpanded, isThinkingStalled,
+-    streamingHtml, errorState, historyEntries, currentRounds, currentHistoryItem, isViewingStreamTarget,
++    normalizeErrorDetail, streamingHtml, errorState, historyEntries, currentRounds, currentHistoryItem, isViewingStreamTarget,
+     renderMarkdown, getSummary, getRoundSummary, getRoundsCount, getFullContent, getThinkingPreview,
+     selectHistory, selectHistoryEntry, isHistoryEntrySelected,
+     handleStreamStart, handleStreamChunk, handleThinkingChunk,
+--- before/pkg/mobile/bridge.go
++++ after/pkg/mobile/bridge.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"Q-Solver/pkg/answersummary"
++	"Q-Solver/pkg/llm"
+ 	"sync"
+ )
+ 
+@@ -142,8 +143,15 @@
+ 			}
+ 		}
+ 		b.state.Error = ""
++		b.state.ErrorDetail = nil
+ 
+ 	case "solution-error":
++		b.state.ErrorDetail = nil
++		if len(data) > 1 {
++			if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
++				b.state.ErrorDetail = llm.CleanDiagnostic(&detail)
++			}
++		}
+ 		b.seq++
+ 		b.state.Ts = nowMillis()
+ 		b.state.Status = StatusError
+@@ -305,6 +313,7 @@
+ }
+ 
+ func cloneSnapshot(snapshot Snapshot) Snapshot {
++	snapshot.ErrorDetail = llm.CleanDiagnostic(snapshot.ErrorDetail)
+ 	snapshot.Hints = cloneHints(snapshot.Hints)
+ 	snapshot.Payload.AnswerItems = append([]answersummary.Item(nil), snapshot.Payload.AnswerItems...)
+ 	return snapshot
+--- before/pkg/mobile/state.go
++++ after/pkg/mobile/state.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"Q-Solver/pkg/answersummary"
++	"Q-Solver/pkg/llm"
+ 	"time"
+ )
+ 
+@@ -40,17 +41,18 @@
+ // Snapshot 统一状态快照（全量，手机端断线重连时先收到当前 Snapshot 自动对齐）。
+ // Control/ControlSeq 与解题 Seq 相互独立：Control 是一次性滚动命令，ControlSeq 用于去重。
+ type Snapshot struct {
+-	SessionID  string         `json:"sessionId"`         // 当前进程随机会话 ID，用于跨进程重置序号命名空间
+-	ClearSeq   uint64         `json:"clearSeq"`          // 可重放的显示清屏边界
+-	Seq        int            `json:"seq"`               // 解题快照序号，单调递增
+-	Ts         int64          `json:"ts"`                // Unix 毫秒
+-	Status     string         `json:"status"`            // waiting | streaming | done | error | idle
+-	Stage      string         `json:"stage"`             // thinking | content
+-	Payload    Payload        `json:"payload,omitempty"` // 载荷
+-	Error      string         `json:"error,omitempty"`   // 错误信息
+-	Hints      []ShortcutHint `json:"hints,omitempty"`   // 可重放的快捷键显示元数据
+-	ControlSeq int            `json:"controlSeq"`        // 一次性控制序号，独立单调递增
+-	Control    string         `json:"control,omitempty"` // 仅实时帧携带：up | down
++	ErrorDetail *llm.ErrorDiagnostic `json:"errorDetail,omitempty"`
++	SessionID   string               `json:"sessionId"`         // 当前进程随机会话 ID，用于跨进程重置序号命名空间
++	ClearSeq    uint64               `json:"clearSeq"`          // 可重放的显示清屏边界
++	Seq         int                  `json:"seq"`               // 解题快照序号，单调递增
++	Ts          int64                `json:"ts"`                // Unix 毫秒
++	Status      string               `json:"status"`            // waiting | streaming | done | error | idle
++	Stage       string               `json:"stage"`             // thinking | content
++	Payload     Payload              `json:"payload,omitempty"` // 载荷
++	Error       string               `json:"error,omitempty"`   // 错误信息
++	Hints       []ShortcutHint       `json:"hints,omitempty"`   // 可重放的快捷键显示元数据
++	ControlSeq  int                  `json:"controlSeq"`        // 一次性控制序号，独立单调递增
++	Control     string               `json:"control,omitempty"` // 仅实时帧携带：up | down
+ }
+ 
+ // newSnapshot 构造一帧全量快照。
+--- before/pkg/mobile/web/index.html
++++ after/pkg/mobile/web/index.html
+@@ -167,6 +167,10 @@
+     .md .tag-answer { color: #34d399; font-weight: 800; }
+     .md .tag-analysis { color: #fbbf24; font-weight: 800; }
+ 
++    .error-diagnostics { margin-top: 12px; font-size: 13px; }
++    .error-diagnostics summary { cursor: pointer; }
++    .error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
++    .error-diagnostics p { line-height: 1.6; }
+     .error-box { background: rgba(248, 113, 113, .08); border: 1px solid rgba(248, 113, 113, .35); color: var(--error); }
+ 
+     /* 快捷键提示：只展示服务端下发的动作标签和显示名 */
+@@ -262,6 +266,11 @@
+       <div class="card error-box" id="error-card" style="display:none">
+         <div class="card-title"><span class="ico">⚠️</span> 求解出错</div>
+         <div class="md" id="error-text"></div>
++        <details class="error-diagnostics" id="error-diagnostics">
++          <summary>诊断详情</summary>
++          <pre id="error-diagnostics-text"></pre>
++          <p>仅反映当前调用边界，不代表最终上游原因。不会自动重试，重试可能产生费用；详情未写入题库。</p>
++        </details>
+       </div>
+     </div>
+   </div>
+@@ -360,6 +369,8 @@
+     copyNumberedAnswers.addEventListener('click', function () { return copyDisplayedAnswers(true); });
+     var errorCard = document.getElementById('error-card');
+     var errorText = document.getElementById('error-text');
++    var errorDiagnostics = document.getElementById('error-diagnostics');
++    var errorDiagnosticsText = document.getElementById('error-diagnostics-text');
+     var shortcutCard = document.getElementById('shortcut-card');
+     var shortcutHints = document.getElementById('shortcut-hints');
+     var histSide = document.getElementById('history-list-side');
+@@ -508,6 +519,7 @@
+       waitingCard.style.display = 'block';
+       answerCard.style.display = 'none';
+       errorCard.style.display = 'none';
++      clearErrorDiagnostics();
+     }
+     function showAnswer(html, payload) {
+       setCopyTarget(payload);
+@@ -515,8 +527,40 @@
+       waitingCard.style.display = 'none';
+       answerCard.style.display = 'block';
+       errorCard.style.display = 'none';
+-    }
+-    function showError(msg) {
++      clearErrorDiagnostics();
++    }
++    function clearErrorDiagnostics() {
++      errorDiagnostics.open = false;
++      errorDiagnosticsText.textContent = '';
++    }
++    function renderErrorDiagnostics(detail) {
++      clearErrorDiagnostics();
++      if (!detail || typeof detail !== 'object') {
++        errorDiagnosticsText.textContent = '暂无信息：此错误未提供结构化诊断。';
++        return;
++      }
++      var codes = ['invalid_config', 'cancelled', 'timeout', 'network_error', 'tls_error',
++        'authentication_failed', 'permission_denied', 'not_found_or_protocol_mismatch',
++        'invalid_request', 'rate_limited', 'quota_exhausted', 'request_too_large',
++        'provider_unavailable', 'empty_response', 'invalid_response', 'incomplete_response',
++        'stream_interrupted', 'refused', 'vision_mismatch', 'vision_inconclusive', 'probe_disabled', 'response_failed'];
++      var stages = ['validate_config', 'build_request', 'send_request', 'read_response',
++        'stream_response', 'validate_response', 'validate_probe'];
++      var protocols = ['openai_chat', 'openai_responses', 'anthropic_messages'];
++      var code = codes.indexOf(detail.code) >= 0 ? detail.code : 'unknown';
++      var status = Number.isInteger(detail.httpStatus) && detail.httpStatus >= 100 && detail.httpStatus <= 599 ? detail.httpStatus : '未知';
++      var retry = code === 'unknown' || code === 'response_failed' ? '未知，请先定位原因' :
++        detail.retryable === true ? '可手动重试' : detail.retryable === false ? '不建议直接重试，请先检查配置或请求' : '未知，请先定位原因';
++      errorDiagnosticsText.textContent = [
++        '错误类别：' + (code === 'unknown' ? '未知（unknown）' : code),
++        '失败阶段：' + (stages.indexOf(detail.stage) >= 0 ? detail.stage : '未知'),
++        'HTTP 状态码：' + status,
++        '实际请求协议：' + (protocols.indexOf(detail.protocol) >= 0 ? detail.protocol : '未知'),
++        '是否建议重试：' + retry
++      ].join(String.fromCharCode(10));
++    }
++    function showError(msg, detail) {
++      renderErrorDiagnostics(detail);
+       setCopyTarget(null);
+       errorText.innerHTML = escapeHtml(msg || '未知错误');
+       waitingCard.style.display = 'none';
+@@ -540,6 +584,7 @@
+       waitingCard.style.display = 'none';
+       answerCard.style.display = 'none';
+       errorCard.style.display = 'none';
++      clearErrorDiagnostics();
+       shortcutHints.textContent = '';
+       shortcutCard.hidden = true;
+       histSide.textContent = '';
+@@ -740,6 +785,7 @@
+         waitingCard.style.display = 'none';
+         answerCard.style.display = 'none';
+         errorCard.style.display = 'none';
++        clearErrorDiagnostics();
+         return;
+       }
+ 
+@@ -753,7 +799,7 @@
+       }
+       if (snap.status === 'error') {
+         setBadge('出错', 'error');
+-        showError(snap.error || '求解出错');
++        showError(snap.error || '求解出错', snap.errorDetail);
+         return;
+       }
+       if (snap.status === 'done') {
+@@ -784,6 +830,7 @@
+       waitingCard.style.display = 'none';
+       answerCard.style.display = 'none';
+       errorCard.style.display = 'none';
++      clearErrorDiagnostics();
+     }
+ 
+     // =====================================================================
+--- before/pkg/mobile/web_dom_test.mjs
++++ after/pkg/mobile/web_dom_test.mjs
+@@ -348,3 +348,29 @@
+   assert.equal(completed, 2, '同一连接应完成两题')
+   assert.equal(elements.get('history-list-side').children.length, 2, '两题均应实时进入历史')
+ }
++
++// Change 028：错误与诊断同帧到达，旧快照可用；新题、清屏及迟到帧不残留详情。
++const diagnosticSource = StubEventSource.instances.at(-1)
++const diagnostic = { code: 'rate_limited', stage: 'stream_response', protocol: 'openai_chat', httpStatus: 429, retryable: true }
++diagnosticSource.emit('snapshot', snapshot('diagnostic-session', 1, 1, '', 0, '', { status: 'error', error: '请求过于频繁', errorDetail: diagnostic }))
++assert.match(elements.get('error-diagnostics-text').textContent, /429/)
++assert.match(elements.get('error-diagnostics-text').textContent, /rate_limited/)
++assert.match(elements.get('error-diagnostics-text').textContent, /openai_chat/)
++assert.equal(elements.get('error-diagnostics-text').innerHTMLWrites, 0, '诊断必须使用 textContent')
++diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 2, '', 0, '', { status: 'waiting' }))
++assert.equal(elements.get('error-diagnostics-text').textContent, '')
++diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 1, '', 0, '', { status: 'error', errorDetail: diagnostic }))
++assert.equal(elements.get('error-diagnostics-text').textContent, '', '迟到错误不能覆盖新题')
++diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 3, '', 0, '', { status: 'error', error: '旧字符串错误' }))
++assert.match(elements.get('error-diagnostics-text').textContent, /暂无信息/)
++diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 4, '', 0, '', { status: 'error', error: '安全文案', errorDetail: {
++  code: 'TEST_ONLY_PRIVATE_KEY', stage: 'TEST_ONLY_PRIVATE_TOKEN', protocol: 'TEST_ONLY_PRIVATE_URL',
++  httpStatus: 999, retryable: 'TEST_ONLY_PRIVATE_PROMPT', message: 'TEST_ONLY_PRIVATE_RESPONSE',
++} }))
++assert.doesNotMatch(elements.get('error-diagnostics-text').textContent, /TEST_ONLY_PRIVATE/)
++assert.match(elements.get('error-diagnostics-text').textContent, /未知/)
++diagnosticSource.emit('snapshot', snapshot('diagnostic-session', 2, 5, '', 0, '', { status: 'idle' }))
++assert.equal(elements.get('error-diagnostics-text').textContent, '')
++diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 6, '', 0, '', { status: 'error', errorDetail: diagnostic }))
++assert.equal(elements.get('error-diagnostics-text').textContent, '', '旧 clearSeq 错误不得穿透清屏')
++console.log('Mobile error diagnostics DOM regression tests passed')
+--- before/pkg/solution/solution.go
++++ after/pkg/solution/solution.go
+@@ -186,14 +186,16 @@
+ 		if errors.Is(ctx.Err(), context.Canceled) {
+ 			logger.Println("当前任务已中断（用户产生新输入）")
+ 			if cb.EmitEvent != nil {
+-				cb.EmitEvent("solution-error", "context canceled")
++				detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorCancelled, llm.StageStreamResponse, "", nil))
++				cb.EmitEvent("solution-error", "context canceled", detail)
+ 			}
+ 			return false
+ 		}
+ 
+ 		logger.Println("LLM 请求失败")
+ 		if cb.EmitEvent != nil {
+-			cb.EmitEvent("solution-error", err.Error())
++			detail := llm.DiagnoseError(err)
++			cb.EmitEvent("solution-error", detail.Message, detail)
+ 		}
+ 		return false
+ 	}
+@@ -204,7 +206,8 @@
+ 	if response.Content == "" && response.Thinking == "" {
+ 		logger.Println("[解题] 警告: 模型返回内容为空")
+ 		if cb.EmitEvent != nil {
+-			cb.EmitEvent("solution-error", "模型返回内容为空，请检查模型配置或稍后重试")
++			detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorEmptyResponse, llm.StageValidateResponse, "", nil))
++			cb.EmitEvent("solution-error", "模型返回内容为空，请检查模型配置或稍后重试", detail)
+ 		}
+ 		return false
+ 	}
+--- /dev/null
++++ after/pkg/llm/diagnostic.go
+@@ -0,0 +1,71 @@
++package llm
++
++import (
++	"errors"
++
++	"Q-Solver/pkg/llm/protocol"
++)
++
++// ErrorDiagnostic 只传递白名单元数据，不包含 SDK 文本、cause 或请求内容。
++// 未知 HTTP 状态省略；无法给出重试建议时 Retryable 为 null。
++type ErrorDiagnostic struct {
++	Code       ErrorCode `json:"code"`
++	Stage      string    `json:"stage"`
++	HTTPStatus *int      `json:"httpStatus,omitempty"`
++	Protocol   string    `json:"protocol"`
++	Retryable  *bool     `json:"retryable"`
++	Message    string    `json:"message"`
++}
++
++func DiagnoseError(err error) ErrorDiagnostic {
++	result := ErrorDiagnostic{Code: ErrorUnknown, Stage: "unknown", Protocol: "unknown"}
++	var pe *ProviderError
++	if errors.As(err, &pe) && pe != nil {
++		result.Code = pe.Code
++		result.Stage = string(pe.Stage)
++		result.Protocol = string(pe.Protocol)
++		status, retry := pe.HTTPStatus, pe.Retryable
++		result.HTTPStatus = &status
++		result.Retryable = &retry
++	}
++	return *CleanDiagnostic(&result)
++}
++
++// CleanDiagnostic 在传输和快照复制边界重新筛选字段，并隔离可变指针。
++func CleanDiagnostic(value *ErrorDiagnostic) *ErrorDiagnostic {
++	if value == nil {
++		return nil
++	}
++	result := &ErrorDiagnostic{Code: safeDiagnosticCode(value.Code), Stage: "unknown", Protocol: "unknown"}
++	switch ErrorStage(value.Stage) {
++	case StageValidateConfig, StageBuildRequest, StageSendRequest, StageReadResponse, StageStreamResponse, StageValidateResponse, StageValidateProbe:
++		result.Stage = value.Stage
++	}
++	switch protocol.APIProtocol(value.Protocol) {
++	case protocol.OpenAIChat, protocol.OpenAIResponses, protocol.AnthropicMessages:
++		result.Protocol = value.Protocol
++	}
++	if value.HTTPStatus != nil && *value.HTTPStatus >= 100 && *value.HTTPStatus <= 599 {
++		status := *value.HTTPStatus
++		result.HTTPStatus = &status
++	}
++	if result.Code != ErrorUnknown && result.Code != ErrorResponseFailed && value.Retryable != nil {
++		retry := *value.Retryable
++		result.Retryable = &retry
++	}
++	result.Message = safeErrorMessage(result.Code)
++	return result
++}
++
++func safeDiagnosticCode(code ErrorCode) ErrorCode {
++	switch code {
++	case ErrorInvalidConfig, ErrorCancelled, ErrorTimeout, ErrorNetwork, ErrorTLS,
++		ErrorAuthentication, ErrorPermission, ErrorNotFoundOrProtocolMismatch, ErrorInvalidRequest,
++		ErrorRateLimited, ErrorQuotaExhausted, ErrorRequestTooLarge, ErrorProviderUnavailable,
++		ErrorEmptyResponse, ErrorInvalidResponse, ErrorIncompleteResponse, ErrorStreamInterrupted,
++		ErrorRefused, ErrorVisionMismatch, ErrorVisionInconclusive, ErrorProbeDisabled, ErrorResponseFailed:
++		return code
++	default:
++		return ErrorUnknown
++	}
++}
+--- /dev/null
++++ after/pkg/llm/diagnostic_test.go
+@@ -0,0 +1,91 @@
++package llm
++
++import (
++	"Q-Solver/pkg/llm/protocol"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++func TestErrorDiagnosticPreservesWrappedMetadata(t *testing.T) {
++	for _, retry := range []bool{false, true} {
++		original := NewProviderError(ErrorPermission, StageStreamResponse, protocol.OpenAIChat, errors.New("TEST_ONLY_PRIVATE_TOKEN"))
++		original.HTTPStatus = 403
++		original.Retryable = retry
++		err := fmt.Errorf("TEST_ONLY_PRIVATE_KEY: %w", fmt.Errorf("TEST_ONLY_PRIVATE_PROMPT: %w", original))
++		got := DiagnoseError(err)
++		if got.Code != ErrorPermission || got.Stage != string(StageStreamResponse) || got.Protocol != string(protocol.OpenAIChat) || got.HTTPStatus == nil || *got.HTTPStatus != 403 || got.Retryable == nil || *got.Retryable != retry {
++			t.Fatalf("lost metadata: %+v", got)
++		}
++		if got.Message != safeErrorMessage(ErrorPermission) {
++			t.Fatal("unexpected friendly message")
++		}
++		raw, _ := json.Marshal(got)
++		if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") {
++			t.Fatal("diagnostic leaked wrapped cause")
++		}
++		classified := ClassifyProviderError(err, StageSendRequest, protocol.OpenAIResponses)
++		if classified != original {
++			t.Fatal("reclassification discarded original provider metadata")
++		}
++	}
++}
++
++func TestErrorDiagnosticUnknownAndMissingValues(t *testing.T) {
++	var typedNil *ProviderError
++	for _, err := range []error{nil, typedNil, errors.New("TEST_ONLY_PRIVATE_KEY"), fmt.Errorf("wrapped: %w", typedNil)} {
++		got := DiagnoseError(err)
++		if got.Code != ErrorUnknown || got.Stage != "unknown" || got.Protocol != "unknown" || got.HTTPStatus != nil || got.Retryable != nil {
++			t.Fatalf("invented metadata: %+v", got)
++		}
++	}
++	e := NewProviderError(ErrorTimeout, StageSendRequest, protocol.AnthropicMessages, nil)
++	if got := DiagnoseError(e); got.HTTPStatus != nil || got.Retryable == nil || !*got.Retryable {
++		t.Fatal("missing HTTP status must remain unknown")
++	}
++	if got := ClassifyProviderError(errors.New("TEST_ONLY_PRIVATE_BODY"), StageReadResponse, protocol.OpenAIChat); got.Code != ErrorUnknown {
++		t.Fatal("opaque errors must not be called network failures")
++	}
++}
++
++func TestErrorDiagnosticWhitelistsAllUntrustedStrings(t *testing.T) {
++	e := &ProviderError{Code: "TEST_ONLY_PRIVATE_KEY", Stage: "TEST_ONLY_PRIVATE_TOKEN", Protocol: "TEST_ONLY_PRIVATE_URL", Message: "TEST_ONLY_PRIVATE_PROMPT", HTTPStatus: 999, Retryable: true}
++	got := DiagnoseError(e)
++	raw, _ := json.Marshal(got)
++	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") || got.Code != ErrorUnknown || got.HTTPStatus != nil || got.Retryable != nil {
++		t.Fatalf("unsafe summary: %s", raw)
++	}
++	e.Code = ErrorAuthentication
++	e.Stage = StageSendRequest
++	e.Protocol = protocol.OpenAIResponses
++	e.HTTPStatus = 401
++	got = DiagnoseError(e)
++	if got.Message != safeErrorMessage(ErrorAuthentication) {
++		t.Fatal("provider Message must not bypass fixed safe messages")
++	}
++	copy := CleanDiagnostic(&got)
++	*copy.HTTPStatus = 500
++	*copy.Retryable = false
++	if *got.HTTPStatus != 401 || !*got.Retryable {
++		t.Fatal("diagnostic copy shares mutable fields")
++	}
++	if CleanDiagnostic(nil) != nil {
++		t.Fatal("legacy missing diagnostic must remain absent")
++	}
++}
++
++func TestUnknownFailureDiagnosticDoesNotInventRetryAdvice(t *testing.T) {
++	for _, code := range []ErrorCode{ErrorUnknown, ErrorResponseFailed} {
++		pe := NewProviderError(code, StageValidateResponse, protocol.OpenAIResponses, nil)
++		got := DiagnoseError(pe)
++		if got.Retryable != nil || got.HTTPStatus != nil {
++			t.Fatal("unknown failure must not invent retry advice or HTTP status")
++		}
++		raw, _ := json.Marshal(got)
++		if strings.Contains(string(raw), "httpStatus") || !strings.Contains(string(raw), `"retryable":null`) {
++			t.Fatalf("unknown field wire format: %s", raw)
++		}
++	}
++}
+--- /dev/null
++++ after/pkg/llm/responses_failure_test.go
+@@ -0,0 +1,123 @@
++package llm
++
++import (
++	"Q-Solver/pkg/llm/protocol"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"github.com/openai/openai-go/responses"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++)
++
++func TestResponsesFailureCodeMapping(t *testing.T) {
++	tests := []struct {
++		code  string
++		want  ErrorCode
++		retry bool
++	}{
++		{string(responses.ResponseErrorCodeRateLimitExceeded), ErrorRateLimited, true},
++		{string(responses.ResponseErrorCodeInvalidPrompt), ErrorInvalidRequest, false},
++		{string(responses.ResponseErrorCodeServerError), ErrorProviderUnavailable, true},
++		{string(responses.ResponseErrorCodeVectorStoreTimeout), ErrorTimeout, true},
++		{string(responses.ResponseErrorCodeImageTooLarge), ErrorRequestTooLarge, false},
++		{string(responses.ResponseErrorCodeImageFileTooLarge), ErrorRequestTooLarge, false},
++		{string(responses.ResponseErrorCodeImageContentPolicyViolation), ErrorRefused, false},
++		{string(responses.ResponseErrorCodeImageFileNotFound), ErrorInvalidRequest, false},
++		{"invalid_api_key", ErrorAuthentication, false},
++		{"authentication_error", ErrorAuthentication, false},
++		{"permission_denied", ErrorPermission, false},
++		{"permission_error", ErrorPermission, false},
++		{"insufficient_quota", ErrorQuotaExhausted, false},
++		{"invalid_request_error", ErrorInvalidRequest, false},
++		{"TEST_ONLY_PRIVATE_UNKNOWN_CODE", ErrorCode("response_failed"), false},
++		{"", ErrorCode("response_failed"), false},
++	}
++	for _, tt := range tests {
++		for _, kind := range []string{"non-stream", "failed-event", "error-event"} {
++			t.Run(kind+"/"+tt.code, func(t *testing.T) {
++				var calls atomic.Int32
++				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++					calls.Add(1)
++					if r.URL.Path != "/v1/responses" {
++						t.Errorf("unexpected endpoint: %s", r.URL.Path)
++					}
++					// Code is a string-backed SDK type; vendor extensions use the real error.code field.
++					response := responses.Response{Status: responses.ResponseStatusFailed, Error: responses.ResponseError{Code: responses.ResponseErrorCode(tt.code), Message: "TEST_ONLY_PRIVATE_RESPONSE"}}
++					raw, _ := json.Marshal(response)
++					if kind == "non-stream" {
++						w.Header().Set("Content-Type", "application/json")
++						_, _ = w.Write(raw)
++						return
++					}
++					w.Header().Set("Content-Type", "text/event-stream")
++					if kind == "failed-event" {
++						fmt.Fprintf(w, "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":%s}\n\n", raw)
++					} else {
++						event, _ := json.Marshal(map[string]any{"type": "error", "code": tt.code, "message": "TEST_ONLY_PRIVATE_RESPONSE", "param": ""})
++						fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
++					}
++				}))
++				defer server.Close()
++				adapter := newOpenAIResponsesTestAdapter(server, "test-model")
++				var err error
++				if kind == "non-stream" {
++					_, err = adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("TEST_ONLY_PRIVATE_PROMPT")})
++				} else {
++					_, err = adapter.GenerateContentStream(context.Background(), []Message{NewUserMessage("TEST_ONLY_PRIVATE_PROMPT")}, nil)
++				}
++				var pe *ProviderError
++				if !errors.As(err, &pe) || pe == nil {
++					t.Fatal("missing structured provider error")
++				}
++				if pe.Code != tt.want || pe.Retryable != tt.retry || pe.HTTPStatus != 0 || pe.Protocol != protocol.OpenAIResponses {
++					t.Fatalf("wrong classification: %+v", pe)
++				}
++				expectedStage := StageValidateResponse
++				if kind == "error-event" {
++					expectedStage = StageStreamResponse
++				}
++				if pe.Stage != expectedStage {
++					t.Fatalf("wrong stage: %s", pe.Stage)
++				}
++				if strings.Contains(pe.Error(), "TEST_ONLY_PRIVATE") {
++					t.Fatal("raw response leaked")
++				}
++				if calls.Load() != 1 {
++					t.Fatalf("unexpected retry/fallback: %d", calls.Load())
++				}
++			})
++		}
++	}
++}
++
++func TestResponsesHTTPFailureKeepsActualStatus(t *testing.T) {
++	for _, status := range []int{401, 403, 429, 503} {
++		for _, stream := range []bool{false, true} {
++			t.Run(fmt.Sprintf("%d/stream=%v", status, stream), func(t *testing.T) {
++				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++					w.Header().Set("Content-Type", "application/json")
++					w.WriteHeader(status)
++					fmt.Fprint(w, `{"error":{"message":"TEST_ONLY_PRIVATE_RESPONSE","code":"test_error","type":"test_error"}}`)
++				}))
++				defer server.Close()
++				a := newOpenAIResponsesTestAdapter(server, "test-model")
++				var err error
++				if stream {
++					_, err = a.GenerateContentStream(context.Background(), []Message{NewUserMessage("hi")}, nil)
++				} else {
++					_, err = a.GenerateContent(context.Background(), "", []Message{NewUserMessage("hi")})
++				}
++				detail := DiagnoseError(err)
++				want := map[int]ErrorCode{401: ErrorAuthentication, 403: ErrorPermission, 429: ErrorRateLimited, 503: ErrorProviderUnavailable}[status]
++				if detail.Code != want || detail.HTTPStatus == nil || *detail.HTTPStatus != status {
++					t.Fatalf("wrong HTTP classification: %+v", detail)
++				}
++			})
++		}
++	}
++}
+--- /dev/null
++++ after/pkg/solution/error_diagnostics_test.go
+@@ -0,0 +1,77 @@
++package solution
++
++import (
++	"Q-Solver/pkg/config"
++	"Q-Solver/pkg/llm"
++	"Q-Solver/pkg/llm/protocol"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++func TestSolveErrorCarriesAtomicSafeDiagnostic(t *testing.T) {
++	pe := llm.NewProviderError(llm.ErrorProviderUnavailable, llm.StageStreamResponse, protocol.OpenAIChat, errors.New("TEST_ONLY_PRIVATE_RESPONSE"))
++	pe.HTTPStatus = 502
++	for _, err := range []error{fmt.Errorf("TEST_ONLY_PRIVATE_KEY: %w", pe), errors.New("TEST_ONLY_PRIVATE_TOKEN")} {
++		solver := NewSolver(&fakeProvider{err: err})
++		count := 0
++		ok := solver.Solve(context.Background(), Request{Config: config.Config{APIKey: "TEST_ONLY_PRIVATE_KEY"}, Screenshots: []string{"TEST_ONLY_PRIVATE_IMAGE"}}, Callbacks{EmitEvent: func(event string, data ...interface{}) {
++			if event != "solution-error" {
++				return
++			}
++			count++
++			if len(data) != 2 {
++				t.Fatalf("need legacy string plus diagnostic, got %d args", len(data))
++			}
++			text, isString := data[0].(string)
++			detail, isDetail := data[1].(llm.ErrorDiagnostic)
++			if !isString || !isDetail || text != detail.Message {
++				t.Fatal("error contract changed")
++			}
++			raw, _ := json.Marshal(data)
++			if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") {
++				t.Fatal("private data leaked in event")
++			}
++			if errors.Is(err, pe) && (detail.HTTPStatus == nil || *detail.HTTPStatus != 502 || detail.Protocol != "openai_chat") {
++				t.Fatal("lost metadata")
++			}
++		}})
++		if ok || count != 1 {
++			t.Fatalf("wrong terminal outcome: ok=%v errors=%d", ok, count)
++		}
++	}
++}
++
++func TestSolveDiagnosticForCancelledAndEmptyTerminal(t *testing.T) {
++	for _, cancelled := range []bool{false, true} {
++		ctx, cancel := context.WithCancel(context.Background())
++		provider := &fakeProvider{}
++		if cancelled {
++			cancel()
++			provider.err = context.Canceled
++		}
++		var args []interface{}
++		NewSolver(provider).Solve(ctx, Request{Config: config.Config{APIKey: "test-key"}}, Callbacks{EmitEvent: func(event string, data ...interface{}) {
++			if event == "solution-error" {
++				args = data
++			}
++		}})
++		cancel()
++		if len(args) != 2 {
++			t.Fatalf("missing terminal diagnostic: cancelled=%v", cancelled)
++		}
++		detail, ok := args[1].(llm.ErrorDiagnostic)
++		if !ok {
++			t.Fatal("invalid diagnostic type")
++		}
++		if cancelled && (args[0] != "context canceled" || detail.Code != llm.ErrorCancelled) {
++			t.Fatal("cancellation contract changed")
++		}
++		if !cancelled && detail.Code != llm.ErrorEmptyResponse {
++			t.Fatal("empty response classification changed")
++		}
++	}
++}
+--- /dev/null
++++ after/app/error_diagnostics_test.go
+@@ -0,0 +1,71 @@
++package app
++
++import (
++	"Q-Solver/pkg/config"
++	"Q-Solver/pkg/llm"
++	"Q-Solver/pkg/llm/protocol"
++	"Q-Solver/pkg/questionbank"
++	"Q-Solver/pkg/solution"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++type diagnosticFailureProvider struct{ err error }
++
++func (p diagnosticFailureProvider) GenerateContentStream(context.Context, []llm.Message, llm.StreamCallback) (llm.Message, error) {
++	return llm.Message{}, p.err
++}
++func (p diagnosticFailureProvider) GenerateContent(context.Context, string, []llm.Message) (llm.Message, error) {
++	return llm.Message{}, p.err
++}
++func (p diagnosticFailureProvider) GetModels(context.Context) ([]string, error) { return nil, nil }
++func (p diagnosticFailureProvider) TestChat(context.Context) error              { return p.err }
++
++func TestSolveDiagnosticSurvivesCaptureAndDesktopEnvelope(t *testing.T) {
++	a, store, img := archiveApp(t)
++	pe := llm.NewProviderError(llm.ErrorPermission, llm.StageStreamResponse, protocol.OpenAIChat, errors.New("TEST_ONLY_PRIVATE_RESPONSE"))
++	pe.HTTPStatus = 403
++	cfg := config.Config{APIKey: "TEST_ONLY_PRIVATE_KEY", Model: "test-model"}
++	var envelopes []DesktopSolveEvent
++	target := desktopSolveTarget{epoch: 7, sessionID: "session-test", recordID: "record-test"}
++	capture := a.beginQuestionSolveCapture(context.Background(), cfg, []string{img}, func(event string, data ...interface{}) {
++		if event == "solution-error" {
++			if _, ok := data[0].(string); !ok {
++				t.Fatal("legacy consumer no longer sees string")
++			}
++			envelopes = append(envelopes, newDesktopSolveEvent(target, event, data...))
++		}
++	})
++	solver := solution.NewSolver(diagnosticFailureProvider{fmt.Errorf("TEST_ONLY_PRIVATE_TOKEN: %w", pe)})
++	if solver.Solve(context.Background(), solution.Request{Config: cfg, Screenshots: []string{img}}, solution.Callbacks{EmitEvent: capture.Emit}) {
++		t.Fatal("failure became success")
++	}
++	capture.Complete(false, nil)
++	if len(envelopes) != 1 {
++		t.Fatalf("expected one terminal envelope, got %d", len(envelopes))
++	}
++	e := envelopes[0]
++	if e.ErrorDetail == nil || e.ErrorDetail.Code != llm.ErrorPermission || e.ErrorDetail.HTTPStatus == nil || *e.ErrorDetail.HTTPStatus != 403 || e.Epoch != 7 || e.RecordID != "record-test" {
++		t.Fatal("lost scoped diagnostic")
++	}
++	raw, _ := json.Marshal(e)
++	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") {
++		t.Fatal("private data leaked into desktop envelope")
++	}
++	snap, dirty := store.Snapshot()
++	if dirty || snap.Records[0].Status != questionbank.Failed {
++		t.Fatal("capture failure state changed")
++	}
++	raw, _ = json.Marshal(snap)
++	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") || strings.Contains(string(raw), "errorDetail") {
++		t.Fatal("unexpected diagnostic/private persistence")
++	}
++	old := newDesktopSolveEvent(target, "solution-error", "legacy error")
++	if old.Text != "legacy error" || old.ErrorDetail != nil {
++		t.Fatal("legacy envelope changed")
++	}
++}
+--- /dev/null
++++ after/pkg/mobile/error_diagnostics_test.go
+@@ -0,0 +1,110 @@
++package mobile
++
++import (
++	"Q-Solver/pkg/llm"
++	"Q-Solver/pkg/llm/protocol"
++	"bufio"
++	"context"
++	"encoding/json"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestMobileErrorDiagnosticSnapshotCompatibility(t *testing.T) {
++	b, err := NewBridge(1)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer b.Close()
++	pe := llm.NewProviderError(llm.ErrorRateLimited, llm.StageStreamResponse, protocol.OpenAIChat, errors.New("TEST_ONLY_PRIVATE_TOKEN"))
++	pe.HTTPStatus = 429
++	detail := llm.DiagnoseError(pe)
++	b.Publish("solution-stream-start")
++	ch, _ := b.Subscribe()
++	defer b.Unsubscribe(ch)
++	b.Publish("solution-error", detail.Message, detail)
++	s := <-ch
++	if s.Status != StatusError || s.Error != detail.Message || s.ErrorDetail == nil || s.ErrorDetail.HTTPStatus == nil || *s.ErrorDetail.HTTPStatus != 429 {
++		t.Fatal("lost atomic error diagnostic")
++	}
++	raw, _ := json.Marshal(s)
++	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") {
++		t.Fatal("secret leaked to SSE snapshot")
++	}
++	*s.ErrorDetail.HTTPStatus = 999
++	*s.ErrorDetail.Retryable = false
++	saved := b.GetState()
++	if *saved.ErrorDetail.HTTPStatus != 429 || !*saved.ErrorDetail.Retryable {
++		t.Fatal("subscriber mutated bridge state")
++	}
++	_, initial := b.Subscribe()
++	if initial.ErrorDetail == nil {
++		t.Fatal("reconnect lost error detail")
++	}
++	b.Publish("solution-stream-start")
++	if b.GetState().ErrorDetail != nil {
++		t.Fatal("old error leaked into next request")
++	}
++	b.Publish("solution-error", "legacy error")
++	if b.GetState().Error != "legacy error" || b.GetState().ErrorDetail != nil {
++		t.Fatal("legacy error must remain compatible")
++	}
++	b.Publish("solution-error", detail.Message, detail)
++	b.Publish("solution", "answer")
++	if b.GetState().ErrorDetail != nil {
++		t.Fatal("success retained stale error")
++	}
++	b.ClearDisplay(2)
++	if b.PublishIfCurrent(1, "solution-error", detail.Message, detail) || b.GetState().ErrorDetail != nil {
++		t.Fatal("old task crossed clear boundary")
++	}
++}
++
++func TestMobileErrorDiagnosticOverRealSSE(t *testing.T) {
++	b := newTestBridge(t)
++	server, err := NewServer(b, testToken)
++	if err != nil {
++		t.Fatal(err)
++	}
++	endpoint := httptest.NewServer(server.routes(http.NewServeMux()))
++	defer endpoint.Close()
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++	defer cancel()
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.URL+"/sse?token="+server.connectToken(), nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	response, err := endpoint.Client().Do(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer response.Body.Close()
++	reader := bufio.NewReader(response.Body)
++	readSSEFrame(t, reader)
++	b.Publish("solution-stream-start")
++	readSSEFrame(t, reader)
++	pe := llm.NewProviderError(llm.ErrorAuthentication, llm.StageStreamResponse, protocol.OpenAIChat, errors.New("TEST_ONLY_PRIVATE_AUTHORIZATION"))
++	pe.HTTPStatus = 401
++	detail := llm.DiagnoseError(pe)
++	b.Publish("solution-error", detail.Message, detail)
++	_, snap, _ := readSSEFrame(t, reader)
++	if snap.Status != StatusError || snap.Error != detail.Message || snap.ErrorDetail == nil || snap.ErrorDetail.HTTPStatus == nil || *snap.ErrorDetail.HTTPStatus != 401 {
++		t.Fatal("SSE lost structured error")
++	}
++	raw, _ := json.Marshal(snap)
++	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") {
++		t.Fatal("SSE exposed raw error")
++	}
++	// 旧客户端只解析既有字段，新字段不会改变错误字符串或 SSE 事件类型。
++	var legacy struct {
++		Status string `json:"status"`
++		Error  string `json:"error"`
++	}
++	if json.Unmarshal(raw, &legacy) != nil || legacy.Status != StatusError || legacy.Error != detail.Message {
++		t.Fatal("legacy SSE client failed")
++	}
++}
+--- /dev/null
++++ after/frontend/llm_error_diagnostics_regression_test.mjs
+@@ -0,0 +1,75 @@
++import assert from 'node:assert/strict'
++import fs from 'node:fs'
++import vm from 'node:vm'
++import { createRequire } from 'node:module'
++const require = createRequire(import.meta.url)
++const { reactive, ref, computed, createSSRApp } = require('vue')
++const { defineStore, createPinia, setActivePinia } = require('pinia')
++const source = fs.readFileSync(new URL('./src/stores/solution.js', import.meta.url), 'utf8')
++  .replace(/^import .*$/gm, '').replace('export const useSolutionStore', 'const useSolutionStore')
++setActivePinia(createPinia())
++const context = vm.createContext({ defineStore, ref, reactive, computed,
++  api: {}, document: { getElementById: () => null },
++  renderMarkdownWithLatex: text => text || '', requestAnimationFrame: () => 1,
++  cancelAnimationFrame() {}, setTimeout, clearTimeout,
++})
++vm.runInContext(source + '\nglobalThis.store = useSolutionStore()', context)
++const store = context.store
++const detail = { code: 'provider_unavailable', stage: 'stream_response', httpStatus: 502,
++  protocol: 'openai_chat', retryable: true, message: '模型服务暂时不可用，请稍后重试' }
++const event = (recordId, type, extras = {}) => ({ epoch: 7, sessionId: 'session-a', recordId, event: type, ...extras })
++store.handleDesktopSolveEvent(event('a', 'request-start'))
++assert.equal(store.handleDesktopSolveEvent(event('a', 'solution-error', { text: detail.message, errorDetail: detail })), true)
++assert.equal(store.currentRounds[0].error.detail.httpStatus, 502)
++assert.equal(store.currentRounds[0].error.desc, detail.message)
++assert.equal(store.currentRounds[0].error.detail.retryable, true)
++assert.equal(store.handleDesktopSolveEvent(event('a', 'solution-error', { text: 'late', errorDetail: { ...detail, httpStatus: 503 } })), false)
++assert.equal(store.currentRounds[0].error.detail.httpStatus, 502)
++store.handleDesktopSolveEvent(event('b', 'request-start'))
++assert.equal(store.currentRounds[0].error, null)
++assert.equal(store.errorState.detail, null)
++assert.equal(store.handleDesktopSolveEvent(event('a', 'solution-error', { text: 'old', errorDetail: detail })), false)
++store.handleDesktopSolveEvent(event('b', 'solution-error', { text: 'legacy failure' }))
++assert.equal(store.currentRounds[0].error.detail, null)
++store.handleDesktopSolveEvent(event('c', 'request-start'))
++store.handleDesktopSolveEvent(event('c', 'solution-error', { text: 'safe', errorDetail: {
++  code: 'TEST_ONLY_PRIVATE_KEY', stage: 'TEST_ONLY_PRIVATE_TOKEN', protocol: 'TEST_ONLY_PRIVATE_URL',
++  httpStatus: 999, retryable: 'TEST_ONLY_PRIVATE_BODY', message: 'TEST_ONLY_PRIVATE_PROMPT', raw: 'TEST_ONLY_PRIVATE_RESPONSE',
++} }))
++assert.doesNotMatch(JSON.stringify(store.currentRounds[0].error.detail), /TEST_ONLY_PRIVATE/)
++assert.equal(store.currentRounds[0].error.detail.code, 'unknown')
++assert.equal(store.currentRounds[0].error.detail.httpStatus, null)
++store.handleStreamStart(false)
++assert.equal(store.handleInlineError({ title: '请求出错', desc: detail.message, detail }), true)
++assert.equal(store.currentRounds[0].error.detail.protocol, 'openai_chat')
++store.handleStreamStart(true)
++assert.equal(store.currentRounds[0].error, null)
++
++const partial = store.normalizeErrorDetail({})
++assert.equal(partial.code, 'unknown')
++assert.equal(partial.stage, 'unknown')
++assert.equal(partial.protocol, 'unknown')
++assert.equal(partial.httpStatus, null)
++assert.equal(partial.retryable, null)
++
++const app = fs.readFileSync(new URL('./src/App.vue', import.meta.url), 'utf8')
++assert.match(app, /on\('solution-error',\s*\(rawErrMsg,\s*errorDetail\)/)
++for (const name of ['ErrorView.vue', 'SolveView.vue']) {
++  const ui = fs.readFileSync(new URL('./src/components/' + name, import.meta.url), 'utf8')
++  assert.match(ui, /<ErrorDiagnostics/)
++}
++// 编译并 SSR 渲染真实 Vue 组件，检验安全文本和缺省显示，不仅匹配源码。
++const { parse, compileScript } = require('@vue/compiler-sfc')
++const { renderToString } = require('@vue/server-renderer')
++const componentSource = fs.readFileSync(new URL('./src/components/ErrorDiagnostics.vue', import.meta.url), 'utf8')
++const { descriptor } = parse(componentSource)
++const compiled = compileScript(descriptor, { id: 'diagnostics-test', inlineTemplate: true })
++const code = compiled.content.replace(/import \{([^}]+)\} from ["']vue["']/g, (_, names) =>
++  'const {' + names.replace(/ as /g, ': ') + '} = Vue').replace('export default', 'module.exports =')
++const componentContext = { Vue: require('vue'), module: { exports: {} } }
++vm.runInNewContext(code, componentContext)
++const html = await renderToString(createSSRApp(componentContext.module.exports, { detail }))
++for (const value of ['诊断详情', '502', 'provider_unavailable', 'stream_response', 'openai_chat']) assert.ok(html.includes(value))
++const missing = await renderToString(createSSRApp(componentContext.module.exports, { detail: null }))
++assert.ok(missing.includes('暂无信息'))
++console.log('LLM error diagnostics regression tests passed')
+--- /dev/null
++++ after/frontend/src/components/ErrorDiagnostics.vue
+@@ -0,0 +1,27 @@
++<template>
++  <details class="error-diagnostics">
++    <summary>诊断详情</summary>
++    <p v-if="!detail" class="diagnostic-note">暂无信息：此错误未提供结构化诊断。</p>
++    <dl v-else>
++      <dt>错误类别</dt><dd>{{ detail.code === 'unknown' ? '未知（unknown）' : detail.code }}</dd>
++      <dt>失败阶段</dt><dd>{{ detail.stage === 'unknown' ? '未知' : detail.stage }}</dd>
++      <dt>HTTP 状态码</dt><dd>{{ detail.httpStatus ?? '未知' }}</dd>
++      <dt>实际请求协议</dt><dd>{{ detail.protocol === 'unknown' ? '未知' : detail.protocol }}</dd>
++      <dt>是否建议重试</dt><dd>{{ detail.retryable === true ? '可手动重试' : detail.retryable === false ? '不建议直接重试，请先检查配置或请求' : '未知，请先定位原因' }}</dd>
++    </dl>
++    <p class="diagnostic-note">仅反映当前调用边界；网关错误不等于最终上游原因。不会自动重试，重试可能产生费用。详情未写入题库，重启后不保留。</p>
++  </details>
++</template>
++
++<script setup>
++defineProps({ detail: { type: Object, default: null } })
++</script>
++
++<style scoped>
++.error-diagnostics { margin: var(--sp-3) 0; max-width: 100%; text-align: left; font-size: var(--text-xs); color: var(--text-secondary); }
++summary { cursor: pointer; color: var(--text-primary); }
++dl { display: grid; grid-template-columns: minmax(6rem, auto) minmax(0, 1fr); gap: var(--sp-2); }
++dt { color: var(--text-tertiary); }
++dd { margin: 0; overflow-wrap: anywhere; }
++.diagnostic-note { line-height: 1.6; overflow-wrap: anywhere; }
++</style>

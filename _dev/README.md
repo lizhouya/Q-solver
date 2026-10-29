@@ -14,6 +14,7 @@
 _dev/
 ├── README.md                    # 本文件：归档区总览与使用规范
 ├── audits/                      # 架构、设计与提交边界审计
+├── build-artifact-policy.md      # 被忽略构建产物的目录、测试、晋升、哈希与回滚政策
 ├── baseline/                    # 开发环境与基线情报（开发起点快照）
 │   └── Q-Solver 开发环境准备报告.md
 ├── changes/                     # 二次开发变更档案（每项变更一个子目录）
@@ -60,6 +61,7 @@ _dev/
 | `AGENTS.md` | 面向所有 AI Agent 的项目通用最高规则 |
 | `CLAUDE.md` | Claude Code 执行规则，服从 AGENTS.md |
 | `AGENT.md` | 旧名称兼容入口，仅指向 AGENTS.md |
+| `_dev/build-artifact-policy.md` | 被 Git 忽略的构建产物生命周期、SHA-256、晋升、归档和回滚政策 |
 | `_dev/changes/XXX-名称/` | 单次功能治理记录，不覆盖上位规则 |
 | `_dev/memory/README.md` | 长期记忆接入方案说明 |
 | `_dev/memory/agentmemory-assessment.md` | agentmemory 接入评估结果 |

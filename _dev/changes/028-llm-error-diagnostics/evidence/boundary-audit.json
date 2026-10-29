@@ -1,0 +1,45 @@
+{
+  "head": "43022e10cd8fb1b38b72b56d95bc39b8bb4d201d",
+  "changedBaselineFiles": [
+    "_dev/changes/INDEX.md",
+    "app/mobile.go",
+    "frontend/src/App.vue",
+    "frontend/src/components/ErrorView.vue",
+    "frontend/src/components/SolveView.vue",
+    "frontend/src/stores/solution.js",
+    "pkg/llm/errors.go",
+    "pkg/llm/errors_test.go",
+    "pkg/llm/openai_responses.go",
+    "pkg/llm/openai_responses_test.go",
+    "pkg/mobile/bridge.go",
+    "pkg/mobile/state.go",
+    "pkg/mobile/web/index.html",
+    "pkg/mobile/web_dom_test.mjs",
+    "pkg/solution/solution.go"
+  ],
+  "newCodeFiles": [
+    "pkg/llm/diagnostic.go",
+    "pkg/llm/diagnostic_test.go",
+    "pkg/llm/responses_failure_test.go",
+    "pkg/solution/error_diagnostics_test.go",
+    "app/error_diagnostics_test.go",
+    "pkg/mobile/error_diagnostics_test.go",
+    "frontend/llm_error_diagnostics_regression_test.mjs",
+    "frontend/src/components/ErrorDiagnostics.vue"
+  ],
+  "unchangedBaselineFiles": 1271,
+  "missingFiles": [],
+  "outOfScopeChanges": [],
+  "changeOnlyWhitespace": "PASS",
+  "wholeTreeDiffCheck": "FAIL: 85 pre-existing trailing-whitespace lines in unchanged frontend/wailsjs/go/models.ts",
+  "artifact": {
+    "path": "build/bin/Q-Solver-change028-llm-error-diagnostics.exe",
+    "bytes": 44012032,
+    "sha256": "370beea9dcff40f4776238f18ef0d4c3c34ac1b711bd3fb3829f3b470644fee7"
+  },
+  "finalTrackedModified": 51,
+  "finalUntrackedEntries": 45,
+  "stagedEntries": 0,
+  "allExistingExecutableHashesUnchanged": true,
+  "dependencyAndBindingHashesUnchanged": true
+}

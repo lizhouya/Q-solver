@@ -30,7 +30,17 @@
 | `021` | start-next-exam（开始下一套笔试） | 普通自动验证与统一归档完成 / GUI NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `021-start-next-exam/` |
 | `022` | answer-copy-numbering-sync（答案复制与分段题号同步） | 普通自动验证与统一归档完成 / GUI 与真实模型 NEEDS_USER / race BLOCKED / 已纳入整合提交 / 不发布 | 2026-10-24 | `022-answer-copy-numbering-sync/` |
 | `023` | numbered-answer-copy（复制题号＋答案） | 普通自动验证与归档完成 / GUI 用户确认通过 / 已纳入整合提交 / 不发布 | 2026-10-25 | `023-numbered-answer-copy/` |
-| `029` | build-artifact-lifecycle（构建产物生命周期与整合提交） | 书面设计已提交 / 待用户复核与实施计划 | 2026-10-29 | `029-build-artifact-lifecycle/` |
+| `024` | question-bank-organize-failure-recovery（题库整理失败恢复） | 本轮全量自动验证通过 / GUI 与真实模型 NEEDS_USER / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-25 | `024-question-bank-organize-failure-recovery/` |
+| `025` | multi-protocol-model-connectivity（多协议模型连接兼容） | 本轮全量自动验证通过 / GUI 与真实 provider NEEDS_USER / race BLOCKED / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-25 | `025-multi-protocol-model-connectivity/` |
+| `026` | ccr-gateway-validation（CCR 网关接入与连接诊断修复） | 本轮全量自动验证通过 / GUI 与真实 CCR NEEDS_USER / race BLOCKED / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-25 | `026-ccr-gateway-validation/` |
+| `027` | vision-failure-detection（视觉失败可见化与历史图片预算收敛） | 本轮全量自动验证通过 / GUI 与真实 CCR NEEDS_USER / race BLOCKED / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-26 | `027-vision-failure-detection/` |
+
+| `028` | llm-error-diagnostics（主解题安全诊断与 Responses 失败分类） | 本轮全量自动验证通过 / GUI 与真实上游 NEEDS_USER / race BLOCKED / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-26 | `028-llm-error-diagnostics/` |
+| `029` | build-artifact-lifecycle（构建产物生命周期与整合提交） | 产物整理、全量自动验证、最终 EXE 晋升与边界审计完成 / 纳入本轮治理提交 / 未发布 | 2026-10-29 | `029-build-artifact-lifecycle/` |
+| `030` | latest-validation-build（当前工作树独立验证版） | 自动验证完成 / 验证产物已归档 / 被 Change 029 最终版取代 / 纳入本轮治理提交 / 未发布 | 2026-10-28 | `030-latest-validation-build/` |
+| `031` | inline-question-explanations（整理稿固定逐题解析） | 本轮全量自动验证通过 / GUI 真实导出 NEEDS_USER / 纳入 2026-10-29 整合提交 / 未发布 | 2026-10-28 | `031-inline-question-explanations/` |
+
+> `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 
 > 分配规则：新增变更时，交叉核对本表、实际目录及历史记录，取最小未用三位编号；已使用编号不得因索引遗漏而复用。创建目录 `NNN-名称/`（名称用短横线连接、无空格、建议 < 30 字符），并在本表登记。
 
@@ -210,7 +220,7 @@
 - **档案**：[017-question-bank-history](017-question-bank-history/00-request.md)。
 - **范围**：软清空成功后重置桌面实时历史；最近 20 段只读详情与安全图片读取；招聘单位、出题方和题型权威元数据；复用模型整理生成待核对候选；两阶段确认后纯本地导出。
 - **数据边界**：第 21 段及更早段仅从 UI 隐藏，磁盘完整保留，不自动导出、不调用模型、不删除；历史预览不切换后台 current。
-- **验证入口**：`build/bin/archive/validation/Q-Solver-change017-history-view-fix-validation.exe`；SHA-256 `3b85644beb8a726c7138d01ce843526538b4d028aea80fd75403a0844bd338c5`。
+- **验证入口**：`build/bin/archive/validation/change-017/Q-Solver-change017-history-view-fix-validation.exe`；SHA-256 `3b85644beb8a726c7138d01ce843526538b4d028aea80fd75403a0844bd338c5`。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 018
@@ -221,17 +231,17 @@
 - **范围**：从最近 20 个 ended/exported/paused 分段真正切换题库 current，在主截图解题界面恢复历史截图与完整答案；以持久 turn 引用或明确标记的旧 Record 重建恢复非 system 模型上下文；切换、完成落盘失败和 Retry 均保持 Store、Solver 与 App refs 一致。
 - **数据边界**：discarded 永久只读；第 21 段及更早数据仅隐藏并保留；旧导出目录不覆盖，再次导出创建 `_02` 等后缀版本。
 - **安全边界**：运行任务、未发送截图、未落盘、整理或导出时拒绝；旧数据明确标记按题库记录重建；后续使用当前模型/场景/Prompt；不保存密钥、完整配置、Prompt、简历或 thinking。
-- **验证入口**：最新布局验证程序 `build/bin/archive/validation/Q-Solver-change018-layout-validation.exe`；SHA-256 `853e64c3ccd59101317d0fc4e92414a10f1d12695deed9694b0d689ee2e07343`。原续接验证程序继续保留。
+- **验证入口**：最新布局验证程序 `build/bin/archive/validation/change-018/Q-Solver-change018-layout-validation.exe`；SHA-256 `853e64c3ccd59101317d0fc4e92414a10f1d12695deed9694b0d689ee2e07343`。原续接验证程序继续保留。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 019
 
 - **名称**：screenshot-fold-answer-summary（主界面截图折叠与多图多题答案汇总）。
-- **状态**：业务实现与普通自动验证完成；Windows GUI 与真实模型效果 NEEDS_USER；race 因 `0xc0000139` BLOCKED；统一验证归档复制受权限阻塞；未提交、未推送、未发布、未关闭。
+- **状态**：业务实现与普通自动验证完成；Windows GUI 与真实模型效果 NEEDS_USER；race 因 `0xc0000139` BLOCKED；统一验证归档已由 Change 029 完成；已纳入 2026-10-25 整合提交，未发布、未关闭。
 - **档案**：[019-screenshot-fold-answer-summary](019-screenshot-fold-answer-summary/00-request.md)；[实现后审计](../audits/019-screenshot-fold-answer-summary.md)。
 - **范围**：主解题界面每张截图默认收起并可独立展开/隐藏；统一系统行为增加本轮多图多题识别、跨图合并、重叠去重、题号映射、待核对和最终答案汇总规则。
 - **边界**：复用既有图片缓存与一次 multipart 模型请求；不新增模型调用、题库结构、Wails API、Mobile 协议或依赖；未经授权未调用真实模型。
-- **验证入口**：`build/bin/Q-Solver-change019-answer-summary-preview-validation.exe`；SHA-256 `cd4b354ef37613029d2bb0e39b9d62fd924480aefa0eafbf762ca60135d19cf7`；归档目录和 `SHA256SUMS` 尚未更新。
+- **验证入口**：`build/bin/archive/validation/change-019/Q-Solver-change019-answer-summary-preview-validation.exe`；SHA-256 `cd4b354ef37613029d2bb0e39b9d62fd924480aefa0eafbf762ca60135d19cf7`；归档目录和 `SHA256SUMS` 尚未更新。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 020
@@ -241,7 +251,7 @@
 - **档案**：[020-round-history-selection](020-round-history-selection/00-request.md)；[实现后审计](../audits/020-round-history-selection.md)。
 - **范围**：保持 Session/Record 权威结构不变，在桌面前端派生逐轮历史条目并独立管理浏览目标；点击一轮只显示该轮，新请求仍按 `epoch + sessionId + recordId` 写入真实 Record；legacy 流也使用独立写入目标。
 - **边界**：删除和图片导出仍是父 Session 级；不修改 Go 后端、Wails API/bindings、Mobile、题库 schema、模型请求或依赖。
-- **验证入口**：`build/bin/archive/validation/Q-Solver-change020-round-history-selection-validation.exe`；SHA-256 `3ea25ab19009d373c304f440c126bfeb18ce7c0d4c218d8e9be8204abdaa75bf`。
+- **验证入口**：`build/bin/archive/validation/change-020/Q-Solver-change020-round-history-selection-validation.exe`；SHA-256 `3ea25ab19009d373c304f440c126bfeb18ce7c0d4c218d8e9be8204abdaa75bf`。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 021
@@ -252,7 +262,7 @@
 - **范围**：主界面按钮与 Windows 默认 `Ctrl+Shift+N` 打开同一单例确认层；后端原子封存 active/paused 段，ended/exported 幂等接受，持久化成功后清理桌面、待发送截图与 Solver 上下文；下一题懒创建新段。
 - **边界**：不根据异步导出状态自动切换；解题、capture、整理、导出、未落盘或写入阻塞时拒绝且零副作用；保留题库原始记录、归档截图、旧导出和 Mobile 固定链接/当前显示。
 - **bindings 审计**：固定 Wails v2.11.0 根据当前累计 Go API 完整再生成并通过编译；事前只有哈希无文件副本，不能声称除 `StartNextExam` 外逐字节不变。
-- **验证入口**：`build/bin/archive/validation/Q-Solver-change021-start-next-exam-validation.exe`；SHA-256 `95f4b3c17b96db0e25fa682ed337bb067458046784a09d3580d1eff4839e3c4c`。
+- **验证入口**：`build/bin/archive/validation/change-021/Q-Solver-change021-start-next-exam-validation.exe`；SHA-256 `95f4b3c17b96db0e25fa682ed337bb067458046784a09d3580d1eff4839e3c4c`。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 022
@@ -263,7 +273,7 @@
 - **范围**：固定回答末尾三列表格、Go 统一解析/纯答案复制、Answer/AnswerItems/ConversationSnapshot 原子持久化、Session 受限编号摘要、Desktop/Mobile 复制与历史目标保持、实际快捷键提示，以及 KeepContext 引用一致性修复。
 - **安全边界**：保持一次模型请求；解析失败保留全文，待核对禁用复制；保持 schema version 2 和旧 JSON 兼容；不新增依赖、不升级 runtime，不读写用户密钥配置，不删除题库/截图/旧导出。
 - **验证**：Go test/vet/build、七份前端回归、Mobile DOM/SSE、Vite、Wails 及 12 条归档校验通过；28 项保护哈希不变；race 启动错误 `0xc0000139`。
-- **验证入口**：`build/bin/archive/validation/Q-Solver-change022-answer-copy-numbering-validation.exe`；SHA-256 `5cde3df3a8bdd160f7740ffeebc6b68c7dcb3f87bbfc5ff7226ce6bf2950e751`。
+- **验证入口**：`build/bin/archive/validation/change-022/Q-Solver-change022-answer-copy-numbering-validation.exe`；SHA-256 `5cde3df3a8bdd160f7740ffeebc6b68c7dcb3f87bbfc5ff7226ce6bf2950e751`。
 - **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## Change 023
@@ -273,8 +283,23 @@
 - **档案**：[023-numbered-answer-copy](023-numbered-answer-copy/00-request.md)；[实施后审计](../audits/023-numbered-answer-copy.md)。
 - **范围**：Desktop/Mobile 新增带实际题号复制；保留纯答案和桌面全文复制。不改 Go API、模型请求、题库结构或依赖。
 - **验证**：Go test/vet/build、八份前端回归、Mobile DOM/SSE、Vite、Wails 通过；35 项旧产物与依赖哈希不变。GUI 用户确认通过，既有 race BLOCKED 未解决。
-- **验证入口**：`build/bin/archive/validation/Q-Solver-change023-numbered-answer-copy-validation.exe`；SHA-256 `44fbb9381179b0d739003c53df1abe9c06847255447f87ff786fdbe8a711d339`。
+- **验证入口**：`build/bin/archive/validation/change-023/Q-Solver-change023-numbered-answer-copy-validation.exe`；SHA-256 `44fbb9381179b0d739003c53df1abe9c06847255447f87ff786fdbe8a711d339`。
 - **授权边界**：不含 commit、push、Tag、Release 授权。
+
+## Change 027
+
+- **名称**：vision-failure-detection（视觉失败可见化与历史图片预算收敛）。
+- **状态**：业务实现及本轮全量自动验证完成；Windows GUI 与真实 CCR NEEDS_USER；race 因 `0xc0000139` BLOCKED；已纳入 2026-10-29 整合提交，未发布、未关闭。
+- **档案**：[027-vision-failure-detection](027-vision-failure-detection/00-request.md)；[实施后审计](../audits/027-vision-failure-detection.md)。
+- **起因**：用户测试 `APMIX.AI-openai/claude-sonnet-4-6-free` 返回两道完全不相关的题目（实际 5 道），DeepSeek 正确。
+- **已核实事实**：Q-Solver 多图构造与 OpenAI Chat 线格式正确，无丢图路径；`StartNextExam` 已清空历史并递增 epoch，无跨分段污染；`KeepContext` 默认关闭，开启时旧截图随历史重发，修复前请求携带 **11 轮**图片（`MaxScreenshots=3` 时上限 33 张，超 Anthropic 20 张阈值）；prompt 已禁编造但**无**视觉失败指令。
+- **范围**：`pkg/solution/solution.go` 新增发送侧 `trimHistoryForSend`，为当前轮预留位置使请求总轮数收敛为 `MaxConversationRounds`；`pkg/domain/prompts.go` 新增一条视觉失败 `<Rule>`。仅 2 处业务改动。
+- **安全边界**：不改 `trimChatHistoryLocked`、`MaxConversationRounds`、快照契约与 KeepContext 开关语义；不按模型名推断视觉能力；不改 CCR 入站协议；不新增依赖；不触碰题库/截图/导出/用户配置；零真实模型调用。
+- **验证**：`go test ./...`（22 包）、`go vet`、`go build`、`go mod verify`、13 份前端回归、Vite build 全部通过；依赖与受保护 EXE 哈希不变；race `0xc0000139` BLOCKED。
+- **关键证据**：修复前第 13 轮请求 22 张图 → 修复后 20 张（历史 18 + 当前 2），当前轮截图始终完整。
+- **验证入口**：`build/bin/archive/validation/change-027/Q-Solver-change027-vision-failure-detection.exe`；60,950,016 字节；SHA-256 `f75e27398dfe3562ae7ac140bf33ec15d4ce6736ae50210d7981a1bb90c9c90a`。
+- **根因边界**：同一请求同时发往 Claude 与 DeepSeek 而仅 Claude 异常，说明仍有 Q-Solver 之外的因子（CCR 路由/上游视觉透传），本 Change **不宣称**已定位唯一根因，该部分留 NEEDS_USER。
+- **授权边界**：本 Change 不含 commit、push、Tag 或 Release 授权。
 
 ## 2026-10-25 Change 016～023 整合提交
 
@@ -284,11 +309,47 @@
 - 上述分段历史摘要中的未提交/未推送是当时状态，最新结果以 Git 历史与远端分支头为准；本次不创建 Tag 或 Release。
 - Change 023 用户人工验收通过；其他未明确验收和 race 环境阻塞保持原状态，未自动 Close。
 
+## Change 028
+
+- **目录**：[028-llm-error-diagnostics](028-llm-error-diagnostics/00-request.md)。
+- **范围**：主解题安全诊断、事件兼容、Responses 失败分类；不改变 CCR 或模型路由。
+- **状态**：实现及本轮全量自动验证完成；GUI/真实上游 NEEDS_USER，race BLOCKED；旧日志基线限制保留；已纳入 2026-10-29 整合提交，未发布、未关闭。
+- **审计**：[028 差异边界审计](../audits/028-llm-error-diagnostics.md)。
+- **验证入口**：`build/bin/archive/validation/change-028/Q-Solver-change028-llm-error-diagnostics.exe`。
+- **结论边界**：未调用真实模型，不宣称 GPT/Claude 已恢复；诊断不写入题库。
+
 ## Change 029
 
 - **名称**：build-artifact-lifecycle（构建产物生命周期与整合提交）。
 - **目录**：[029-build-artifact-lifecycle](029-build-artifact-lifecycle/00-request.md)。
-- **状态**：用户已批准聊天设计；书面设计已提交，待用户复核后进入实施计划；尚未移动产物、修改规则、构建候选或推送。
+- **状态**：产物整理、规则落地、全量自动验证、最终 EXE 晋升与提交边界审计完成；纳入本轮治理提交，未发布。
 - **范围**：根目录唯一稳定版、测试中双产物、按 Change 归档、SHA-256 清单、回滚、Change 024～031 双实施提交与指定远端 push。
 - **设计**：[构建产物生命周期与整合提交设计](029-build-artifact-lifecycle/design.md)。
+- **最终产物**：`build/bin/Q-Solver.exe`；42,331,136 字节；SHA-256 `82ABBC4B5C88CA480A7CE65E89BC78FC0ACD3202D597266F259113742BD87F46`。
+- **验证**：Go test/vet/build/mod verify、14 份前端回归、Vite、Wails 独立构建、候选与晋升后启动、44 个迁移前文件、25 份目录级哈希和 7 个 Release 保护全部通过。
 - **安全边界**：二进制继续由 Git 忽略；不触碰 `releases/`，不纳入用户/CCR 配置、数据库、日志、仓库外探针或 secret；不推 upstream、不修改 main、不 force push、不创建 Tag/Release/RC。
+
+## Change 030
+
+- **名称**：latest-validation-build（当前工作树独立验证版）。
+- **目录**：[030-latest-validation-build](030-latest-validation-build/00-request.md)。
+- **状态**：自动构建、产物哈希、独立启动与正常退出验证完成；产物已归档并被 Change 029 最终版取代；纳入本轮治理提交，未发布、未关闭。
+- **范围**：不改业务源码；使用当前工作树与现有依赖生成唯一命名的 `build/bin/archive/validation/change-030/Q-Solver-change030-latest-validation.exe`，不覆盖任何旧 EXE。
+- **验证入口**：`build/bin/archive/validation/change-030/Q-Solver-change030-latest-validation.exe`；42,333,184 字节；SHA-256 `5924B7D00CE0B00A4BE5A0169EDDD8D900F9442E96B621ACE7F374DD28AB07EF`。
+- **自动验证**：启动 8 秒后存活，WebView2 初始化，未启动 Node/Vite，未连接 CCR，窗口关闭路径退出码 0，无强制终止或残留进程；11 个关键保护文件哈希不变，Git 语义索引与保护副本一致且 staged 为 0。
+- **索引副作用**：一次未禁用 Git 可选锁的只读差异检查刷新了 `.git/index` stat cache，二进制哈希变化但 1,194 条 stage listing 与保护副本逐项语义一致；未执行暂存、提交或越权回写。
+- **基线限制**：全树 `git diff --check` 仍因构建前已存在的 `frontend/wailsjs/go/models.ts` 尾随空白返回 2，该文件构建前后哈希一致，本 Change 未修改。
+- **安全边界**：不安装依赖，不同步 `go.mod`，不生成 bindings，不读取或修改用户 secret，不调用模型，不修改本机或远程 CCR。
+- **授权边界**：用户批准本地构建和验证；不含 commit、push、Tag 或 Release 授权。
+
+## Change 031
+
+- **名称**：inline-question-explanations（整理稿固定逐题解析）。
+- **目录**：[031-inline-question-explanations](031-inline-question-explanations/00-request.md)。
+- **状态**：实现、TDD 及本轮 Go/前端/Vite/Wails 全量自动验证完成；Windows GUI 真实导出 `NEEDS_USER`；纳入 2026-10-29 整合提交，未发布、未关闭。
+- **范围**：保持 `原始记录.md` 和单一整理稿文件契约，将整理稿从“全部题目后集中答案”调整为每道题下紧跟参考答案、知识点、解析要点、来源与核对说明。
+- **验证入口**：`build/bin/archive/validation/change-031/Q-Solver-change031-inline-question-explanations.exe`；42,331,136 字节；SHA-256 `82ABBC4B5C88CA480A7CE65E89BC78FC0ACD3202D597266F259113742BD87F46`。
+- **自动验证**：聚焦与全量 Go 测试、`go build`、`go vet`、14 份前端回归、Vite 构建、Wails 独立构建和范围内 diff-check 通过；11 个保护文件及 Git index 哈希不变，0 staged。
+- **历史再生成**：仅处理明确归属的 TCL 与中国移动；TCL 27 题位由完整离线恢复稿确定性迁移为 `_03`，中国移动 106 道结构化题重导为 `_02`；原始记录和 assets 哈希一致，未调用模型。经用户明确选择，已删除被 `_03` 取代的 TCL `_02` 目录；最初原始版、最新 `_03` 与仓库外保护副本保留。
+- **安全边界**：不新增模型调用，不改 Prompt、JSON schema、题库持久化、Wails API、bindings 或依赖；不覆盖历史导出。
+- **授权边界**：用户批准本地实现与验证；不含 commit、push、Tag 或 Release 授权。

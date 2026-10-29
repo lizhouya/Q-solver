@@ -1,0 +1,96 @@
+ M README.md
+ M README_EN.md
+ M _dev/changes/INDEX.md
+ M app/llm.go
+ M app/mobile.go
+ M app/questionbank.go
+ M app/questionbank_next_exam_test.go
+ M app/questionbank_test.go
+ M frontend/questionbank_history_regression_test.mjs
+ M frontend/settings_regression_test.mjs
+ M frontend/src/App.vue
+ M frontend/src/components/ErrorView.vue
+ M frontend/src/components/ModelSelect.vue
+ M frontend/src/components/ProviderSelect.vue
+ M frontend/src/components/QuestionBankExportModal.vue
+ M frontend/src/components/SettingsModal.vue
+ M frontend/src/components/SolveView.vue
+ M frontend/src/services/api.js
+ M frontend/src/stores/questionbank.js
+ M frontend/src/stores/settings.js
+ M frontend/src/stores/solution.js
+ M frontend/src/stores/ui.js
+ M frontend/src/utils/modelCapabilities.js
+ M frontend/wailsjs/go/app/App.d.ts
+ M frontend/wailsjs/go/app/App.js
+ M frontend/wailsjs/go/models.ts
+ M go.mod
+ M go.sum
+ M pkg/config/config.go
+ M pkg/config/manager.go
+ M pkg/config/manager_test.go
+ M pkg/domain/prompts.go
+ M pkg/domain/prompts_test.go
+ M pkg/llm/openai.go
+ M pkg/llm/service.go
+ M pkg/llm/service_test.go
+ M pkg/llm/types.go
+ M pkg/mobile/bridge.go
+ M pkg/mobile/state.go
+ M pkg/mobile/web/index.html
+ M pkg/mobile/web_dom_test.mjs
+ M pkg/questionbank/continuation_test.go
+ M pkg/questionbank/export.go
+ M pkg/questionbank/organize.go
+ M pkg/questionbank/segment_test.go
+ M pkg/questionbank/store_next_exam_test.go
+ M pkg/questionbank/store_test.go
+ M pkg/questionbank/types.go
+ M pkg/resume/service.go
+ M pkg/solution/solution.go
+ M pkg/solution/solution_test.go
+?? _dev/audits/024-question-bank-organize-failure-recovery.md
+?? _dev/audits/025-multi-protocol-model-connectivity.md
+?? _dev/audits/026-ccr-gateway-validation.md
+?? _dev/audits/027-vision-failure-detection.md
+?? _dev/audits/028-llm-error-diagnostics.md
+?? _dev/changes/024-question-bank-organize-failure-recovery/
+?? _dev/changes/025-multi-protocol-model-connectivity/
+?? _dev/changes/026-ccr-gateway-validation/
+?? _dev/changes/027-vision-failure-detection/
+?? _dev/changes/028-llm-error-diagnostics/
+?? app/error_diagnostics_test.go
+?? app/llm_test.go
+?? frontend/ccr_settings_lifecycle_regression_test.mjs
+?? frontend/ccr_ui_regression_test.mjs
+?? frontend/llm_error_diagnostics_regression_test.mjs
+?? frontend/model_bridge_timeout_regression_test.mjs
+?? frontend/model_connectivity_regression_test.mjs
+?? frontend/model_layout_regression_test.mjs
+?? frontend/src/components/ErrorDiagnostics.vue
+?? frontend/src/services/modelBridgeTimeout.js
+?? pkg/config/connection.go
+?? pkg/config/connection_test.go
+?? pkg/llm/anthropic.go
+?? pkg/llm/anthropic_test.go
+?? pkg/llm/diagnostic.go
+?? pkg/llm/diagnostic_test.go
+?? pkg/llm/errors.go
+?? pkg/llm/errors_test.go
+?? pkg/llm/factory.go
+?? pkg/llm/factory_test.go
+?? pkg/llm/http_client.go
+?? pkg/llm/http_client_test.go
+?? pkg/llm/openai_responses.go
+?? pkg/llm/openai_responses_test.go
+?? pkg/llm/openai_test.go
+?? pkg/llm/probe.go
+?? pkg/llm/probe_test.go
+?? pkg/llm/protocol/
+?? pkg/llm/responses_failure_test.go
+?? pkg/mobile/error_diagnostics_test.go
+?? pkg/questionbank/organize_failure.go
+?? pkg/questionbank/organize_failure_test.go
+?? pkg/resume/service_test.go
+?? pkg/solution/conversation_images_test.go
+?? pkg/solution/error_diagnostics_test.go

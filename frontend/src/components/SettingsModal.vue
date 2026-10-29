@@ -52,7 +52,11 @@
           </div>
         </div>
 
-        <div v-show="ui.activeTab === 'model'" class="tab-pane model-tab">
+        <div
+          v-show="ui.activeTab === 'model'"
+          class="tab-pane model-tab"
+          :class="{ 'model-dropdown-open': modelDropdownOpen }"
+        >
           <div class="form-group model-select-group">
             <div class="model-header">
               <label>模型名称</label>
@@ -70,6 +74,8 @@
               :models="ui.availableModels"
               :loading="ui.isLoadingModels"
               :connection-mode="settingsStore.tempSettings.connectionMode"
+              :active="ui.showSettings && ui.activeTab === 'model'"
+              @open-change="modelDropdownOpen = $event"
             />
             <p v-if="!settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL" class="hint-text warning-hint">请先填写 API Key 和接口地址</p>
           </div>
@@ -284,14 +290,19 @@ const settingsStore = useSettingsStore()
 const questionBank = useQuestionBankStore()
 const mobile = useMobileStore()
 const savingAll = ref(false)
+const modelDropdownOpen = ref(false)
 
 watch(() => ui.showSettings, (visible) => {
-  if (!visible) return
+  if (!visible) {
+    modelDropdownOpen.value = false
+    return
+  }
   questionBank.beginPreferenceEdit()
   mobile.refresh()
 })
 
 watch(() => ui.activeTab, (tab) => {
+  if (tab !== 'model') modelDropdownOpen.value = false
   if (ui.showSettings && tab === 'output') mobile.refresh()
 })
 
@@ -556,6 +567,10 @@ const screenshotConfig = computed({
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.model-tab.model-dropdown-open {
+  overflow-y: hidden;
 }
 
 .model-select-group { flex-shrink: 0; }

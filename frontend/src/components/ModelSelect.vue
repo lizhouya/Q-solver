@@ -48,6 +48,8 @@
           class="model-dropdown-portal"
           :style="dropdownStyle"
           @click.stop
+          @wheel.stop
+          @touchmove.stop
         >
           <div v-if="loading" class="loading-state">加载中...</div>
           <template v-else-if="filteredModels.length">
@@ -72,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { formatContextLength, getModelCapabilities, getProviderLogo, getProviderName } from '../utils/modelCapabilities'
 
 const props = defineProps({
@@ -82,9 +84,10 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   placeholder: { type: String, default: '输入模型名称或从建议中选择' },
+  active: { type: Boolean, default: true },
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'open-change'])
 const isOpen = ref(false)
 const searchQuery = ref('')
 const selectRef = ref(null)
@@ -106,16 +109,23 @@ function updateDropdownPosition() {
   dropdownStyle.width = `${rect.width}px`
 }
 
+function setOpen(value) {
+  value = Boolean(value)
+  if (isOpen.value === value) return
+  isOpen.value = value
+  emit('open-change', value)
+}
+
 function openSuggestions() {
-  if (props.disabled) return
+  if (props.disabled || !props.active) return
   searchQuery.value = ''
-  isOpen.value = true
+  setOpen(true)
   updateDropdownPosition()
 }
 
 function toggle() {
   if (props.disabled || props.loading) return
-  isOpen.value = !isOpen.value
+  setOpen(!isOpen.value)
   searchQuery.value = ''
   if (isOpen.value) nextTick(updateDropdownPosition)
 }
@@ -124,25 +134,32 @@ function updateValue(event) {
   const value = event.target.value
   searchQuery.value = value
   emit('update:modelValue', value)
-  isOpen.value = true
+  setOpen(true)
   nextTick(updateDropdownPosition)
 }
 
 function selectModel(model) {
   searchQuery.value = ''
   emit('update:modelValue', model)
-  isOpen.value = false
+  setOpen(false)
 }
 
 function handleClickOutside(event) {
   if (selectRef.value?.contains(event.target) || dropdownRef.value?.contains(event.target)) return
   searchQuery.value = ''
-  isOpen.value = false
+  setOpen(false)
 }
 
 function handleWindowChange() {
   if (isOpen.value) updateDropdownPosition()
 }
+
+watch(() => props.active, active => {
+  if (!active) {
+    searchQuery.value = ''
+    setOpen(false)
+  }
+})
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
@@ -151,6 +168,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  setOpen(false)
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('resize', handleWindowChange)
   window.removeEventListener('scroll', handleWindowChange, true)
@@ -210,6 +228,8 @@ onUnmounted(() => {
   position: fixed;
   max-height: min(240px, 35vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: var(--surface-popover);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);

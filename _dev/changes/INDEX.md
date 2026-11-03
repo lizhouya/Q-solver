@@ -42,6 +42,7 @@
 | `032` | model-dropdown-scroll-lock（模型下拉滚动锁定） | 自动验证与 GUI 人工验收通过 / 最终版已晋升 / 已纳入双提交 / 未发布 | 2026-10-29 | `032-model-dropdown-scroll-lock/` |
 | `033` | mobile-answer-follow（同步端答案空间与滚动优化） | 已完成 / 自动与用户 GUI 验证通过 / 已提交推送并纳入最新稳定版 / 未发布 | 2026-10-29 | `033-mobile-answer-follow/` |
 | `034` | question-bank-hard-delete（题库当前分段物理清空） | 已完成 / 自动与用户 GUI 验证通过 / 已提交推送并晋升稳定版 / 未发布 | 2026-10-29 | `034-question-bank-hard-delete/` |
+| `035` | screenshot-capture-recovery（截图快捷键阻塞与三图提示恢复） | 已完成 / 自动与用户 GUI 验收通过 / 稳定版已晋升 / 双提交完成 / 未发布 | 2026-11-03 | `035-screenshot-capture-recovery/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 

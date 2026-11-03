@@ -13,6 +13,11 @@
       </div>
       <div class="dock-divider" />
       <div class="dock-hints">
+        <div v-if="screenshots.length < 3" class="dock-hint">
+          <kbd class="dock-kbd">{{ solveShortcut }}</kbd>
+          <span>继续截图</span>
+        </div>
+        <span v-else class="dock-limit">已满 3 张</span>
         <div class="dock-hint">
           <kbd class="dock-kbd">{{ deleteShortcut }}</kbd>
           <span>删除</span>
@@ -28,14 +33,13 @@
 
 <script setup>
 import { ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import Icon from './Icon.vue'
-import { api } from '../services/api'
 import { useSettingsStore } from '../stores/settings'
 import { on } from '../services/events'
 
 const settingsStore = useSettingsStore()
-const sendShortcut = settingsStore.sendShortcut
-const deleteShortcut = settingsStore.deleteShortcut
+const { solveShortcut, sendShortcut, deleteShortcut } = storeToRefs(settingsStore)
 
 const screenshots = ref([])
 
@@ -143,6 +147,13 @@ defineExpose({ screenshots })
   gap: var(--sp-1-5);
   color: var(--text-tertiary);
   font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.dock-limit {
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   white-space: nowrap;
 }
 

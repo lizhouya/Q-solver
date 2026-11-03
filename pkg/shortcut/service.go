@@ -8,8 +8,9 @@ import (
 )
 
 type Service struct {
-	manager  *Manager
-	delegate ServiceDelegate
+	manager           *Manager
+	delegate          ServiceDelegate
+	triggerDispatcher *serialActionDispatcher
 }
 
 // SubscribeFunc 配置变更订阅函数类型
@@ -20,7 +21,8 @@ func NewService(delegate ServiceDelegate, initialShortcuts map[string]KeyBinding
 		manager:  NewManager(),
 		delegate: delegate,
 	}
-	s.manager.OnTrigger = s.handleTrigger
+	s.triggerDispatcher = newSerialActionDispatcher(s.handleTrigger)
+	s.manager.OnTrigger = s.enqueueTrigger
 	s.manager.OnRecord = s.handleRecord
 	s.manager.OnRecordingComplete = s.handleRecordingComplete
 	s.manager.OnError = func(msg string) {}
@@ -38,11 +40,13 @@ func NewService(delegate ServiceDelegate, initialShortcuts map[string]KeyBinding
 }
 
 func (s *Service) Start() {
+	s.triggerDispatcher.Start()
 	s.manager.Start()
 }
 
 func (s *Service) Stop() {
 	s.manager.Stop()
+	s.triggerDispatcher.Stop()
 }
 
 func (s *Service) GetShortcuts() map[string]KeyBinding {
@@ -64,6 +68,12 @@ func (s *Service) StartRecording(action string) {
 
 func (s *Service) StopRecording() {
 	s.manager.StopRecording()
+}
+
+func (s *Service) enqueueTrigger(action string) {
+	if !s.triggerDispatcher.Enqueue(action) {
+		logger.Printf("忽略快捷键动作：调度器未运行: %s", action)
+	}
 }
 
 func (s *Service) handleTrigger(action string) {

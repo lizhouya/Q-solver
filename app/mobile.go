@@ -118,6 +118,18 @@ func (a *App) mobileDisplayEpoch() uint64 {
 	return 0
 }
 
+func (a *App) syncMobileScreenshotState(count int) {
+	if bridge := a.mobileBridgeForUse(); bridge != nil {
+		bridge.SetScreenshotState(count, MaxScreenshots)
+	}
+}
+
+func (a *App) resetMobileBusinessDisplay() {
+	if bridge := a.mobileBridgeForUse(); bridge != nil {
+		bridge.Reset()
+	}
+}
+
 // mobileOutputEnabled 判断当前是否打通了 Mobile 链路（Server 在监听且 bridge 已挂载）。
 func (a *App) mobileOutputEnabled() bool {
 	a.mobileMu.RLock()
@@ -276,6 +288,10 @@ func (a *App) startMobileUnderOp() {
 			bridge.SetModel(cfg.Model)
 			bridge.SetHints(mobileShortcutHints(cfg.Shortcuts))
 		}
+		a.conversationMu.Lock()
+		pendingScreenshots := len(a.screenshotBuffer)
+		a.conversationMu.Unlock()
+		bridge.SetScreenshotState(pendingScreenshots, MaxScreenshots)
 		a.mobileMu.Lock()
 		a.mobileBridge = bridge
 		a.mobileMu.Unlock()

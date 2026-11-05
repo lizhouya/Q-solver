@@ -9,6 +9,10 @@ assert.doesNotMatch(match[1], /\b(?:localStorage|sessionStorage)\b|console\./, '
 assert.match(html, /<details\s+id="shortcut-details"/, '快捷键区域必须使用可折叠 details')
 assert.doesNotMatch(html, /<details\s+id="shortcut-details"[^>]*\sopen(?:\s|>|=)/, '快捷键区域必须默认折叠')
 assert.match(html, /id="shortcut-count"/, '快捷键折叠摘要必须显示数量')
+assert.match(html, /id="capture-status-card"[^>]*\shidden(?:\s|>)/, '截图 Dock 必须默认隐藏')
+assert.match(html, /#capture-status-card\s*\{[^}]*position:\s*fixed[^}]*bottom:/s, '截图 Dock 必须固定在页面底部')
+assert.match(html, /id="screenshot-count"/, '截图状态卡必须显示待发送数量')
+assert.match(html, /id="capture-hints"/, '截图状态卡必须显示截图工作流快捷键')
 
 class StubElement {
   constructor(id = '') {
@@ -60,7 +64,7 @@ class StubElement {
 
 const elements = new Map()
 const documentRoot = { clientHeight: 700, scrollHeight: 2400 }
-const documentBody = { scrollHeight: 2300, appendChild() {} }
+const documentBody = { scrollHeight: 2300, style: {}, appendChild() {} }
 const document = {
   documentElement: documentRoot,
   scrollingElement: documentRoot,
@@ -139,12 +143,16 @@ const snapshot = (sessionId, clearSeq, seq, answer, controlSeq = 0, control = ''
   stage: 'content',
   payload: { answer, model: 'test-model' },
   hints,
+  screenshotCount: 0,
+  screenshotLimit: 3,
   controlSeq,
   control,
   ...overrides,
 })
 
 source.emit('snapshot', snapshot('session-a', 2, 10, '答案一', 5, 'down'))
+assert.equal(elements.get('capture-status-card').hidden, true, '没有待发送截图时底部 Dock 必须隐藏')
+assert.equal(documentBody.style.paddingBottom || '', '', 'Dock 隐藏时不得占用答案底部空间')
 assert.equal(scrollCalls.length, 0, '首帧不得重放旧控制')
 assert.equal(rafCallbacks.length, 1, '首帧答案应排队一次自动滚底，不得重放旧控制')
 assert.equal(elements.get('shortcut-details').open, false, '快捷键必须默认折叠')
@@ -302,6 +310,51 @@ const unsafeMarkdown = context.renderMarkdown('[脚本](javascript:alert(1)) [�
 assert.doesNotMatch(unsafeMarkdown, /href=/, '不安全 scheme 不得生成链接')
 assert.doesNotMatch(unsafeMarkdown, /javascript:/i, '不安全 URL 不得进入渲染结果')
 
+// 截图状态卡使用服务端绝对数量和实际快捷键；同 clearSeq 的新 idle 清业务历史但保留元数据。
+const captureHints = [
+  { label: '截图', keyName: 'F8' },
+  { label: '发送解题', keyName: 'Ctrl+J' },
+  { label: '删除截图', keyName: 'Ctrl+D' },
+  { label: '向下滚动', keyName: 'Alt+PgDn' },
+]
+source.emit('snapshot', snapshot('capture-session', 0, 1, '待清答案', 0, '', {
+  hints: captureHints,
+  screenshotCount: 2,
+  screenshotLimit: 3,
+}))
+assert.equal(elements.get('screenshot-count').textContent, '2', '截图 Dock 应显示服务端数量')
+assert.equal(elements.get('screenshot-limit').textContent, '3', '截图 Dock 应显示服务端上限')
+assert.equal(elements.get('capture-status-card').hidden, false, '存在待发送截图时底部 Dock 必须显示')
+assert.equal(documentBody.style.paddingBottom, '112px', 'Dock 显示时应为答案末尾保留安全空间')
+assert.equal(elements.get('capture-hints').children.length, 3, '截图 Dock 只展示继续截图/删除/发送三个提示')
+assert.equal(elements.get('capture-hints').children[0].children[1].textContent, '继续截图', '未满三张时应提示继续截图')
+context.renderCaptureStatus({ hints: captureHints, screenshotCount: 3, screenshotLimit: 3 })
+assert.equal(elements.get('capture-hints').children[0].textContent, '已满 3 张', '三张截图时应替换为已满提示')
+context.renderCaptureStatus({ hints: captureHints, screenshotCount: 2, screenshotLimit: 3 })
+assert.equal(elements.get('history-list-side').children.length, 1, '测试前提：清理前存在同步端历史')
+source.emit('message', snapshot('capture-session', 0, 2, '', 0, '', {
+  status: 'idle',
+  payload: { model: 'test-model' },
+  hints: captureHints,
+  screenshotCount: 2,
+  screenshotLimit: 3,
+}))
+assert.equal(elements.get('answer-card').style.display, 'none', '新 idle 应隐藏旧答案')
+assert.equal(elements.get('history-list-side').children.length, 0, '新 idle 应清空宽屏历史')
+assert.equal(elements.get('history-list-strip').children.length, 0, '新 idle 应清空窄屏历史')
+assert.equal(elements.get('screenshot-count').textContent, '2', '业务重置应保留截图数量')
+assert.equal(elements.get('capture-hints').children.length, 3, '业务重置应保留截图快捷键提示')
+assert.equal(elements.get('shortcut-card').hidden, false, '业务重置应保留完整快捷键提示')
+source.emit('message', snapshot('capture-session', 0, 3, '', 0, '', {
+  status: 'idle',
+  payload: { model: 'test-model' },
+  hints: captureHints,
+  screenshotCount: 0,
+  screenshotLimit: 3,
+}))
+assert.equal(elements.get('capture-status-card').hidden, true, '发送或清空截图归零后 Dock 必须消失')
+assert.equal(documentBody.style.paddingBottom, '', 'Dock 消失后必须撤销答案底部安全空间')
+
 // 纯答案复制、历史目标保持及错误反馈。
 assert.match(html, /答题端快捷键/)
 const copiedAnswers = []
@@ -327,7 +380,7 @@ await context.copyDisplayedAnswers()
 assert.equal(copiedAnswers.length, count)
 source.emit('message', snapshot('copy-session', 0, 5, '', 0, '', {payload:answerPayload('E')}))
 context.navigator.clipboard.writeText = async () => { throw Error('permission denied') }
-document.body = { appendChild() {} }
+document.body = { style: {}, appendChild() {} }
 document.execCommand = () => false
 StubElement.prototype.remove = function () {}
 assert.equal(await context.copyDisplayedAnswers(), false)

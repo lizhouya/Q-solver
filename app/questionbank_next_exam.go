@@ -27,6 +27,8 @@ func (a *App) StartNextExam(confirmed bool) (StartNextExamResult, error) {
 
 	// Events must run without conversationMu or questionBank.mu held. In
 	// particular notifyQuestionBank takes questionBank.mu itself.
+	a.syncMobileScreenshotState(0)
+	a.resetMobileBusinessDisplay()
 	a.EmitEvent("screenshots-cleared")
 	a.notifyQuestionBank()
 	return result, nil

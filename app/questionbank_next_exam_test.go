@@ -77,6 +77,7 @@ func TestStartNextExamSealsThenClearsRuntimeState(t *testing.T) {
 	a.mobileRuntimeState = config.MobileRuntimeState{StableLink: true, Token: "synthetic-token", ClearSeq: 41, Generation: 3}
 	a.mobileStateReady = true
 	a.mobileStatus = mobileStatusReady
+	bridge.SetScreenshotState(len(a.screenshotBuffer), MaxScreenshots)
 	mobileSnapshotBefore := bridge.GetState()
 	mobileRuntimeBefore := a.mobileRuntimeState
 	mobileEpochBefore := a.mobileDisplayEpoch()
@@ -99,8 +100,15 @@ func TestStartNextExamSealsThenClearsRuntimeState(t *testing.T) {
 	if len(a.solver.SnapshotConversation().Turns) != 0 || len(a.conversationRefs) != 0 || len(a.screenshotBuffer) != 0 || a.conversationEpoch != 8 {
 		t.Fatalf("成功后运行时状态未清空: refs=%+v screenshots=%+v epoch=%d conversation=%+v", a.conversationRefs, a.screenshotBuffer, a.conversationEpoch, a.solver.SnapshotConversation())
 	}
-	if a.mobileDisplayEpoch() != mobileEpochBefore || a.mobileRuntimeState != mobileRuntimeBefore || !reflect.DeepEqual(bridge.GetState(), mobileSnapshotBefore) || !a.mobileStateReady || a.mobileStatus != mobileStatusReady {
-		t.Fatalf("开始下一套不应修改 Mobile: epoch=%d runtime=%+v before=%+v after=%+v", a.mobileDisplayEpoch(), a.mobileRuntimeState, mobileSnapshotBefore, bridge.GetState())
+	mobileAfter := bridge.GetState()
+	if a.mobileDisplayEpoch() != mobileEpochBefore || a.mobileRuntimeState != mobileRuntimeBefore || !a.mobileStateReady || a.mobileStatus != mobileStatusReady {
+		t.Fatalf("开始下一套不应修改 Mobile clearSeq 或固定链接运行态: epoch=%d runtime=%+v", a.mobileDisplayEpoch(), a.mobileRuntimeState)
+	}
+	if mobileAfter.Status != mobile.StatusIdle || mobileAfter.Seq <= mobileSnapshotBefore.Seq || mobileAfter.ClearSeq != mobileSnapshotBefore.ClearSeq {
+		t.Fatalf("开始下一套后 Mobile 应发布同 clearSeq 的新 idle: before=%+v after=%+v", mobileSnapshotBefore, mobileAfter)
+	}
+	if mobileAfter.ScreenshotCount != 0 || mobileAfter.ScreenshotLimit != MaxScreenshots || !reflect.DeepEqual(mobileAfter.Hints, mobileSnapshotBefore.Hints) {
+		t.Fatalf("开始下一套应归零截图数量并保留快捷键: before=%+v after=%+v", mobileSnapshotBefore, mobileAfter)
 	}
 
 	nextRecordID, err := store.BeginWithContext([]string{image}, "next-model", "next-scene", true)

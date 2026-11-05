@@ -9,16 +9,18 @@ import (
 // Bridge 是桌面端事件进 Mobile 端的唯一入口。
 // 它维护当前全量快照，并把白名单业务事件广播给 SSE 订阅者。
 type Bridge struct {
-	mu         sync.RWMutex
-	state      Snapshot
-	model      string
-	hints      []ShortcutHint
-	subs       map[chan Snapshot]struct{}
-	sessionID  string
-	clearSeq   uint64
-	seq        int
-	controlSeq int
-	closed     bool
+	mu              sync.RWMutex
+	state           Snapshot
+	model           string
+	hints           []ShortcutHint
+	screenshotCount int
+	screenshotLimit int
+	subs            map[chan Snapshot]struct{}
+	sessionID       string
+	clearSeq        uint64
+	seq             int
+	controlSeq      int
+	closed          bool
 }
 
 // NewBridge 创建事件接入桥。每个实例使用独立的随机 sessionId；initialClearSeq
@@ -76,7 +78,31 @@ func (b *Bridge) SetHints(hints []ShortcutHint) {
 	b.broadcastLocked(false)
 }
 
+func (b *Bridge) SetScreenshotState(count, limit int) {
+	if limit < 0 {
+		limit = 0
+	}
+	if count < 0 || limit == 0 {
+		count = 0
+	}
+	if count > limit {
+		count = limit
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || (b.screenshotCount == count && b.screenshotLimit == limit) {
+		return
+	}
+	b.screenshotCount = count
+	b.screenshotLimit = limit
+	b.state.ScreenshotCount = count
+	b.state.ScreenshotLimit = limit
+	b.broadcastLocked(false)
+}
+
 // Reset 清空当前解题状态，回到空闲，但不推进 clearSeq。
+// 每个订阅者只保留一个 idle 屏障，避免积压流式帧在本地清理后恢复旧内容。
 // ClearDisplay 用于需要清除远端页面会话内容的可靠清屏。
 func (b *Bridge) Reset() {
 	b.mu.Lock()
@@ -86,7 +112,11 @@ func (b *Bridge) Reset() {
 	}
 	b.seq++
 	b.state = b.baseSnapshot(StatusIdle, StageContent)
-	b.broadcastLocked(false)
+	barrier := cloneSnapshot(b.state)
+	for ch := range b.subs {
+		drainSnapshots(ch)
+		ch <- cloneSnapshot(barrier)
+	}
 }
 
 // Publish 处理一条桌面解题输出事件，并使用调用时的当前显示代际。
@@ -281,15 +311,17 @@ func (b *Bridge) Close() {
 // 调用前必须持有 b.mu，构造初始化状态时除外。
 func (b *Bridge) baseSnapshot(status, stage string) Snapshot {
 	return Snapshot{
-		SessionID:  b.sessionID,
-		ClearSeq:   b.clearSeq,
-		Seq:        b.seq,
-		Ts:         nowMillis(),
-		Status:     status,
-		Stage:      stage,
-		Payload:    Payload{Model: b.model},
-		Hints:      cloneHints(b.hints),
-		ControlSeq: b.controlSeq,
+		SessionID:       b.sessionID,
+		ClearSeq:        b.clearSeq,
+		Seq:             b.seq,
+		Ts:              nowMillis(),
+		Status:          status,
+		Stage:           stage,
+		Payload:         Payload{Model: b.model},
+		Hints:           cloneHints(b.hints),
+		ScreenshotCount: b.screenshotCount,
+		ScreenshotLimit: b.screenshotLimit,
+		ControlSeq:      b.controlSeq,
 	}
 }
 

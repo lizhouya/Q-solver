@@ -533,15 +533,19 @@ func (a *App) SaveQuestionBankSession() error {
 func (a *App) SplitQuestionBankSegment() error {
 	b := a.questionBank
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if err := a.bankAvailableLocked(); err != nil {
+		b.mu.Unlock()
 		return err
 	}
 	if err := b.store.Split(); err != nil {
+		b.mu.Unlock()
 		return err
 	}
 	b.message = "当前段已封存；下一题会自动进入新段"
 	b.lastExport = questionbank.ExportResult{}
+	b.mu.Unlock()
+
+	a.resetMobileBusinessDisplay()
 	return nil
 }
 
@@ -590,6 +594,7 @@ func (a *App) DiscardQuestionBankSegment(confirmed bool) error {
 	b.mu.Unlock()
 	a.conversationMu.Unlock()
 
+	a.resetMobileBusinessDisplay()
 	a.notifyQuestionBank()
 	return nil
 }

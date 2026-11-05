@@ -26,6 +26,7 @@ func TestDiscardQuestionBankSegmentPhysicallyDeletesThenClearsContext(t *testing
 	a.mobileRuntimeState = config.MobileRuntimeState{StableLink: true, Token: "synthetic-token", ClearSeq: 9, Generation: 2}
 	a.mobileStateReady = true
 	a.mobileStatus = mobileStatusReady
+	bridge.SetScreenshotState(len(a.screenshotBuffer), MaxScreenshots)
 	mobileBefore := bridge.GetState()
 	runtimeBefore := a.mobileRuntimeState
 
@@ -47,8 +48,15 @@ func TestDiscardQuestionBankSegmentPhysicallyDeletesThenClearsContext(t *testing
 	if a.questionBank.message != "当前分段和截图已从本地永久删除" {
 		t.Fatalf("成功消息不明确: %q", a.questionBank.message)
 	}
-	if a.mobileRuntimeState != runtimeBefore || !reflect.DeepEqual(bridge.GetState(), mobileBefore) || !a.mobileStateReady || a.mobileStatus != mobileStatusReady {
-		t.Fatal("清空本地分段不应修改 Mobile 当前显示或固定链接")
+	mobileAfter := bridge.GetState()
+	if a.mobileRuntimeState != runtimeBefore || !a.mobileStateReady || a.mobileStatus != mobileStatusReady {
+		t.Fatal("清空本地分段不应修改 Mobile 固定链接运行态")
+	}
+	if mobileAfter.Status != mobile.StatusIdle || mobileAfter.Seq <= mobileBefore.Seq || mobileAfter.ClearSeq != mobileBefore.ClearSeq {
+		t.Fatalf("清空本地分段后 Mobile 应发布同 clearSeq 的新 idle: before=%+v after=%+v", mobileBefore, mobileAfter)
+	}
+	if mobileAfter.ScreenshotCount != 2 || mobileAfter.ScreenshotLimit != MaxScreenshots || !reflect.DeepEqual(mobileAfter.Hints, mobileBefore.Hints) {
+		t.Fatalf("清空本地分段应保留待发送截图与快捷键: before=%+v after=%+v", mobileBefore, mobileAfter)
 	}
 }
 

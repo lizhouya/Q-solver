@@ -53,6 +53,7 @@ func (a *App) TriggerScreenshot() {
 	}
 
 	a.screenshotBuffer = append(a.screenshotBuffer, previewResult.Base64)
+	a.syncMobileScreenshotState(len(a.screenshotBuffer))
 	a.EmitEvent("screenshot-taken", previewResult.Base64, len(a.screenshotBuffer))
 }
 
@@ -63,6 +64,7 @@ func (a *App) RemoveScreenshot(index int) {
 		return
 	}
 	a.screenshotBuffer = append(a.screenshotBuffer[:index], a.screenshotBuffer[index+1:]...)
+	a.syncMobileScreenshotState(len(a.screenshotBuffer))
 	a.EmitEvent("screenshot-removed", index, len(a.screenshotBuffer))
 }
 
@@ -74,6 +76,7 @@ func (a *App) RemoveLastScreenshot() {
 	}
 	index := len(a.screenshotBuffer) - 1
 	a.screenshotBuffer = a.screenshotBuffer[:index]
+	a.syncMobileScreenshotState(len(a.screenshotBuffer))
 	a.EmitEvent("screenshot-removed", index, len(a.screenshotBuffer))
 }
 
@@ -81,6 +84,7 @@ func (a *App) ClearScreenshots() {
 	a.conversationMu.Lock()
 	defer a.conversationMu.Unlock()
 	a.screenshotBuffer = nil
+	a.syncMobileScreenshotState(0)
 	a.EmitEvent("screenshots-cleared")
 }
 
@@ -131,6 +135,7 @@ func (a *App) triggerSend(skipResumeWarning bool) {
 			return
 		}
 		a.screenshotBuffer = append(a.screenshotBuffer, previewResult.Base64)
+		a.syncMobileScreenshotState(len(a.screenshotBuffer))
 	}
 
 	if a.taskManager.HasRunningTask() {
@@ -142,6 +147,7 @@ func (a *App) triggerSend(skipResumeWarning bool) {
 	screenshots := make([]string, len(a.screenshotBuffer))
 	copy(screenshots, a.screenshotBuffer)
 	a.screenshotBuffer = nil
+	a.syncMobileScreenshotState(0)
 
 	displayEpoch := a.mobileDisplayEpoch()
 	conversationEpoch := a.conversationEpoch

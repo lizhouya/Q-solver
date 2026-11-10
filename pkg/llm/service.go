@@ -54,9 +54,6 @@ func (s *Service) GetProvider() Provider {
 
 // TestConnection 保持旧 Wails 入口的 OpenAI Chat 语义。
 func (s *Service) TestConnection(ctx context.Context, apiKey, model string) string {
-	if strings.TrimSpace(apiKey) == "" {
-		return "API Key 不能为空"
-	}
 	if strings.TrimSpace(model) == "" {
 		return "请选择模型"
 	}
@@ -91,9 +88,13 @@ func (s *Service) GetModels(ctx context.Context, apiKey string) ([]string, error
 }
 
 func normalizedConnectionConfig(cfg config.Config, requireModel bool) (config.Config, *ProviderError) {
+	selectedProtocol, protocolErr := protocol.Normalize(cfg.APIProtocol)
 	normalized, err := cfg.NormalizedConnectionSettings()
 	if err != nil {
-		return config.Config{}, NewProviderError(ErrorInvalidConfig, StageValidateConfig, "", err)
+		if protocolErr != nil {
+			selectedProtocol = ""
+		}
+		return config.Config{}, NewProviderError(ErrorInvalidConfig, StageValidateConfig, selectedProtocol, err)
 	}
 	cfg = normalized
 	p, err := protocol.Normalize(cfg.APIProtocol)
@@ -103,7 +104,7 @@ func normalizedConnectionConfig(cfg config.Config, requireModel bool) (config.Co
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
 	cfg.Model = strings.TrimSpace(cfg.Model)
-	if cfg.APIKey == "" || (requireModel && cfg.Model == "") {
+	if requireModel && cfg.Model == "" {
 		return config.Config{}, NewProviderError(ErrorInvalidConfig, StageValidateConfig, p, nil)
 	}
 	u, parseErr := url.Parse(cfg.BaseURL)
@@ -158,27 +159,14 @@ func deduplicateModels(models []string) []string {
 }
 
 func (s *Service) ProbeConnection(ctx context.Context, cfg config.Config, request ProbeRequest) ProbeResult {
-	mode, modeErr := config.NormalizeConnectionMode(cfg.ConnectionMode)
-	if modeErr != nil {
-		err := NewProviderError(ErrorInvalidConfig, StageValidateConfig, "", modeErr)
-		return failedProbe(request.Kind, "", err, false)
-	}
-	if mode == config.ConnectionModeCCR {
-		err := NewProviderError(ErrorProbeDisabled, StageValidateProbe, protocol.OpenAIChat, nil)
-		return failedProbe(request.Kind, protocol.OpenAIChat, err, false)
-	}
-	normalized, validationErr := normalizedConnectionConfig(cfg, true)
+	provider, validationErr := providerForConnection(cfg, true)
 	if validationErr != nil {
 		return failedProbe(request.Kind, validationErr.Protocol, validationErr, false)
 	}
-	provider, factoryErr := NewProvider(normalized)
-	if factoryErr != nil {
-		var providerErr *ProviderError
-		if !errors.As(factoryErr, &providerErr) {
-			p, _ := protocol.Normalize(normalized.APIProtocol)
-			providerErr = ClassifyProviderError(factoryErr, StageValidateConfig, p)
-		}
-		return failedProbe(request.Kind, providerErr.Protocol, providerErr, false)
+	normalized, normalizeErr := cfg.NormalizedConnectionSettings()
+	if normalizeErr != nil {
+		err := NewProviderError(ErrorInvalidConfig, StageValidateConfig, "", normalizeErr)
+		return failedProbe(request.Kind, "", err, false)
 	}
 	p, _ := protocol.Normalize(normalized.APIProtocol)
 	timeoutCtx, cancel := context.WithTimeout(ctx, 15*time.Second)

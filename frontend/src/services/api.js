@@ -78,6 +78,10 @@ export const api = {
 
   listModelsForDraft: (connection) => withModelBridgeTimeout(callApp('ListModelsForDraft', connection), 'catalog'),
   probeModelConnection: (request) => withModelBridgeTimeout(callApp('ProbeModelConnection', request), 'probe'),
+  listConnectionProfiles: () => callApp('ListConnectionProfiles'),
+  getConnectionProfile: (id) => callApp('GetConnectionProfile', id),
+  saveConnectionSettings: (connection) => callApp('SaveConnectionSettings', connection),
+  deleteConnectionProfile: (id) => callApp('DeleteConnectionProfile', id),
   // 旧 binding 保留给旧前端或回滚版本；新设置页只调用结构化接口。
   getModels: (apiKey, baseURL) => callApp('GetModelsForConnection', apiKey, baseURL),
   testConnection: (apiKey, baseURL, model) => callApp('TestConnectionForConnection', apiKey, baseURL, model),

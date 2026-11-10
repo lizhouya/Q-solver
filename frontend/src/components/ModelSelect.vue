@@ -26,8 +26,7 @@
     </div>
 
     <div v-if="modelValue" class="model-reference">
-      <p v-if="connectionMode === 'ccr'">模型由 CCR 目录提供；Q-Solver 固定通过 Chat Completions 入站调用。</p>
-      <div v-if="connectionMode !== 'ccr'" class="model-reference-main">
+      <div class="model-reference-main">
         <div class="provider-logo">
           <div v-if="providerLogo && providerLogo.trim().startsWith('<svg')" v-html="providerLogo"></div>
           <img v-else-if="providerLogo" :src="providerLogo" alt="" />
@@ -37,7 +36,7 @@
         <span v-if="capabilities.file" class="cap-tag" title="模型目录标记：文件">文件</span>
         <span v-if="capabilities.contextLength" class="cap-tag">{{ formatContextLength(capabilities.contextLength) }}</span>
       </div>
-      <p v-if="connectionMode !== 'ccr'">模型目录参考，非当前通道实测</p>
+      <p>模型目录参考，非当前通道实测；能力未识别时以实际测试为准。</p>
     </div>
 
     <Teleport to="body">
@@ -52,7 +51,7 @@
           @touchmove.stop
         >
           <div v-if="loading" class="loading-state">加载中...</div>
-          <template v-else-if="filteredModels.length">
+          <template v-else-if="hasSuggestions">
             <button
               v-for="model in filteredModels"
               :key="model"
@@ -62,7 +61,7 @@
               @click="selectModel(model)"
             >
               <span class="model-name">{{ model }}</span>
-              <span v-if="connectionMode !== 'ccr'" class="provider-name">{{ getProviderName(model) }}</span>
+              <span class="provider-name">{{ getProviderName(model) }}</span>
               <span v-if="modelValue === model" class="check-icon">✓</span>
             </button>
           </template>
@@ -78,7 +77,6 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { formatContextLength, getModelCapabilities, getProviderLogo, getProviderName } from '../utils/modelCapabilities'
 
 const props = defineProps({
-  connectionMode: { type: String, default: 'direct' },
   modelValue: { type: String, default: '' },
   models: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -95,11 +93,13 @@ const dropdownRef = ref(null)
 const dropdownStyle = reactive({ position: 'fixed', top: '0px', left: '0px', width: '0px', zIndex: 9999 })
 const providerLogo = computed(() => getProviderLogo(props.modelValue))
 const capabilities = computed(() => getModelCapabilities(props.modelValue))
-const filteredModels = computed(() => {
+function filterModels(models) {
   const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return props.models
-  return props.models.filter(model => String(model).toLowerCase().includes(query))
-})
+  const values = (models || []).map(String)
+  return query ? values.filter(model => model.toLowerCase().includes(query)) : values
+}
+const filteredModels = computed(() => filterModels(props.models))
+const hasSuggestions = computed(() => filteredModels.value.length > 0)
 
 function updateDropdownPosition() {
   if (!selectRef.value) return

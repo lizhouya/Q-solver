@@ -2,7 +2,9 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -396,7 +398,7 @@ func TestLoadLegacyConfigNormalizesConnectionInMemoryWithoutWriting(t *testing.T
 	}
 }
 
-func TestUpdateAndPatchPersistCanonicalCCRSettings(t *testing.T) {
+func TestUpdateAndPatchPersistMigratedCCRSettings(t *testing.T) {
 	t.Run("update", func(t *testing.T) {
 		cm := isolatedManager(t)
 		if err := cm.Load(); err != nil {
@@ -406,8 +408,8 @@ func TestUpdateAndPatchPersistCanonicalCCRSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := cm.Get()
-		if got.ConnectionMode != ConnectionModeCCR || got.BaseURL != "http://127.0.0.1:3456/v1" || got.APIProtocol != "openai_chat" {
-			t.Fatalf("update did not publish canonical CCR settings: %+v", got)
+		if got.ConnectionMode != ConnectionModeDirect || got.BaseURL != "http://127.0.0.1:3456/v1" || got.APIProtocol != "openai_chat" || got.EndpointPath != "/chat/completions" {
+			t.Fatalf("update did not migrate CCR settings: %+v", got)
 		}
 		assertPersistedConnectionSettings(t, cm.configPath, got)
 	})
@@ -425,8 +427,8 @@ func TestUpdateAndPatchPersistCanonicalCCRSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := cm.Get()
-		if got.ConnectionMode != ConnectionModeCCR || got.BaseURL != "https://gateway.example.com/v1" || got.APIProtocol != "openai_chat" {
-			t.Fatalf("patch did not publish canonical CCR settings: %+v", got)
+		if got.ConnectionMode != ConnectionModeDirect || got.BaseURL != "https://gateway.example.com/v1" || got.APIProtocol != "openai_chat" || got.EndpointPath != "/chat/completions" {
+			t.Fatalf("patch did not migrate CCR settings: %+v", got)
 		}
 		assertPersistedConnectionSettings(t, cm.configPath, got)
 	})
@@ -475,5 +477,410 @@ func TestCCRNormalizationFailureDoesNotPublishCandidate(t *testing.T) {
 	}
 	if _, err := os.Stat(cm.configPath); !os.IsNotExist(err) {
 		t.Fatalf("normalization failure should not write a config file: %v", err)
+	}
+}
+
+func TestLoadLegacyProtocolWithoutEndpointUsesProtocolDefault(t *testing.T) {
+	for _, tt := range []struct {
+		name, protocol, want string
+	}{
+		{name: "responses", protocol: "openai_responses", want: "/responses"},
+		{name: "anthropic", protocol: "anthropic_messages", want: "/v1/messages"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := isolatedManager(t)
+			plain := []byte(`{"baseURL":"https://gateway.example.com","apiProtocol":"` + tt.protocol + `","model":"test-model"}`)
+			data, err := encrypt(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cm.configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Get().EndpointPath; got != tt.want {
+				t.Fatalf("endpoint=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdateProtocolWithoutEndpointUsesProtocolDefault(t *testing.T) {
+	cm := isolatedManager(t)
+	if err := cm.UpdateFromJSON(`{"baseURL":"https://gateway.example.com","apiProtocol":"anthropic_messages","model":"test-model"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := cm.Get().EndpointPath; got != "/v1/messages" {
+		t.Fatalf("endpoint=%q want=/v1/messages", got)
+	}
+}
+
+func TestUpdatePreservesExplicitCrossProtocolEndpoint(t *testing.T) {
+	cm := isolatedManager(t)
+	if err := cm.UpdateFromJSON(`{"baseURL":"https://gateway.example.com","apiProtocol":"anthropic_messages","endpointPath":"/custom/chat/completions","model":"test-model"}`); err != nil {
+		t.Fatal(err)
+	}
+	if got := cm.Get().EndpointPath; got != "/custom/chat/completions" {
+		t.Fatalf("explicit endpoint changed: %q", got)
+	}
+}
+
+func TestPatchValidatedDoesNotSaveOrNotifyWhenCandidateRejected(t *testing.T) {
+	cm := isolatedManager(t)
+	if err := cm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.Patch(func(cfg *Config) { cfg.Theme = "light" }); err != nil {
+		t.Fatal(err)
+	}
+	before := cm.Get()
+	beforeData, err := os.ReadFile(cm.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeHash := sha256.Sum256(beforeData)
+	notifications := 0
+	cm.Subscribe(func(Config, Config) { notifications++ })
+
+	err = cm.PatchValidated(
+		func(cfg *Config) {
+			cfg.Theme = "dark"
+			cfg.APIKey = "candidate-only"
+		},
+		func(candidate Config) error {
+			if candidate.Theme != "dark" {
+				t.Fatalf("validator did not receive patched candidate: %+v", candidate)
+			}
+			return errors.New("test rejection")
+		},
+	)
+	if err == nil {
+		t.Fatal("rejected candidate must return error")
+	}
+	afterData, readErr := os.ReadFile(cm.configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if sha256.Sum256(afterData) != beforeHash {
+		t.Fatal("rejected candidate changed persisted config")
+	}
+	if got := cm.Get(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("rejected candidate changed memory: before=%+v after=%+v", before, got)
+	}
+	if notifications != 0 {
+		t.Fatalf("rejected candidate notified %d subscribers", notifications)
+	}
+}
+
+func TestPatchValidatedSavesThenNotifiesOnce(t *testing.T) {
+	cm := isolatedManager(t)
+	if err := cm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	notifications := 0
+	cm.Subscribe(func(newConfig Config, oldConfig Config) {
+		notifications++
+		if oldConfig.Theme != "light" || newConfig.Theme != "dark" {
+			t.Fatalf("unexpected notification values: old=%q new=%q", oldConfig.Theme, newConfig.Theme)
+		}
+		data, err := os.ReadFile(cm.configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, err := decrypt(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var persisted Config
+		if err := json.Unmarshal(plain, &persisted); err != nil {
+			t.Fatal(err)
+		}
+		if persisted.Theme != newConfig.Theme {
+			t.Fatalf("subscriber ran before save: persisted=%q new=%q", persisted.Theme, newConfig.Theme)
+		}
+	})
+
+	if err := cm.PatchValidated(
+		func(cfg *Config) { cfg.Theme = "dark" },
+		func(candidate Config) error {
+			if candidate.Theme != "dark" {
+				t.Fatalf("validator saw wrong candidate: %+v", candidate)
+			}
+			return nil
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if notifications != 1 || cm.Get().Theme != "dark" {
+		t.Fatalf("notifications=%d theme=%q", notifications, cm.Get().Theme)
+	}
+}
+
+func TestManagerRoundTripsCustomJSONFields(t *testing.T) {
+	cm := isolatedManager(t)
+	if err := cm.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.Patch(func(cfg *Config) {
+		cfg.APIProtocol = "custom_json"
+		cfg.BaseURL = "http://127.0.0.1:11434/generate"
+		cfg.Model = "test-model"
+		cfg.RequestTemplate = `{"model":"{{model}}","messages":"{{openai_messages}}"}`
+		cfg.ResponseJSONPointer = "/answer"
+		cfg.AuthHeader = "X-Test-Key"
+		cfg.AuthPrefix = "Token "
+		cfg.ExtraHeaders = map[string]string{"X-Route": "test-route"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := &ConfigManager{config: NewDefaultConfig(), configPath: cm.configPath}
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.Get()
+	if got.APIProtocol != "custom_json" || got.BaseURL != "http://127.0.0.1:11434/generate" || got.Model != "test-model" {
+		t.Fatalf("custom connection did not round trip: %+v", got)
+	}
+	if got.RequestTemplate == "" || got.ResponseJSONPointer != "/answer" || got.AuthHeader != "X-Test-Key" || got.AuthPrefix != "Token " {
+		t.Fatalf("custom template fields did not round trip: %+v", got)
+	}
+	if got.ExtraHeaders["X-Route"] != "test-route" {
+		t.Fatalf("custom headers did not round trip: %#v", got.ExtraHeaders)
+	}
+}
+
+func TestLoadLegacyProtocolsDoesNotWriteOrMigrateBeforeSave(t *testing.T) {
+	for _, protocolValue := range []string{"openai_responses", "anthropic_messages"} {
+		t.Run(protocolValue, func(t *testing.T) {
+			cm := isolatedManager(t)
+			plain := []byte(`{"apiKey":"test-only","baseURL":"https://api.example.com","apiProtocol":"` + protocolValue + `","model":"test-model"}`)
+			data, err := encrypt(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cm.configPath, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			before := sha256.Sum256(data)
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			afterData, err := os.ReadFile(cm.configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sha256.Sum256(afterData) != before {
+				t.Fatal("loading legacy connection changed the encrypted file")
+			}
+			got := cm.Get()
+			if got.APIProtocol != protocolValue || got.RequestTemplate != "" {
+				t.Fatalf("legacy connection migrated during load: %+v", got)
+			}
+		})
+	}
+}
+
+func profileUpdatePayload(t *testing.T, cfg Config, id, name string) string {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		Config
+		ConnectionProfileID   string `json:"connectionProfileId"`
+		ConnectionProfileName string `json:"connectionProfileName"`
+	}{Config: cfg, ConnectionProfileID: id, ConnectionProfileName: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(payload)
+}
+
+func TestUpdateFromJSONCreatesProfileFromLegacyConnection(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := NewDefaultConfig()
+	cfg.BaseURL = "https://api.example.test/v1"
+	cfg.APIProtocol = "openai_chat"
+	cfg.EndpointPath = "/chat/completions"
+	cfg.ResponseFormat = "text"
+	cfg.Model = "model-a"
+	if err := manager.UpdateFromJSON(profileUpdatePayload(t, cfg, LegacyConnectionProfileID, "")); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	if len(got.ConnectionProfiles) != 1 || got.ActiveConnectionProfileID == "" || got.ActiveConnectionProfileID == LegacyConnectionProfileID {
+		t.Fatalf("profile not created: %#v", got.ConnectionProfiles)
+	}
+	if got.ConnectionProfiles[0].ID != got.ActiveConnectionProfileID || got.BaseURL != got.ConnectionProfiles[0].BaseURL {
+		t.Fatal("root mirror and active profile diverged")
+	}
+}
+
+func TestUpdateFromJSONPreservesUnselectedProfilesAndUpdatesSelected(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	var first, second ConnectionProfile
+	if err := manager.Patch(func(cfg *Config) {
+		first, _ = UpsertConnectionProfile(cfg, ConnectionProfile{Name: "first", BaseURL: "https://first.test/v1", APIProtocol: "openai_chat", EndpointPath: "/chat/completions", ResponseFormat: "text", Model: "first-model"})
+		second, _ = UpsertConnectionProfile(cfg, ConnectionProfile{Name: "second", BaseURL: "https://second.test/v1", APIProtocol: "openai_chat", EndpointPath: "/chat/completions", ResponseFormat: "text", Model: "second-model"})
+		ApplyProfileToActiveConnection(cfg, first)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	candidate := manager.Get()
+	candidate.APIKey = "updated-test-key"
+	candidate.BaseURL = "https://updated.test/v1"
+	candidate.Model = "updated-model"
+	if err := manager.UpdateFromJSON(profileUpdatePayload(t, candidate, second.ID, "second renamed")); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	if len(got.ConnectionProfiles) != 2 || got.ActiveConnectionProfileID != second.ID {
+		t.Fatalf("profiles=%#v active=%q", got.ConnectionProfiles, got.ActiveConnectionProfileID)
+	}
+	preserved, _ := FindConnectionProfile(got, first.ID)
+	updated, _ := FindConnectionProfile(got, second.ID)
+	if preserved.BaseURL != first.BaseURL || updated.Name != "second renamed" || updated.BaseURL != "https://updated.test/v1" || updated.APIKey != "updated-test-key" {
+		t.Fatalf("preserved=%+v updated=%+v", preserved, updated)
+	}
+}
+
+func TestUpdateFromJSONMissingProfileArrayCannotEraseStoredProfiles(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	var saved ConnectionProfile
+	if err := manager.Patch(func(cfg *Config) {
+		saved, _ = UpsertConnectionProfile(cfg, ConnectionProfile{Name: "saved", BaseURL: "https://saved.test/v1", APIProtocol: "openai_chat", EndpointPath: "/chat/completions", ResponseFormat: "text", Model: "model-a"})
+		ApplyProfileToActiveConnection(cfg, saved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"connectionProfileId":"` + saved.ID + `","connectionProfileName":"saved","baseURL":"https://saved.test/v1","apiProtocol":"openai_chat","endpointPath":"/chat/completions","responseFormat":"text","model":"model-b"}`
+	if err := manager.UpdateFromJSON(payload); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	if len(got.ConnectionProfiles) != 1 || got.ConnectionProfiles[0].Model != "model-b" {
+		t.Fatalf("profiles=%#v", got.ConnectionProfiles)
+	}
+}
+
+func TestUpdateFromJSONFailureKeepsProfilesRootAndSubscribersUnchanged(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	var saved ConnectionProfile
+	if err := manager.Patch(func(cfg *Config) {
+		saved, _ = UpsertConnectionProfile(cfg, ConnectionProfile{Name: "saved", BaseURL: "https://saved.test/v1", APIProtocol: "openai_chat", EndpointPath: "/chat/completions", ResponseFormat: "text", Model: "model-a"})
+		ApplyProfileToActiveConnection(cfg, saved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := manager.Get()
+	calls := 0
+	manager.Subscribe(func(Config, Config) { calls++ })
+	manager.configPath = t.TempDir()
+	candidate := before
+	candidate.Model = "must-not-save"
+	if err := manager.UpdateFromJSON(profileUpdatePayload(t, candidate, saved.ID, saved.Name)); err == nil {
+		t.Fatal("save to directory must fail")
+	}
+	if calls != 0 || !reflect.DeepEqual(manager.Get(), before) {
+		t.Fatalf("failed save changed state: calls=%d", calls)
+	}
+}
+
+func TestLoadLegacyConnectionDoesNotWriteProfileOrRewriteEncryptedFile(t *testing.T) {
+	manager := isolatedManager(t)
+	plain := []byte(`{"baseURL":"https://legacy.test/v1","apiProtocol":"openai_chat","model":"legacy-model"}`)
+	data, err := encrypt(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manager.configPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := sha256.Sum256(data)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	if len(got.ConnectionProfiles) != 0 || got.ActiveConnectionProfileID != "" {
+		t.Fatalf("legacy load persisted profiles: %#v", got.ConnectionProfiles)
+	}
+	after, err := os.ReadFile(manager.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(after) != before {
+		t.Fatal("legacy load rewrote encrypted file")
+	}
+}
+
+func TestGetAndCloneConfigSnapshotDeepCopyConnectionProfiles(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Patch(func(cfg *Config) {
+		saved, _ := UpsertConnectionProfile(cfg, ConnectionProfile{Name: "saved", BaseURL: "https://saved.test/v1", APIProtocol: "openai_chat", EndpointPath: "/chat/completions", ExtraHeaders: map[string]string{"X-Test": "original"}, ResponseFormat: "text"})
+		ApplyProfileToActiveConnection(cfg, saved)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	got.ConnectionProfiles[0].Name = "mutated"
+	got.ConnectionProfiles[0].ExtraHeaders["X-Test"] = "mutated"
+	unchanged := manager.Get()
+	if unchanged.ConnectionProfiles[0].Name == "mutated" || unchanged.ConnectionProfiles[0].ExtraHeaders["X-Test"] == "mutated" {
+		t.Fatal("manager Get leaked profile aliases")
+	}
+}
+
+func TestConnectionProfilesPersistEncryptedWithoutPlaintextSentinels(t *testing.T) {
+	manager := isolatedManager(t)
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := NewDefaultConfig()
+	cfg.APIKey = "profile-key-sentinel"
+	cfg.BaseURL = "https://secure.test/generate"
+	cfg.APIProtocol = "custom_json"
+	cfg.RequestTemplate = `{"messages":"{{openai_messages}}","marker":"profile-template-sentinel"}`
+	cfg.ResponseJSONPointer = "/answer"
+	cfg.AuthHeader = "X-Test-Key"
+	cfg.AuthPrefix = "profile-prefix-sentinel "
+	cfg.ExtraHeaders = map[string]string{"X-Test": "profile-header-sentinel"}
+	cfg.Model = "secure-model"
+	if err := manager.UpdateFromJSON(profileUpdatePayload(t, cfg, "", "secure")); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(manager.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sentinel := range [][]byte{[]byte("profile-key-sentinel"), []byte("profile-header-sentinel"), []byte("profile-template-sentinel"), []byte("profile-prefix-sentinel")} {
+		if bytes.Contains(raw, sentinel) {
+			t.Fatal("encrypted config contains plaintext connection sentinel")
+		}
+	}
+	plain, err := decrypt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted Config
+	if err := json.Unmarshal(plain, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.ConnectionProfiles) != 1 || persisted.ConnectionProfiles[0].APIKey != cfg.APIKey {
+		t.Fatal("encrypted profile did not round trip")
 	}
 }

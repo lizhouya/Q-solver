@@ -227,3 +227,81 @@ func TestOpenAIChatDefaultsModelWithoutMutatingCaller(t *testing.T) {
 		t.Fatalf("default model snapshot failed: sent=%q adapter=%q caller=%q", model, adapter.config.Model, cfg.Model)
 	}
 }
+
+func TestKeylessOpenAIChatOmitsDefaultAuthAndUsesCustomEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/custom/chat" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Api-Key") != "" {
+			t.Fatalf("keyless request sent default auth")
+		}
+		writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]`)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter(config.Config{
+		BaseURL: server.URL + "/v1", EndpointPath: "/custom/chat", Model: "test-model",
+	})
+	if _, err := adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("hi")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenAIChatInjectsExtraHeadersIntoModelsAndInference(t *testing.T) {
+	var modelsCalls, inferenceCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Route") != "route-a" {
+			t.Fatalf("extra header missing on %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			modelsCalls.Add(1)
+			_, _ = w.Write([]byte(`{"data":[{"id":"test-model","object":"model"}],"object":"list"}`))
+		case "/v1/chat/completions":
+			inferenceCalls.Add(1)
+			writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]`)
+		default:
+			t.Fatalf("unexpected request: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter(config.Config{
+		APIKey: "test-key", BaseURL: server.URL + "/v1", Model: "test-model",
+		ExtraHeaders: map[string]string{"X-Route": "route-a"},
+	})
+	if _, err := adapter.GetModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	if modelsCalls.Load() != 1 || inferenceCalls.Load() != 1 {
+		t.Fatalf("models=%d inference=%d", modelsCalls.Load(), inferenceCalls.Load())
+	}
+}
+
+func TestOpenAIChatJSONObjectResponseFormatIsSent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		format, ok := body["response_format"].(map[string]any)
+		if !ok || format["type"] != "json_object" {
+			t.Fatalf("unexpected response format: %#v", body["response_format"])
+		}
+		writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":"{\"answer\":\"ok\"}"},"finish_reason":"stop"}]`)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter(config.Config{
+		APIKey: "test-key", BaseURL: server.URL + "/v1", Model: "test-model",
+		ResponseFormat: config.ResponseFormatJSONObject,
+	})
+	if _, err := adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("return JSON")}); err != nil {
+		t.Fatal(err)
+	}
+}

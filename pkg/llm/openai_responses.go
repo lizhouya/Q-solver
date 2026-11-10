@@ -32,8 +32,8 @@ func NewOpenAIResponsesAdapter(cfg config.Config) *OpenAIResponsesAdapter {
 
 	client := openai.NewClient(
 		option.WithAPIKey(cfg.APIKey),
-		option.WithBaseURL(cfg.BaseURL),
-		option.WithHTTPClient(newProviderHTTPClient()),
+		option.WithBaseURL(strings.TrimRight(cfg.BaseURL, "/")+"/"),
+		option.WithHTTPClient(newProviderHTTPClient(cfg, protocol.OpenAIResponses)),
 		option.WithMaxRetries(0),
 	)
 	return &OpenAIResponsesAdapter{client: &client, config: cfg}

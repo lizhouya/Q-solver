@@ -113,13 +113,6 @@ func (s *Solver) ReplaceConversation(state ConversationState) error {
 }
 
 func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
-	if req.Config.APIKey == "" {
-		if cb.EmitEvent != nil {
-			cb.EmitEvent("require-api-key")
-		}
-		return false
-	}
-
 	logger.Println("开始解题流程")
 	systemPrompt := buildSystemPrompt(req.Config)
 	logger.Printf("system 提示词长度: %d", len(systemPrompt))
@@ -156,6 +149,14 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 		solveGeneration = s.generation
 	}
 	s.mu.Unlock()
+
+	if provider == nil {
+		if cb.EmitEvent != nil {
+			detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorInvalidConfig, llm.StageValidateConfig, "", nil))
+			cb.EmitEvent("solution-error", detail.Message, detail)
+		}
+		return false
+	}
 
 	messagesToSend := make([]llm.Message, 0, len(history)+2)
 	messagesToSend = append(messagesToSend, llm.NewSystemMessage(systemPrompt))

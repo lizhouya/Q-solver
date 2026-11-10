@@ -11,6 +11,7 @@ const (
 	OpenAIChat        APIProtocol = "openai_chat"
 	OpenAIResponses   APIProtocol = "openai_responses"
 	AnthropicMessages APIProtocol = "anthropic_messages"
+	CustomJSON        APIProtocol = "custom_json"
 )
 
 func Normalize(value string) (APIProtocol, error) {
@@ -21,7 +22,7 @@ func Normalize(value string) (APIProtocol, error) {
 
 	protocol := APIProtocol(value)
 	switch protocol {
-	case OpenAIChat, OpenAIResponses, AnthropicMessages:
+	case OpenAIChat, OpenAIResponses, AnthropicMessages, CustomJSON:
 		return protocol, nil
 	default:
 		return "", fmt.Errorf("不支持的 API 协议")

@@ -41,6 +41,7 @@ const (
 	ErrorVisionMismatch             ErrorCode = "vision_mismatch"
 	ErrorVisionInconclusive         ErrorCode = "vision_inconclusive"
 	ErrorProbeDisabled              ErrorCode = "probe_disabled"
+	ErrorCatalogUnsupported         ErrorCode = "catalog_unsupported"
 )
 
 type ErrorStage string
@@ -196,6 +197,8 @@ func safeErrorMessage(code ErrorCode) string {
 		return "模型连接配置无效，请检查后重试"
 	case ErrorProbeDisabled:
 		return "CCR 模式不执行付费模型实测，请通过模型目录选择路由"
+	case ErrorCatalogUnsupported:
+		return "自定义请求模板不提供模型目录，请手动填写模型"
 	case ErrorCancelled:
 		return "模型请求已取消"
 	case ErrorTimeout:

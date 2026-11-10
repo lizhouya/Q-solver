@@ -108,11 +108,10 @@ onMounted(() => {
 
   on('key-recorded', (data) => {
     if (data && data.action) {
-      if (settingsStore.tempShortcuts[data.action]) {
-        settingsStore.tempShortcuts[data.action].keyName = data.keyName
-        settingsStore.tempShortcuts[data.action].vkCode = data.comboID
-      } else {
-        settingsStore.tempShortcuts[data.action] = { keyName: data.keyName, vkCode: data.comboID }
+      settingsStore.tempShortcuts[data.action] = {
+        ...(settingsStore.tempShortcuts[data.action] || {}),
+        keyName: data.keyName,
+        comboID: data.comboID,
       }
       if (settingsStore.recordingAction === data.action) {
         settingsStore.recordingText = data.keyName
@@ -139,9 +138,11 @@ onMounted(() => {
   })
 
   on('shortcut-saved', (action) => {
+    const draft = settingsStore.tempShortcuts[action]
+    if (draft) settingsStore.shortcuts[action] = JSON.parse(JSON.stringify(draft))
     if (settingsStore.recordingAction === action) {
       settingsStore.recordingAction = null
-      ui.showToast('快捷键已保存', 'success')
+      ui.showToast('快捷键已应用；保存全部设置后将在重启后保留', 'success')
     }
   })
 

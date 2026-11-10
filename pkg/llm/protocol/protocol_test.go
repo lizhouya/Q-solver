@@ -13,6 +13,7 @@ func TestNormalize(t *testing.T) {
 		{name: "chat", input: "openai_chat", want: OpenAIChat},
 		{name: "responses", input: "openai_responses", want: OpenAIResponses},
 		{name: "anthropic", input: "anthropic_messages", want: AnthropicMessages},
+		{name: "custom json", input: "custom_json", want: CustomJSON},
 		{name: "model name is not a protocol", input: "claude-opus-5", wantErr: true},
 		{name: "provider name is not a protocol", input: "openai", wantErr: true},
 		{name: "url is not a protocol", input: "https://api.openai.com/v1", wantErr: true},

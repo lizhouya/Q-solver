@@ -29,6 +29,13 @@ export namespace app {
 	    baseURL: string;
 	    model: string;
 	    apiProtocol: string;
+	    endpointPath: string;
+	    extraHeaders: Record<string, string>;
+	    responseFormat: string;
+	    requestTemplate: string;
+	    responseJSONPointer: string;
+	    authHeader: string;
+	    authPrefix: string;
 
 	    static createFrom(source: any = {}) {
 	        return new ConnectionDraft(source);
@@ -41,7 +48,217 @@ export namespace app {
 	        this.baseURL = source["baseURL"];
 	        this.model = source["model"];
 	        this.apiProtocol = source["apiProtocol"];
+	        this.endpointPath = source["endpointPath"];
+	        this.extraHeaders = source["extraHeaders"];
+	        this.responseFormat = source["responseFormat"];
+	        this.requestTemplate = source["requestTemplate"];
+	        this.responseJSONPointer = source["responseJSONPointer"];
+	        this.authHeader = source["authHeader"];
+	        this.authPrefix = source["authPrefix"];
 	    }
+	}
+	export class ConnectionProfileDraft {
+	    id: string;
+	    name: string;
+	    connection: ConnectionDraft;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionProfileDraft(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.connection = this.convertValues(source["connection"], ConnectionDraft);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConnectionProfileErrorDTO {
+	    code: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionProfileErrorDTO(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	    }
+	}
+	export class ConnectionProfileSummary {
+	    id: string;
+	    name: string;
+	    addressLabel: string;
+	    apiProtocol: string;
+	    model: string;
+	    active: boolean;
+	    apiKeySet: boolean;
+	    templateSet: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionProfileSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.addressLabel = source["addressLabel"];
+	        this.apiProtocol = source["apiProtocol"];
+	        this.model = source["model"];
+	        this.active = source["active"];
+	        this.apiKeySet = source["apiKeySet"];
+	        this.templateSet = source["templateSet"];
+	    }
+	}
+	export class ConnectionProfileListResult {
+	    profiles: ConnectionProfileSummary[];
+	    error?: ConnectionProfileErrorDTO;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionProfileListResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profiles = this.convertValues(source["profiles"], ConnectionProfileSummary);
+	        this.error = this.convertValues(source["error"], ConnectionProfileErrorDTO);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class ConnectionSettingsView {
+	    connectionMode: string;
+	    baseURL: string;
+	    model: string;
+	    apiProtocol: string;
+	    endpointPath: string;
+	    responseFormat: string;
+	    apiKeySet: boolean;
+	    extraHeadersSet: boolean;
+	    templateSet: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionSettingsView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.connectionMode = source["connectionMode"];
+	        this.baseURL = source["baseURL"];
+	        this.model = source["model"];
+	        this.apiProtocol = source["apiProtocol"];
+	        this.endpointPath = source["endpointPath"];
+	        this.responseFormat = source["responseFormat"];
+	        this.apiKeySet = source["apiKeySet"];
+	        this.extraHeadersSet = source["extraHeadersSet"];
+	        this.templateSet = source["templateSet"];
+	    }
+	}
+	export class DeleteConnectionProfileResult {
+	    success: boolean;
+	    deletedId?: string;
+	    error?: ConnectionProfileErrorDTO;
+
+	    static createFrom(source: any = {}) {
+	        return new DeleteConnectionProfileResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.deletedId = source["deletedId"];
+	        this.error = this.convertValues(source["error"], ConnectionProfileErrorDTO);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GetConnectionProfileResult {
+	    success: boolean;
+	    profile?: ConnectionProfileDraft;
+	    error?: ConnectionProfileErrorDTO;
+
+	    static createFrom(source: any = {}) {
+	        return new GetConnectionProfileResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.profile = this.convertValues(source["profile"], ConnectionProfileDraft);
+	        this.error = this.convertValues(source["error"], ConnectionProfileErrorDTO);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class MobileInfo {
 	    available: boolean;
@@ -619,6 +836,42 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class SaveConnectionResult {
+	    success: boolean;
+	    profile?: ConnectionProfileSummary;
+	    connection?: ConnectionSettingsView;
+	    error?: ProviderErrorDTO;
+
+	    static createFrom(source: any = {}) {
+	        return new SaveConnectionResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.profile = this.convertValues(source["profile"], ConnectionProfileSummary);
+	        this.connection = this.convertValues(source["connection"], ConnectionSettingsView);
+	        this.error = this.convertValues(source["error"], ProviderErrorDTO);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class StartNextExamResult {
 	    sessionId: string;
 	    previousState: string;
@@ -646,12 +899,57 @@ export namespace app {
 
 export namespace config {
 
+	export class ConnectionProfile {
+	    id: string;
+	    name: string;
+	    apiKey?: string;
+	    baseURL: string;
+	    apiProtocol: string;
+	    endpointPath?: string;
+	    extraHeaders?: Record<string, string>;
+	    responseFormat?: string;
+	    requestTemplate?: string;
+	    responseJSONPointer?: string;
+	    authHeader?: string;
+	    authPrefix?: string;
+	    model?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionProfile(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.apiKey = source["apiKey"];
+	        this.baseURL = source["baseURL"];
+	        this.apiProtocol = source["apiProtocol"];
+	        this.endpointPath = source["endpointPath"];
+	        this.extraHeaders = source["extraHeaders"];
+	        this.responseFormat = source["responseFormat"];
+	        this.requestTemplate = source["requestTemplate"];
+	        this.responseJSONPointer = source["responseJSONPointer"];
+	        this.authHeader = source["authHeader"];
+	        this.authPrefix = source["authPrefix"];
+	        this.model = source["model"];
+	    }
+	}
 	export class Config {
 	    apiKey?: string;
 	    baseURL?: string;
 	    connectionMode?: string;
 	    apiProtocol?: string;
+	    endpointPath?: string;
+	    extraHeaders?: Record<string, string>;
+	    responseFormat?: string;
+	    requestTemplate?: string;
+	    responseJSONPointer?: string;
+	    authHeader?: string;
+	    authPrefix?: string;
 	    model?: string;
+	    activeConnectionProfileId?: string;
+	    connectionProfiles?: ConnectionProfile[];
 	    prompt?: string;
 	    domainId?: string;
 	    opacity?: number;
@@ -681,7 +979,16 @@ export namespace config {
 	        this.baseURL = source["baseURL"];
 	        this.connectionMode = source["connectionMode"];
 	        this.apiProtocol = source["apiProtocol"];
+	        this.endpointPath = source["endpointPath"];
+	        this.extraHeaders = source["extraHeaders"];
+	        this.responseFormat = source["responseFormat"];
+	        this.requestTemplate = source["requestTemplate"];
+	        this.responseJSONPointer = source["responseJSONPointer"];
+	        this.authHeader = source["authHeader"];
+	        this.authPrefix = source["authPrefix"];
 	        this.model = source["model"];
+	        this.activeConnectionProfileId = source["activeConnectionProfileId"];
+	        this.connectionProfiles = this.convertValues(source["connectionProfiles"], ConnectionProfile);
 	        this.prompt = source["prompt"];
 	        this.domainId = source["domainId"];
 	        this.opacity = source["opacity"];

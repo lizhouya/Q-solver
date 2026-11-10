@@ -3,17 +3,37 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"Q-Solver/pkg/config"
 	"Q-Solver/pkg/llm"
 )
 
 type ConnectionDraft struct {
-	ConnectionMode string `json:"connectionMode"`
-	APIKey         string `json:"apiKey"`
-	BaseURL        string `json:"baseURL"`
-	Model          string `json:"model"`
-	APIProtocol    string `json:"apiProtocol"`
+	ConnectionMode      string            `json:"connectionMode"`
+	APIKey              string            `json:"apiKey"`
+	BaseURL             string            `json:"baseURL"`
+	Model               string            `json:"model"`
+	APIProtocol         string            `json:"apiProtocol"`
+	EndpointPath        string            `json:"endpointPath"`
+	ExtraHeaders        map[string]string `json:"extraHeaders"`
+	ResponseFormat      string            `json:"responseFormat"`
+	RequestTemplate     string            `json:"requestTemplate"`
+	ResponseJSONPointer string            `json:"responseJSONPointer"`
+	AuthHeader          string            `json:"authHeader"`
+	AuthPrefix          string            `json:"authPrefix"`
+}
+
+type ConnectionSettingsView struct {
+	ConnectionMode  string `json:"connectionMode"`
+	BaseURL         string `json:"baseURL"`
+	Model           string `json:"model"`
+	APIProtocol     string `json:"apiProtocol"`
+	EndpointPath    string `json:"endpointPath"`
+	ResponseFormat  string `json:"responseFormat"`
+	APIKeySet       bool   `json:"apiKeySet"`
+	ExtraHeadersSet bool   `json:"extraHeadersSet"`
+	TemplateSet     bool   `json:"templateSet"`
 }
 
 type ProviderErrorDTO struct {
@@ -45,9 +65,16 @@ type ModelProbeResult struct {
 }
 
 func (draft ConnectionDraft) config() config.Config {
+	headers := make(map[string]string, len(draft.ExtraHeaders))
+	for key, value := range draft.ExtraHeaders {
+		headers[key] = value
+	}
 	return config.Config{
 		ConnectionMode: draft.ConnectionMode, APIKey: draft.APIKey, BaseURL: draft.BaseURL,
-		Model: draft.Model, APIProtocol: draft.APIProtocol,
+		Model: draft.Model, APIProtocol: draft.APIProtocol, EndpointPath: draft.EndpointPath,
+		ExtraHeaders: headers, ResponseFormat: draft.ResponseFormat,
+		RequestTemplate: draft.RequestTemplate, ResponseJSONPointer: draft.ResponseJSONPointer,
+		AuthHeader: draft.AuthHeader, AuthPrefix: draft.AuthPrefix,
 	}
 }
 
@@ -92,6 +119,20 @@ func (a *App) ProbeModelConnection(request ModelProbeRequest) ModelProbeResult {
 	return ModelProbeResult{
 		Kind: result.Kind, Outcome: string(result.Outcome), Protocol: string(result.Protocol),
 		Message: result.Message, Error: errorDTO, RequestSent: result.RequestSent,
+	}
+}
+
+func connectionSettingsView(cfg config.Config) ConnectionSettingsView {
+	return ConnectionSettingsView{
+		ConnectionMode:  cfg.ConnectionMode,
+		BaseURL:         cfg.BaseURL,
+		Model:           cfg.Model,
+		APIProtocol:     cfg.APIProtocol,
+		EndpointPath:    cfg.EndpointPath,
+		ResponseFormat:  cfg.ResponseFormat,
+		APIKeySet:       strings.TrimSpace(cfg.APIKey) != "",
+		ExtraHeadersSet: len(cfg.ExtraHeaders) > 0,
+		TemplateSet:     strings.TrimSpace(cfg.RequestTemplate) != "",
 	}
 }
 

@@ -59,6 +59,31 @@ func TestTextProbeRequiresExactRandomTokenAndOneNonStreamingRequest(t *testing.T
 	}
 }
 
+func TestTextProbeAcceptsUniqueTokenInsideJSONObject(t *testing.T) {
+	const token = "QSP-1234ABCD"
+	provider := &probeFakeProvider{response: Message{Role: RoleAssistant, Content: `{"result":{"token":"QSP-1234ABCD"},"ok":true}`}}
+	result := probeTextWithToken(context.Background(), provider, protocol.OpenAIChat, "test-model", token)
+	if result.Outcome != ProbePassed || result.Error != nil || provider.generateCalls != 1 {
+		t.Fatalf("unique JSON token rejected: %+v", result)
+	}
+}
+
+func TestTextProbeRejectsAmbiguousJSONObjectTokens(t *testing.T) {
+	const token = "QSP-1234ABCD"
+	for _, content := range []string{
+		`{"first":"QSP-1234ABCD","nested":{"second":"QSP-1234ABCD"}}`,
+		`{"first":"different"}`,
+		`["QSP-1234ABCD"]`,
+		`{"first":"QSP-1234ABCD","trailing":true} trailing`,
+	} {
+		provider := &probeFakeProvider{response: Message{Role: RoleAssistant, Content: content}}
+		result := probeTextWithToken(context.Background(), provider, protocol.OpenAIChat, "test-model", token)
+		if result.Outcome != ProbeFailed || result.Error == nil || result.Error.Code != ErrorInvalidResponse {
+			t.Fatalf("invalid JSON probe accepted for %q: %+v", content, result)
+		}
+	}
+}
+
 func TestVisionProbeUsesSyntheticPNGStreamingAndDoesNotRevealAnswer(t *testing.T) {
 	imageData, err := renderSevenSegmentPNG("42")
 	if err != nil {

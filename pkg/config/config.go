@@ -7,26 +7,51 @@ import (
 	"runtime"
 )
 
+type ConnectionProfile struct {
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	APIKey              string            `json:"apiKey,omitempty"`
+	BaseURL             string            `json:"baseURL"`
+	APIProtocol         string            `json:"apiProtocol"`
+	EndpointPath        string            `json:"endpointPath,omitempty"`
+	ExtraHeaders        map[string]string `json:"extraHeaders,omitempty"`
+	ResponseFormat      string            `json:"responseFormat,omitempty"`
+	RequestTemplate     string            `json:"requestTemplate,omitempty"`
+	ResponseJSONPointer string            `json:"responseJSONPointer,omitempty"`
+	AuthHeader          string            `json:"authHeader,omitempty"`
+	AuthPrefix          string            `json:"authPrefix,omitempty"`
+	Model               string            `json:"model,omitempty"`
+}
+
 type Config struct {
-	APIKey             string                         `json:"apiKey,omitempty"`
-	BaseURL            string                         `json:"baseURL,omitempty"`
-	ConnectionMode     string                         `json:"connectionMode,omitempty"`
-	APIProtocol        string                         `json:"apiProtocol,omitempty"`
-	Model              string                         `json:"model,omitempty"`
-	Prompt             string                         `json:"prompt,omitempty"`
-	DomainId           string                         `json:"domainId,omitempty"` // 行业/岗位选择ID
-	Opacity            float64                        `json:"opacity,omitempty"`
-	NoCompression      bool                           `json:"noCompression,omitempty"`
-	CompressionQuality int                            `json:"compressionQuality,omitempty"`
-	Sharpening         float64                        `json:"sharpening,omitempty"`
-	Grayscale          bool                           `json:"grayscale,omitempty"`
-	KeepContext        bool                           `json:"keepContext,omitempty"`
-	InterruptThinking  bool                           `json:"interruptThinking,omitempty"`
-	ScreenshotMode     string                         `json:"screenshotMode,omitempty"`
-	OutputMode         string                         `json:"outputMode,omitempty"` // desktop | mobile | dual（见 _dev/changes/001）
-	ResumePath         string                         `json:"resumePath,omitempty"`
-	ResumeContent      string                         `json:"resumeContent,omitempty"`
-	Shortcuts          map[string]shortcut.KeyBinding `json:"shortcuts,omitempty"`
+	APIKey                    string                         `json:"apiKey,omitempty"`
+	BaseURL                   string                         `json:"baseURL,omitempty"`
+	ConnectionMode            string                         `json:"connectionMode,omitempty"`
+	APIProtocol               string                         `json:"apiProtocol,omitempty"`
+	EndpointPath              string                         `json:"endpointPath,omitempty"`
+	ExtraHeaders              map[string]string              `json:"extraHeaders,omitempty"`
+	ResponseFormat            string                         `json:"responseFormat,omitempty"`
+	RequestTemplate           string                         `json:"requestTemplate,omitempty"`
+	ResponseJSONPointer       string                         `json:"responseJSONPointer,omitempty"`
+	AuthHeader                string                         `json:"authHeader,omitempty"`
+	AuthPrefix                string                         `json:"authPrefix,omitempty"`
+	Model                     string                         `json:"model,omitempty"`
+	ActiveConnectionProfileID string                         `json:"activeConnectionProfileId,omitempty"`
+	ConnectionProfiles        []ConnectionProfile            `json:"connectionProfiles,omitempty"`
+	Prompt                    string                         `json:"prompt,omitempty"`
+	DomainId                  string                         `json:"domainId,omitempty"` // 行业/岗位选择ID
+	Opacity                   float64                        `json:"opacity,omitempty"`
+	NoCompression             bool                           `json:"noCompression,omitempty"`
+	CompressionQuality        int                            `json:"compressionQuality,omitempty"`
+	Sharpening                float64                        `json:"sharpening,omitempty"`
+	Grayscale                 bool                           `json:"grayscale,omitempty"`
+	KeepContext               bool                           `json:"keepContext,omitempty"`
+	InterruptThinking         bool                           `json:"interruptThinking,omitempty"`
+	ScreenshotMode            string                         `json:"screenshotMode,omitempty"`
+	OutputMode                string                         `json:"outputMode,omitempty"` // desktop | mobile | dual（见 _dev/changes/001）
+	ResumePath                string                         `json:"resumePath,omitempty"`
+	ResumeContent             string                         `json:"resumeContent,omitempty"`
+	Shortcuts                 map[string]shortcut.KeyBinding `json:"shortcuts,omitempty"`
 
 	// 辅助模型（用于总结对话生成问题导图）
 	AssistantModel string `json:"assistantModel,omitempty"`
@@ -43,24 +68,32 @@ const DefaultModel = ""
 
 func NewDefaultConfig() Config {
 	return Config{
-		APIKey:             "",
-		BaseURL:            "https://api.openai.com/v1",
-		ConnectionMode:     ConnectionModeDirect,
-		APIProtocol:        string(protocol.OpenAIChat),
-		Model:              DefaultModel,
-		ResumePath:         "",
-		Prompt:             "",
-		DomainId:           "general-assistant", // 默认选择通用的
-		Opacity:            1.0,
-		KeepContext:        false,
-		InterruptThinking:  false,
-		ScreenshotMode:     "fullscreen", // 默认全屏截图，确保捕获完整内容
-		OutputMode:         "desktop",    // 默认 desktop：仅桌面输出（见 _dev/changes/001）
-		NoCompression:      false,        // 保持压缩以减小文件大小
-		CompressionQuality: 92,           // 高质量压缩，确保 AI 清晰识别文字
-		Sharpening:         0.3,          // 适度锐化，增强文字边缘清晰度
-		Grayscale:          false,        // 保持彩色，某些场景颜色有意义
-		ResumeContent:      "",
+		APIKey:              "",
+		BaseURL:             "https://api.openai.com/v1",
+		ConnectionMode:      ConnectionModeDirect,
+		APIProtocol:         string(protocol.OpenAIChat),
+		EndpointPath:        "/chat/completions",
+		ExtraHeaders:        map[string]string{},
+		ResponseFormat:      ResponseFormatText,
+		RequestTemplate:     "",
+		ResponseJSONPointer: "",
+		AuthHeader:          "",
+		AuthPrefix:          "",
+		Model:               DefaultModel,
+		ConnectionProfiles:  []ConnectionProfile{},
+		ResumePath:          "",
+		Prompt:              "",
+		DomainId:            "general-assistant", // 默认选择通用的
+		Opacity:             1.0,
+		KeepContext:         false,
+		InterruptThinking:   false,
+		ScreenshotMode:      "fullscreen", // 默认全屏截图，确保捕获完整内容
+		OutputMode:          "desktop",    // 默认 desktop：仅桌面输出（见 _dev/changes/001）
+		NoCompression:       false,        // 保持压缩以减小文件大小
+		CompressionQuality:  92,           // 高质量压缩，确保 AI 清晰识别文字
+		Sharpening:          0.3,          // 适度锐化，增强文字边缘清晰度
+		Grayscale:           false,        // 保持彩色，某些场景颜色有意义
+		ResumeContent:       "",
 
 		Shortcuts: getDefaultShortcuts(),
 

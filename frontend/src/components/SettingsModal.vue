@@ -8,13 +8,13 @@
 
       <div class="modal-header">
         <div class="tabs">
-          <div class="tab" :class="{ active: ui.activeTab === 'general' }" @click="ui.activeTab = 'general'">常规</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'model' }" @click="ui.activeTab = 'model'">模型</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'screenshot' }" @click="ui.activeTab = 'screenshot'">截图</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'output' }" @click="ui.activeTab = 'output'">输出</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'questionbank' }" @click="ui.activeTab = 'questionbank'">题库</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'resume' }" @click="ui.activeTab = 'resume'">简历</div>
-          <div class="tab" :class="{ active: ui.activeTab === 'api' }" @click="ui.activeTab = 'api'">API</div>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'general' }" @click="ui.activeTab = 'general'">常规</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'api' }" @click="ui.activeTab = 'api'">模型与 API</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'scene' }" @click="ui.activeTab = 'scene'">场景</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'screenshot' }" @click="ui.activeTab = 'screenshot'">截图</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'output' }" @click="ui.activeTab = 'output'">显示</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'questionbank' }" @click="ui.activeTab = 'questionbank'">题库</button>
+          <button type="button" class="tab" :class="{ active: ui.activeTab === 'resume' }" @click="ui.activeTab = 'resume'">简历</button>
         </div>
         <button class="close-btn" @click="settingsStore.closeSettings">
           <Icon name="x" :size="16" />
@@ -49,80 +49,6 @@
               max="1.0"
               step="0.05"
             />
-          </div>
-        </div>
-
-        <div
-          v-show="ui.activeTab === 'model'"
-          class="tab-pane model-tab"
-          :class="{ 'model-dropdown-open': modelDropdownOpen }"
-        >
-          <div class="form-group model-select-group">
-            <div class="model-header">
-              <label>模型名称</label>
-              <button
-                class="btn-secondary model-refresh"
-                @click="settingsStore.refreshModels"
-                :disabled="ui.isLoadingModels || !settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL"
-              >
-                {{ ui.isLoadingModels ? '刷新中…' : '刷新模型建议' }}
-              </button>
-            </div>
-
-            <ModelSelect
-              v-model="settingsStore.tempSettings.model"
-              :models="ui.availableModels"
-              :loading="ui.isLoadingModels"
-              :connection-mode="settingsStore.tempSettings.connectionMode"
-              :active="ui.showSettings && ui.activeTab === 'model'"
-              @open-change="modelDropdownOpen = $event"
-            />
-            <p v-if="!settingsStore.tempSettings.apiKey || !settingsStore.tempSettings.baseURL" class="hint-text warning-hint">请先填写 API Key 和接口地址</p>
-          </div>
-
-          <div v-if="settingsStore.tempSettings.connectionMode === 'ccr'" class="form-group ccr-model-notice">
-            <div class="probe-header">
-              <label>CCR 模型目录</label>
-              <span>{{ ui.modelCatalog.status }}</span>
-            </div>
-            <p>这里只读取 CCR 的模型目录，不执行文字或图片实测。Q-Solver 固定通过 Chat Completions 入站调用，上游路由与协议转换由 CCR 管理。</p>
-            <p class="catalog-status" :class="`catalog-${ui.modelCatalog.status}`">{{ ui.modelCatalog.message || '进入模型页后将自动同步一次；也可以手动刷新。' }}</p>
-          </div>
-
-          <div v-if="settingsStore.tempSettings.connectionMode !== 'ccr'" class="form-group probe-panel">
-            <div class="probe-header">
-              <label>当前通道实测</label>
-              <span>{{ settingsStore.statusText }}</span>
-            </div>
-            <p class="probe-cost-notice">每次点击会调用一次模型，可能产生少量费用</p>
-            <div class="probe-grid">
-              <div class="probe-card">
-                <div class="probe-card-header">
-                  <strong>文字实测</strong>
-                  <button
-                    class="btn-secondary"
-                    @click="settingsStore.testTextConnection"
-                    :disabled="ui.textProbeLoading || !settingsStore.tempSettings.model"
-                  >{{ ui.textProbeLoading ? '测试中…' : '开始测试' }}</button>
-                </div>
-                <p :class="probeOutcomeClass(ui.probeStatus.text)">{{ probeStatusText(ui.probeStatus.text, '文字') }}</p>
-              </div>
-              <div class="probe-card">
-                <div class="probe-card-header">
-                  <strong>图片实测</strong>
-                  <button
-                    class="btn-secondary"
-                    @click="settingsStore.testVisionConnection"
-                    :disabled="ui.visionProbeLoading || !settingsStore.tempSettings.model"
-                  >{{ ui.visionProbeLoading ? '测试中…' : '开始测试' }}</button>
-                </div>
-                <p :class="probeOutcomeClass(ui.probeStatus.vision)">{{ probeStatusText(ui.probeStatus.vision, '图片') }}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-group domain-group">
-            <DomainSelector v-model="settingsStore.tempSettings.domainId" :categories="settingsStore.domainCategories" />
           </div>
         </div>
 
@@ -249,15 +175,106 @@
           />
         </div>
 
-        <div v-show="ui.activeTab === 'api'" class="tab-pane api-tab-pane">
+        <div
+          v-show="ui.activeTab === 'api'"
+          class="tab-pane api-tab-pane"
+          :class="{ 'model-dropdown-open': modelDropdownOpen }"
+        >
+          <ConnectionProfileManager
+            :profiles="settingsStore.connectionProfiles"
+            :selected-id="settingsStore.selectedConnectionProfileID"
+            :active-id="settingsStore.activeConnectionProfileID"
+            :profile-name="settingsStore.connectionProfileName"
+            :loading="settingsStore.connectionProfileLoading"
+            :loaded="settingsStore.connectionProfileLoaded"
+            :pending-delete-id="settingsStore.pendingDeleteProfileID"
+            :automatic-name-preview="settingsStore.automaticConnectionProfileName"
+            @select="settingsStore.selectConnectionProfile"
+            @new="settingsStore.beginNewConnectionProfile"
+            @update:profile-name="settingsStore.connectionProfileName = $event"
+            @request-delete="settingsStore.requestDeleteConnectionProfile"
+            @cancel-delete="settingsStore.cancelDeleteConnectionProfile"
+            @confirm-delete="settingsStore.confirmDeleteConnectionProfile"
+          />
+
           <ProviderSelect
-            v-model:connectionMode="settingsStore.tempSettings.connectionMode"
             v-model:apiKey="settingsStore.tempSettings.apiKey"
             v-model:baseURL="settingsStore.tempSettings.baseURL"
             v-model:apiProtocol="settingsStore.tempSettings.apiProtocol"
-            @select-provider="settingsStore.applyProviderPreset"
-            @continue-to-model="continueToCCRModels"
+            v-model:endpointPath="settingsStore.tempSettings.endpointPath"
+            v-model:responseFormat="settingsStore.tempSettings.responseFormat"
+            v-model:extraHeadersText="settingsStore.extraHeadersText"
+            v-model:requestTemplate="settingsStore.tempSettings.requestTemplate"
+            v-model:responseJSONPointer="settingsStore.tempSettings.responseJSONPointer"
+            v-model:authHeader="settingsStore.tempSettings.authHeader"
+            v-model:authPrefix="settingsStore.tempSettings.authPrefix"
+            :default-custom-template="settingsStore.defaultCustomTemplate()"
+            @select-preset="settingsStore.applyConnectionPreset"
           />
+
+          <p v-if="settingsStore.legacyMigrationNotice" class="hint-text warning-hint">{{ settingsStore.legacyMigrationNotice }}</p>
+          <section class="connection-workspace">
+            <div class="form-group model-select-group">
+              <div class="model-header">
+                <label>模型名称</label>
+                <span class="catalog-state">{{ ui.modelCatalog.message || '可手填；候选目录仅供参考' }}</span>
+              </div>
+              <ModelSelect
+                v-model="settingsStore.tempSettings.model"
+                :models="ui.availableModels"
+                :loading="ui.isLoadingModels"
+                :active="ui.showSettings && ui.activeTab === 'api'"
+                @open-change="modelDropdownOpen = $event"
+              />
+            </div>
+
+            <p v-if="settingsStore.connectionValidationError" class="hint-text warning-hint" role="alert">{{ settingsStore.connectionValidationError }}</p>
+            <p class="probe-cost-notice">刷新目录只读取模型列表；测试连接会调用一次模型，可能产生少量费用。</p>
+
+            <div class="connection-actions">
+              <button
+                class="btn-primary connection-save-action"
+                :disabled="settingsStore.connectionSaveLoading || settingsStore.connectionProfileLoading || !settingsStore.connectionProfileLoaded || !settingsStore.settingsLoaded || !settingsStore.tempSettings.baseURL || !settingsStore.tempSettings.model"
+                @click="settingsStore.saveConnectionSettings"
+              >{{ settingsStore.connectionSaveLoading ? '保存中…' : '保存 API 设置' }}</button>
+              <button
+                class="btn-secondary"
+                :disabled="settingsStore.connectionProfileLoading || !settingsStore.connectionProfileLoaded || !settingsStore.canRefreshModelCatalog || ui.isLoadingModels || !settingsStore.tempSettings.baseURL"
+                @click="settingsStore.refreshModels"
+              >{{ ui.isLoadingModels ? '刷新中…' : '刷新候选模型' }}</button>
+              <button
+                class="btn-secondary"
+                :disabled="settingsStore.connectionProfileLoading || !settingsStore.connectionProfileLoaded || ui.textProbeLoading || !settingsStore.tempSettings.baseURL || !settingsStore.tempSettings.model"
+                @click="settingsStore.testTextConnection"
+              >{{ ui.textProbeLoading ? '测试中…' : '测试 API 连接' }}</button>
+            </div>
+            <p v-if="!settingsStore.canRefreshModelCatalog" class="hint-text">自定义模板模式请手动填写模型</p>
+            <p :class="probeOutcomeClass(ui.probeStatus.text)">{{ probeStatusText(ui.probeStatus.text, '文字') }}</p>
+
+            <details class="probe-advanced">
+              <summary>高级验证</summary>
+              <div class="probe-card">
+                <div class="probe-card-header">
+                  <div>
+                    <strong>图片实测</strong>
+                    <p>发送一张本地生成的合成测试图，用于确认多模态链路。</p>
+                  </div>
+                  <button
+                    class="btn-secondary"
+                    :disabled="settingsStore.connectionProfileLoading || !settingsStore.connectionProfileLoaded || ui.visionProbeLoading || !settingsStore.tempSettings.model"
+                    @click="settingsStore.testVisionConnection"
+                  >{{ ui.visionProbeLoading ? '测试中…' : '开始图片实测' }}</button>
+                </div>
+                <p :class="probeOutcomeClass(ui.probeStatus.vision)">{{ probeStatusText(ui.probeStatus.vision, '图片') }}</p>
+              </div>
+            </details>
+
+          </section>
+        </div>
+        <div v-show="ui.activeTab === 'scene'" class="tab-pane scene-tab-pane">
+            <div class="form-group domain-group">
+              <DomainSelector v-model="settingsStore.tempSettings.domainId" :categories="settingsStore.domainCategories" />
+            </div>
         </div>
       </div>
 
@@ -266,7 +283,7 @@
         <button class="btn-secondary" :disabled="settingsStore.settingsLoading" @click="settingsStore.loadSettings">重新读取配置</button>
       </div>
       <div class="modal-footer">
-        <button class="btn-primary" :disabled="savingAll || !settingsStore.settingsLoaded || settingsStore.settingsLoading" @click="saveAllSettings">{{ savingAll ? '保存中…' : '保存' }}</button>
+        <button class="btn-primary" :disabled="savingAll || !settingsStore.settingsLoaded || settingsStore.settingsLoading || settingsStore.connectionProfileLoading || !settingsStore.connectionProfileLoaded" @click="saveAllSettings">{{ savingAll ? '保存中…' : '保存全部设置' }}</button>
       </div>
     </div>
   </div>
@@ -280,6 +297,7 @@ import { useQuestionBankStore } from '../stores/questionbank'
 import { useMobileStore } from '../stores/mobile'
 import ResumeImport from './ResumeImport.vue'
 import ProviderSelect from './ProviderSelect.vue'
+import ConnectionProfileManager from './ConnectionProfileManager.vue'
 import ModelSelect from './ModelSelect.vue'
 import DomainSelector from './DomainSelector.vue'
 import ScreenshotSettings from './ScreenshotSettings.vue'
@@ -302,20 +320,9 @@ watch(() => ui.showSettings, (visible) => {
 })
 
 watch(() => ui.activeTab, (tab) => {
-  if (tab !== 'model') modelDropdownOpen.value = false
+  if (tab !== 'api') modelDropdownOpen.value = false
   if (ui.showSettings && tab === 'output') mobile.refresh()
 })
-
-watch(
-  () => [ui.showSettings, ui.activeTab, settingsStore.tempSettings.connectionMode],
-  ([visible, tab, mode]) => {
-    if (visible && tab === 'model' && mode === 'ccr') settingsStore.ensureCCRModelCatalog()
-  }
-)
-
-function continueToCCRModels() {
-  ui.activeTab = 'model'
-}
 
 function probeStatusText(result, label) {
   if (!result) return `${label}：未测试`
@@ -416,8 +423,9 @@ const screenshotConfig = computed({
 }
 
 .modal-content {
-  width: 520px;
-  max-width: 92vw;
+  container-type: inline-size;
+  width: 720px;
+  max-width: calc(100vw - 32px);
   height: 580px;
   max-height: 85vh;
   background: var(--surface-popover);
@@ -457,18 +465,25 @@ const screenshotConfig = computed({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .tabs {
   display: flex;
+  flex: 1;
+  flex-wrap: wrap;
   gap: var(--sp-1);
   min-width: 0;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .tab {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   padding: var(--sp-2) var(--sp-4);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
@@ -489,6 +504,7 @@ const screenshotConfig = computed({
 }
 
 .close-btn {
+  flex-shrink: 0;
   color: var(--text-muted);
   cursor: pointer;
   width: 30px;
@@ -508,6 +524,7 @@ const screenshotConfig = computed({
 }
 
 .modal-body {
+  min-width: 0;
   flex: 1;
   overflow: hidden;
   padding: 0;
@@ -516,6 +533,7 @@ const screenshotConfig = computed({
 }
 
 .tab-pane {
+  min-width: 0;
   height: 100%;
   overflow-y: auto;
   padding: var(--sp-5);
@@ -523,11 +541,44 @@ const screenshotConfig = computed({
 }
 
 .api-tab-pane {
+  overflow-x: hidden;
   overflow-y: auto;
   display: block;
 }
+.api-tab-pane.model-dropdown-open { overflow-y: hidden; }
+.connection-workspace {
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+.connection-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.connection-actions .connection-save-action { grid-column: 1 / -1; }
+.connection-actions button { min-width: 0; min-height: 40px; white-space: normal; overflow-wrap: anywhere; }
+.connection-actions .btn-primary,
+.connection-actions .btn-secondary { min-height: 40px; padding-inline: var(--sp-3); }
+.catalog-state { max-width: 60%; color: var(--text-tertiary); font-size: var(--text-xs); text-align: right; }
+.probe-advanced { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-card); }
+.probe-advanced summary { padding: var(--sp-3); color: var(--text-secondary); font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+.probe-advanced .probe-card { margin: 0 var(--sp-3) var(--sp-3); }
+.probe-card-header p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--text-xs); font-weight: 400; }
+@media (max-width: 420px) { .connection-actions { grid-template-columns: 1fr; } }
+@container (max-width: 420px) { .connection-actions { grid-template-columns: 1fr; } }
+.connection-workspace > *, :deep(.model-select-container) { min-width: 0; max-width: 100%; }
+.scene-tab-pane :deep(.category-tabs) { flex-wrap: wrap; overflow: visible; }
+.scene-tab-pane :deep(.cat-btn) { flex: 0 1 auto; }
+.scene-tab-pane :deep(.item-title),
+.scene-tab-pane :deep(.item-desc) { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.model-header { flex-wrap: wrap; gap: var(--sp-2); }
+.catalog-state { overflow-wrap: anywhere; }
 
 .modal-footer {
+  flex-shrink: 0;
   padding: var(--sp-4) var(--sp-5);
   border-top: 1px solid var(--border-subtle);
   display: flex;

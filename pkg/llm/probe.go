@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -85,7 +86,7 @@ func ProbeProvider(ctx context.Context, provider Provider, p protocol.APIProtoco
 }
 
 func probeTextWithToken(ctx context.Context, provider Provider, p protocol.APIProtocol, model, token string) ProbeResult {
-	prompt := "Return exactly this verification token and nothing else: " + token
+	prompt := "Return exactly this verification token and nothing else: " + token + ". If the API requires JSON, return one JSON object containing this token exactly once."
 	messages := []Message{NewUserMessage(prompt)}
 	var response Message
 	var err error
@@ -95,12 +96,47 @@ func probeTextWithToken(ctx context.Context, provider Provider, p protocol.APIPr
 		response, err = provider.GenerateContent(ctx, model, messages)
 	}
 	if err != nil {
-		return failedProbe(string(ProbeText), p, normalizeProbeError(err, p), true)
+		detail := normalizeProbeError(err, p)
+		return failedProbe(string(ProbeText), p, detail, detail.Stage != StageBuildRequest && detail.Stage != StageValidateConfig)
 	}
-	if strings.TrimSpace(response.Content) != token {
+	if !textProbeResponseMatchesToken(response.Content, token) {
 		return failedProbe(string(ProbeText), p, NewProviderError(ErrorInvalidResponse, StageValidateProbe, p, nil), true)
 	}
 	return ProbeResult{Kind: string(ProbeText), Outcome: ProbePassed, Protocol: p, Message: "文字响应验证通过", RequestSent: true}
+}
+
+func textProbeResponseMatchesToken(content, token string) bool {
+	content = strings.TrimSpace(content)
+	if content == token {
+		return true
+	}
+	var object map[string]any
+	if err := json.Unmarshal([]byte(content), &object); err != nil || object == nil {
+		return false
+	}
+	return countProbeTokenValues(object, token) == 1
+}
+
+func countProbeTokenValues(value any, token string) int {
+	switch current := value.(type) {
+	case string:
+		if current == token {
+			return 1
+		}
+	case map[string]any:
+		count := 0
+		for _, child := range current {
+			count += countProbeTokenValues(child, token)
+		}
+		return count
+	case []any:
+		count := 0
+		for _, child := range current {
+			count += countProbeTokenValues(child, token)
+		}
+		return count
+	}
+	return 0
 }
 
 func probeVisionWithChallenge(ctx context.Context, provider Provider, p protocol.APIProtocol, model, digits string, imageData []byte) ProbeResult {
@@ -109,7 +145,8 @@ func probeVisionWithChallenge(ctx context.Context, provider Provider, p protocol
 	messages := []Message{NewMultiPartMessage(RoleUser, []ContentPart{TextPart(prompt), ImagePart(dataURL)})}
 	response, err := provider.GenerateContentStream(ctx, messages, nil)
 	if err != nil {
-		return failedProbe(string(ProbeVision), p, normalizeProbeError(err, p), true)
+		detail := normalizeProbeError(err, p)
+		return failedProbe(string(ProbeVision), p, detail, detail.Stage != StageBuildRequest && detail.Stage != StageValidateConfig)
 	}
 	got, ok := normalizeVisionAnswer(response.Content)
 	if !ok {

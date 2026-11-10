@@ -71,7 +71,7 @@ func TestNewProviderAllowsUnconfiguredStartup(t *testing.T) {
 	}
 }
 
-func TestNewProviderCCRAlwaysUsesOpenAIChatAdapter(t *testing.T) {
+func TestNewProviderMigratesCCRToOpenAIChatAdapter(t *testing.T) {
 	for _, cfg := range []config.Config{
 		{ConnectionMode: config.ConnectionModeCCR, APIProtocol: "anthropic_messages", BaseURL: "https://gateway.example.com", Model: "claude-opus-5"},
 		{ConnectionMode: config.ConnectionModeCCR, APIProtocol: "openai_responses", BaseURL: "https://router.example.com/v1/", Model: "gpt-test"},
@@ -85,8 +85,8 @@ func TestNewProviderCCRAlwaysUsesOpenAIChatAdapter(t *testing.T) {
 		if !ok {
 			t.Fatalf("CCR constructed %T instead of OpenAI Chat adapter", provider)
 		}
-		if adapter.config.ConnectionMode != config.ConnectionModeCCR || adapter.config.APIProtocol != "openai_chat" || adapter.config.BaseURL[len(adapter.config.BaseURL)-3:] != "/v1" {
-			t.Fatalf("CCR adapter did not receive normalized settings: %+v", adapter.config)
+		if adapter.config.ConnectionMode != config.ConnectionModeDirect || adapter.config.APIProtocol != "openai_chat" || adapter.config.BaseURL[len(adapter.config.BaseURL)-3:] != "/v1" {
+			t.Fatalf("CCR settings were not migrated: %+v", adapter.config)
 		}
 	}
 }

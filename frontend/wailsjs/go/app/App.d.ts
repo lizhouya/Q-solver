@@ -26,6 +26,8 @@ export function ContinueQuestionBankSession(arg1:string):Promise<app.QuestionBan
 
 export function CopyCode():Promise<void>;
 
+export function DeleteConnectionProfile(arg1:string):Promise<app.DeleteConnectionProfileResult>;
+
 export function DiscardQuestionBankSegment(arg1:boolean):Promise<void>;
 
 export function EmitEvent(arg1:string,arg2:Array<any>):Promise<void>;
@@ -37,6 +39,8 @@ export function ExportQuestionBank(arg1:questionbank.ExportOptions):Promise<ques
 export function ExportQuestionBankSegment(arg1:app.QuestionBankExportRequest):Promise<void>;
 
 export function ExportQuestionBankSession(arg1:string):Promise<void>;
+
+export function GetConnectionProfile(arg1:string):Promise<app.GetConnectionProfileResult>;
 
 export function GetDomainCategories():Promise<Array<domain.Category>>;
 
@@ -67,6 +71,8 @@ export function GetSettings():Promise<config.Config>;
 export function HideWindow():Promise<void>;
 
 export function IsInterruptThinkingEnabled():Promise<boolean>;
+
+export function ListConnectionProfiles():Promise<app.ConnectionProfileListResult>;
 
 export function ListModelsForDraft(arg1:app.ConnectionDraft):Promise<app.ModelListResult>;
 
@@ -109,6 +115,8 @@ export function ResumeQuestionBankSession():Promise<void>;
 export function RetryFailedQuestionBankRecords(arg1:string):Promise<void>;
 
 export function RetryMobileOutput():Promise<app.MobileInfo>;
+
+export function SaveConnectionSettings(arg1:app.ConnectionProfileDraft):Promise<app.SaveConnectionResult>;
 
 export function SaveImageToFile(arg1:string):Promise<boolean>;
 

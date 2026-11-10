@@ -20,9 +20,10 @@ import (
 // =====================================================================
 
 type fakeProvider struct {
-	received [][]llm.Message // 每次 GenerateContentStream 收到的完整 messages
-	reply    string          // 成功返回的 content
-	err      error           // 非 nil 时模拟失败
+	received  [][]llm.Message // 每次 GenerateContentStream 收到的完整 messages
+	reply     string          // 成功返回的 content
+	err       error           // 非 nil 时模拟失败
+	emitChunk bool
 }
 
 func (f *fakeProvider) GenerateContentStream(ctx context.Context, messages []llm.Message, onChunk llm.StreamCallback) (llm.Message, error) {
@@ -31,6 +32,9 @@ func (f *fakeProvider) GenerateContentStream(ctx context.Context, messages []llm
 	f.received = append(f.received, cp)
 	if f.err != nil {
 		return llm.Message{}, f.err
+	}
+	if f.emitChunk && onChunk != nil {
+		onChunk(llm.StreamChunk{Type: llm.ChunkContent, Content: f.reply})
 	}
 	return llm.NewAssistantMessage(f.reply), nil
 }
@@ -69,6 +73,59 @@ func solveOnce(s *Solver, keep bool, shots []string) bool {
 		Config:      config.Config{APIKey: "k", KeepContext: keep},
 		Screenshots: shots,
 	}, Callbacks{})
+}
+
+func TestSolverAllowsKeylessProviderAndEmitsCompletedAnswer(t *testing.T) {
+	provider := &fakeProvider{reply: "keyless answer", emitChunk: true}
+	solver := NewSolver(provider)
+	events := make([]string, 0)
+	ok := solver.Solve(context.Background(), Request{
+		Config:      config.Config{KeepContext: false},
+		Screenshots: []string{"synthetic-image"},
+	}, Callbacks{EmitEvent: func(event string, _ ...interface{}) {
+		events = append(events, event)
+	}})
+	if !ok || len(provider.received) != 1 {
+		t.Fatalf("keyless solve failed: ok=%v requests=%d", ok, len(provider.received))
+	}
+	for _, want := range []string{"solution-stream-start", "solution-stream-chunk", "solution"} {
+		found := false
+		for _, event := range events {
+			if event == want {
+				found = true
+			}
+			if event == "require-api-key" {
+				t.Fatal("keyless solve emitted require-api-key")
+			}
+		}
+		if !found {
+			t.Fatalf("missing event %q in %v", want, events)
+		}
+	}
+}
+
+func TestSolverReportsProviderErrorInsteadOfRequireAPIKeyForKeylessFailure(t *testing.T) {
+	provider := &fakeProvider{err: llm.NewProviderError(llm.ErrorNetwork, llm.StageSendRequest, "", nil)}
+	solver := NewSolver(provider)
+	events := make([]string, 0)
+	ok := solver.Solve(context.Background(), Request{Config: config.Config{}}, Callbacks{EmitEvent: func(event string, _ ...interface{}) {
+		events = append(events, event)
+	}})
+	if ok || len(provider.received) != 1 {
+		t.Fatalf("failed keyless solve used wrong path: ok=%v requests=%d", ok, len(provider.received))
+	}
+	foundError := false
+	for _, event := range events {
+		if event == "require-api-key" {
+			t.Fatal("keyless failure emitted require-api-key")
+		}
+		if event == "solution-error" {
+			foundError = true
+		}
+	}
+	if !foundError {
+		t.Fatalf("missing solution-error in %v", events)
+	}
 }
 
 // =====================================================================

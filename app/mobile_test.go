@@ -67,34 +67,46 @@ func TestDecideScrollRoute(t *testing.T) {
 
 func TestMobileShortcutHintsOnlyExposeLabelsAndDisplayNames(t *testing.T) {
 	bindings := map[string]shortcut.KeyBinding{
-		"screenshot":  {ComboID: "119", KeyName: "F8"},
-		"scroll_up":   {ComboID: "33+164", KeyName: "Alt+PgUp"},
-		"scroll_down": {ComboID: "34+164", KeyName: "Alt+PgDn"},
-		"send":        {ComboID: "SECRET-VK", KeyName: "Ctrl+J"},
+		"screenshot":    {ComboID: "119", KeyName: "F8"},
+		"scroll_up":     {ComboID: "33+164", KeyName: "Alt+PgUp"},
+		"scroll_down":   {ComboID: "34+164", KeyName: "Alt+PgDn"},
+		"send":          {ComboID: "SECRET-VK", KeyName: "Ctrl+J"},
+		"toggle":        {ComboID: "75+162", KeyName: "Ctrl+K"},
+		"toggle_window": {ComboID: "72+160+162", KeyName: "Ctrl+Shift+H"},
 	}
 
 	hints := mobileShortcutHints(bindings)
-	if len(hints) != 4 {
-		t.Fatalf("应只返回已配置且有显示名的 4 条提示，实际 %+v", hints)
+	if len(hints) != 6 {
+		t.Fatalf("应只返回已配置且有显示名的 6 条提示，实际 %+v", hints)
 	}
 	if hints[0] != (mobile.ShortcutHint{Label: "截图", KeyName: "F8"}) {
 		t.Fatalf("首条提示不正确: %+v", hints[0])
 	}
-	if hints[2] != (mobile.ShortcutHint{Label: "向上滚动", KeyName: "Alt+PgUp"}) ||
-		hints[3] != (mobile.ShortcutHint{Label: "向下滚动", KeyName: "Alt+PgDn"}) {
-		t.Fatalf("滚动提示不正确: %+v", hints)
-	}
+	assertMobileHint(t, hints, "隐身模式", "Ctrl+K")
+	assertMobileHint(t, hints, "隐藏/显示窗口", "Ctrl+Shift+H")
+	assertMobileHint(t, hints, "向上滚动", "Alt+PgUp")
+	assertMobileHint(t, hints, "向下滚动", "Alt+PgDn")
 
 	raw, err := json.Marshal(hints)
 	if err != nil {
 		t.Fatal(err)
 	}
 	serialized := string(raw)
-	for _, forbidden := range []string{"vkCode", "comboID", "33+164", "34+164", "SECRET-VK", "token", "path"} {
+	for _, forbidden := range []string{"vkCode", "comboID", "33+164", "34+164", "75+162", "72+160+162", "SECRET-VK", "token", "path"} {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("Mobile hints 不得包含 %q，实际 %s", forbidden, serialized)
 		}
 	}
+}
+
+func assertMobileHint(t *testing.T, hints []mobile.ShortcutHint, label, keyName string) {
+	t.Helper()
+	for _, hint := range hints {
+		if hint.Label == label && hint.KeyName == keyName {
+			return
+		}
+	}
+	t.Fatalf("missing hint %q=%q in %#v", label, keyName, hints)
 }
 
 // TestSolutionOutputEvents 确认白名单事件存在（与 pkg/solution 实际事件名对齐）。

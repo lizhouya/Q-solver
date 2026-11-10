@@ -32,13 +32,16 @@ func NewAnthropicAdapter(cfg config.Config) *AnthropicAdapter {
 		cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
 	}
 
-	client := anthropic.NewClient(
+	options := []option.RequestOption{
 		option.WithoutEnvironmentDefaults(),
-		option.WithAPIKey(cfg.APIKey),
-		option.WithBaseURL(cfg.BaseURL),
-		option.WithHTTPClient(newProviderHTTPClient()),
+		option.WithBaseURL(strings.TrimRight(cfg.BaseURL, "/") + "/"),
+		option.WithHTTPClient(newProviderHTTPClient(cfg, protocol.AnthropicMessages)),
 		option.WithMaxRetries(0),
-	)
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		options = append(options, option.WithAPIKey(cfg.APIKey))
+	}
+	client := anthropic.NewClient(options...)
 	return &AnthropicAdapter{client: &client, config: cfg}
 }
 

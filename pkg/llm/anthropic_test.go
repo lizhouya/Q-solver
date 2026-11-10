@@ -321,3 +321,60 @@ func TestAnthropicAdapterKeepsConfigSnapshot(t *testing.T) {
 		t.Fatalf("adapter observed mutable config: %+v", adapter.config)
 	}
 }
+
+func TestKeylessAnthropicOmitsDefaultAuthAndUsesCustomEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/custom/messages" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Api-Key") != "" {
+			t.Fatalf("keyless request sent default auth")
+		}
+		writeAnthropicMessage(w, "end_turn", anthropicTextContent("ok"))
+	}))
+	defer server.Close()
+
+	adapter := NewAnthropicAdapter(config.Config{
+		BaseURL: server.URL, EndpointPath: "/custom/messages",
+		APIProtocol: string(protocol.AnthropicMessages), Model: "test-model",
+	})
+	if _, err := adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("hi")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnthropicInjectsExtraHeadersIntoModelsAndInference(t *testing.T) {
+	var modelsCalls, inferenceCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Route") != "route-c" {
+			t.Fatalf("extra header missing on %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			modelsCalls.Add(1)
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-test","type":"model","display_name":"Test","created_at":"2026-01-01T00:00:00Z"}],"has_more":false}`))
+		case "/v1/messages":
+			inferenceCalls.Add(1)
+			writeAnthropicMessage(w, "end_turn", anthropicTextContent("ok"))
+		default:
+			t.Fatalf("unexpected request: %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewAnthropicAdapter(config.Config{
+		APIKey: "test-key", BaseURL: server.URL, Model: "test-model",
+		APIProtocol:  string(protocol.AnthropicMessages),
+		ExtraHeaders: map[string]string{"X-Route": "route-c"},
+	})
+	if _, err := adapter.GetModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.GenerateContent(context.Background(), "", []Message{NewUserMessage("hi")}); err != nil {
+		t.Fatal(err)
+	}
+	if modelsCalls.Load() != 1 || inferenceCalls.Load() != 1 {
+		t.Fatalf("models=%d inference=%d", modelsCalls.Load(), inferenceCalls.Load())
+	}
+}

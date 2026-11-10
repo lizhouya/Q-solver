@@ -42,6 +42,10 @@ export function CopyCode() {
   return window['go']['app']['App']['CopyCode']();
 }
 
+export function DeleteConnectionProfile(arg1) {
+  return window['go']['app']['App']['DeleteConnectionProfile'](arg1);
+}
+
 export function DiscardQuestionBankSegment(arg1) {
   return window['go']['app']['App']['DiscardQuestionBankSegment'](arg1);
 }
@@ -64,6 +68,10 @@ export function ExportQuestionBankSegment(arg1) {
 
 export function ExportQuestionBankSession(arg1) {
   return window['go']['app']['App']['ExportQuestionBankSession'](arg1);
+}
+
+export function GetConnectionProfile(arg1) {
+  return window['go']['app']['App']['GetConnectionProfile'](arg1);
 }
 
 export function GetDomainCategories() {
@@ -124,6 +132,10 @@ export function HideWindow() {
 
 export function IsInterruptThinkingEnabled() {
   return window['go']['app']['App']['IsInterruptThinkingEnabled']();
+}
+
+export function ListConnectionProfiles() {
+  return window['go']['app']['App']['ListConnectionProfiles']();
 }
 
 export function ListModelsForDraft(arg1) {
@@ -208,6 +220,10 @@ export function RetryFailedQuestionBankRecords(arg1) {
 
 export function RetryMobileOutput() {
   return window['go']['app']['App']['RetryMobileOutput']();
+}
+
+export function SaveConnectionSettings(arg1) {
+  return window['go']['app']['App']['SaveConnectionSettings'](arg1);
 }
 
 export function SaveImageToFile(arg1) {

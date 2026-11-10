@@ -98,16 +98,27 @@ func TestProbeModelConnectionSuccessReturnsNilErrorDTO(t *testing.T) {
 	}
 }
 
-func TestConnectionDraftMapsConnectionModeWithoutDroppingFields(t *testing.T) {
+func TestConnectionDraftMapsAllUnifiedFieldsWithDeepCopiedHeaders(t *testing.T) {
 	draft := ConnectionDraft{
-		ConnectionMode: "ccr",
-		APIKey:         "test-only-key",
-		BaseURL:        "http://127.0.0.1:3456",
-		Model:          "route-a",
-		APIProtocol:    "anthropic_messages",
+		ConnectionMode:      "direct",
+		APIKey:              "test-only-key",
+		BaseURL:             "http://127.0.0.1:3456/v1",
+		Model:               "route-a",
+		APIProtocol:         "openai_chat",
+		EndpointPath:        "/custom/chat",
+		ExtraHeaders:        map[string]string{"X-Route": "route-a"},
+		ResponseFormat:      "text",
+		RequestTemplate:     `{"model":"{{model}}","messages":"{{openai_messages}}"}`,
+		ResponseJSONPointer: "/answer",
+		AuthHeader:          "X-Test-Key",
+		AuthPrefix:          "Token ",
 	}
 	got := draft.config()
-	if got.ConnectionMode != draft.ConnectionMode || got.APIKey != draft.APIKey || got.BaseURL != draft.BaseURL || got.Model != draft.Model || got.APIProtocol != draft.APIProtocol {
+	if got.ConnectionMode != draft.ConnectionMode || got.APIKey != draft.APIKey || got.BaseURL != draft.BaseURL || got.Model != draft.Model || got.APIProtocol != draft.APIProtocol || got.EndpointPath != draft.EndpointPath || got.ResponseFormat != draft.ResponseFormat || got.ExtraHeaders["X-Route"] != "route-a" || got.RequestTemplate != draft.RequestTemplate || got.ResponseJSONPointer != draft.ResponseJSONPointer || got.AuthHeader != draft.AuthHeader || got.AuthPrefix != draft.AuthPrefix {
 		t.Fatalf("draft mapping dropped a field: %+v", got)
+	}
+	got.ExtraHeaders["X-Route"] = "changed"
+	if draft.ExtraHeaders["X-Route"] != "route-a" {
+		t.Fatal("draft mapping did not deep-copy headers")
 	}
 }

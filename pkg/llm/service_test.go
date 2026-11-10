@@ -65,9 +65,6 @@ func TestDraftConnectionRejectsInvalidInput(t *testing.T) {
 			t.Fatal("invalid endpoint accepted")
 		}
 	}
-	if _, err := s.GetModelsForConnection(context.Background(), "", "http://localhost/v1"); err == nil {
-		t.Fatal("empty key accepted")
-	}
 }
 
 func TestDraftModelListRoutesByProtocolAndDeduplicatesInOrder(t *testing.T) {
@@ -274,39 +271,109 @@ func TestCCRModelCatalogUsesExactlyOneGETAndNoInferenceRequest(t *testing.T) {
 	}
 }
 
-func TestCCRProbeIsRejectedBeforeAnyNetworkRequest(t *testing.T) {
+func TestLegacyCCRProbeMigratesAndSendsOneChatRequest(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		http.Error(w, "must not be called", http.StatusInternalServerError)
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected migrated CCR request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		token := findProbeToken(body)
+		if token == "" {
+			t.Fatal("probe token missing")
+		}
+		encoded, _ := json.Marshal(token)
+		writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":`+string(encoded)+`},"finish_reason":"stop"}]`)
 	}))
 	defer server.Close()
 
-	for _, kind := range []string{string(ProbeText), string(ProbeVision)} {
-		result := (&Service{}).ProbeConnection(context.Background(), config.Config{
-			ConnectionMode: config.ConnectionModeCCR,
-			APIKey:         "test-key",
-			BaseURL:        server.URL,
-			APIProtocol:    "anthropic_messages",
-			Model:          "route-a",
-		}, ProbeRequest{Kind: kind})
-		if result.Kind != kind || result.Outcome != ProbeFailed || result.Protocol != "openai_chat" || result.RequestSent || result.Error == nil {
-			t.Fatalf("unexpected CCR %s probe result: %+v", kind, result)
-		}
-		if result.Error.Code != ErrorProbeDisabled || result.Error.Stage != StageValidateProbe || result.Error.Retryable || result.Error.HTTPStatus != 0 {
-			t.Fatalf("unexpected CCR %s probe error: %+v", kind, result.Error)
-		}
-	}
-	if calls.Load() != 0 {
-		t.Fatalf("CCR probes made %d network requests", calls.Load())
+	result := (&Service{}).ProbeConnection(context.Background(), config.Config{
+		ConnectionMode: config.ConnectionModeCCR,
+		BaseURL:        server.URL,
+		APIProtocol:    "anthropic_messages",
+		Model:          "route-a",
+	}, ProbeRequest{Kind: string(ProbeText)})
+	if result.Outcome != ProbePassed || result.Protocol != "openai_chat" || !result.RequestSent || result.Error != nil || calls.Load() != 1 {
+		t.Fatalf("result=%+v calls=%d", result, calls.Load())
 	}
 }
 
-func TestCCRProbeDisabledEvenWhenRequestFieldsAreIncomplete(t *testing.T) {
-	result := (&Service{}).ProbeConnection(context.Background(), config.Config{
-		ConnectionMode: config.ConnectionModeCCR,
-	}, ProbeRequest{Kind: string(ProbeText)})
-	if result.Error == nil || result.Error.Code != ErrorProbeDisabled || result.RequestSent || result.Protocol != "openai_chat" {
-		t.Fatalf("CCR probe should stop before request validation: %+v", result)
+func TestKeylessConnectionCanListModelsAndProbe(t *testing.T) {
+	var gets, posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Api-Key") != "" {
+			t.Fatal("keyless connection sent default auth")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			gets.Add(1)
+			_, _ = w.Write([]byte(`{"data":[{"id":"local-model","object":"model"}],"object":"list"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+			posts.Add(1)
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			token := findProbeToken(body)
+			encoded, _ := json.Marshal(token)
+			writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":`+string(encoded)+`},"finish_reason":"stop"}]`)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	s := &Service{}
+	cfg := config.Config{BaseURL: server.URL + "/v1", Model: "local-model", APIProtocol: "openai_chat"}
+	models, err := s.ListModelsForConnection(context.Background(), cfg)
+	if err != nil || len(models) != 1 || models[0] != "local-model" {
+		t.Fatalf("models=%#v err=%v", models, err)
+	}
+	result := s.ProbeConnection(context.Background(), cfg, ProbeRequest{Kind: string(ProbeText)})
+	if result.Outcome != ProbePassed || result.Error != nil || gets.Load() != 1 || posts.Load() != 1 {
+		t.Fatalf("result=%+v gets=%d posts=%d", result, gets.Load(), posts.Load())
+	}
+}
+
+func TestLegacyConnectionEntryPointsUseUnifiedValidation(t *testing.T) {
+	var gets, posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Api-Key") != "" {
+			t.Fatal("legacy keyless entry sent default auth")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			gets.Add(1)
+			_, _ = w.Write([]byte(`{"data":[{"id":"local-model","object":"model"}],"object":"list"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+			posts.Add(1)
+			writeChatResponse(w, `[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]`)
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	s := &Service{config: config.Config{BaseURL: server.URL + "/v1", Model: "local-model", APIProtocol: "openai_chat"}}
+	if models, err := s.GetModels(context.Background(), ""); err != nil || len(models) != 1 {
+		t.Fatalf("legacy saved models=%#v err=%v", models, err)
+	}
+	if got := s.TestConnection(context.Background(), "", "local-model"); got != "" {
+		t.Fatalf("legacy saved probe failed: %s", got)
+	}
+	if models, err := s.GetModelsForConnection(context.Background(), "", server.URL+"/v1"); err != nil || len(models) != 1 {
+		t.Fatalf("legacy draft models=%#v err=%v", models, err)
+	}
+	if got := s.TestConnectionForConnection(context.Background(), "", server.URL+"/v1", "local-model"); got != "" {
+		t.Fatalf("legacy draft probe failed: %s", got)
+	}
+	if gets.Load() != 2 || posts.Load() != 2 {
+		t.Fatalf("gets=%d posts=%d", gets.Load(), posts.Load())
 	}
 }

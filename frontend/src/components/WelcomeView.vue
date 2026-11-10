@@ -40,7 +40,7 @@
           <span class="shortcut-sep">·</span>
           <div class="shortcut-pill">
             <kbd>{{ settingsStore.toggleShortcut }}</kbd>
-            <span>隐藏窗口</span>
+            <span>隐身模式</span>
           </div>
         </div>
       </Transition>

@@ -75,13 +75,16 @@ Its core strengths are:
 - switch between different role or scene prompts
 - make the same screenshot produce output that better matches the current task
 
-### 4. API Setup: choose a provider and enter your own key
+### 4. Models and API: two modes for official, compatible, and local services
 
-<img src="assets/img4.png" alt="Q-Solver API Setup" width="100%">
+<img src="assets/img4.png" alt="Q-Solver Models and API Setup" width="100%">
 
-- supports OpenAI-compatible APIs
-- includes presets for OpenAI, Google, Anthropic, DeepSeek, Alibaba Cloud, Moonshot, OpenRouter, and more
-- when you choose `Custom`, you can enter your own `Base URL`
+- offers two API modes: `OpenAI-compatible Chat Completions` and `Custom Request Template`
+- keeps `CCR Local Gateway` as a Chat preset rather than a separate connection mode; selecting it only fills the draft and never contacts the gateway automatically
+- needs only the request address, API key and model by default; advanced connection fields and the JSON template stay collapsed, and roles/scenes live in a separate **Scenes** tab
+- allows an empty `API Key` for unauthenticated local services; extra headers are entered as a JSON object and stored inside the encrypted main configuration
+- provides **Save API Settings**, **Refresh Candidate Models**, and **Test API Connection**; refresh only reads the catalog, while the text test sends one minimal model request and may incur a small charge
+- stores up to 20 complete connection profiles in the existing encrypted main configuration; selecting a profile only loads a draft, and the active connection changes only after a successful save
 
 ### 5. Result View: built for continuous reading and follow-up questions
 
@@ -97,9 +100,9 @@ Its core strengths are:
 
 - AI problem-solving assistant: capture content from your screen and send it directly to your model
 - History panel: keep recent results for continuous review
-- Model switching: automatically load available models from your current endpoint
+- Model switching: explicitly refresh candidate models from the current endpoint or type a model name directly
 - Scene presets: switch prompt styles for different question types
-- Custom API support: works with any OpenAI-compatible service
+- General API connections: supports streaming OpenAI Chat-compatible services and a safe non-streaming JSON request template; legacy Responses/Anthropic settings can generate a migration draft
 - Screenshot tuning: compression, sharpening, grayscale, and original upload options
 - Resume parsing: import a PDF resume and turn it into Markdown with your own model
 - Desktop floating window: hidden mode, click-through, and shortcut-based control
@@ -200,17 +203,27 @@ wails build -ldflags "-s -w" -tags prod
 
 Recommended first-run flow:
 
-1. Open Settings
-2. In the `API` tab, choose a provider and enter your `API Key`
-3. If you use a custom compatible endpoint, also enter `Base URL`
-4. In the `Model` tab, refresh the model list and choose one
-5. In the `Model` tab, choose the scene you want to use
-6. In the `Screenshot` tab, adjust screenshot settings if needed
-7. Go back to the main window and start solving
+1. Open Settings and select `Models & API`.
+2. Select **OpenAI-compatible Chat Completions** or **Custom Request Template**.
+3. Enter the request address, API key and model. A local unauthenticated service may omit the key. Chat accepts an API root or a complete `/chat/completions` URL; templates use a complete inference URL.
+4. Chat mode can refresh the model catalog. Template mode requires a manually entered model and does not fetch a catalog. Connection tests send a text request and may incur charges.
+5. Select an existing entry under **Configured Connections**, or choose **New Connection**. Selection only loads a draft: it does not contact the service, run a test, or switch the active solving provider.
+6. **Save API Settings** saves and activates the current connection profile. **Save All Settings** also saves drafts from other tabs. An active profile cannot be deleted until another profile has been saved and activated.
+7. Choose roles in the separate **Scenes** tab and use **Save All Settings** to apply them.
+
+The advanced section keeps the CCR local gateway preset (draft-only), compatible connection fields, and template settings out of the basic form. Controls wrap within narrow dialogs rather than being clipped.
+
+**Templates:** edit a JSON request, a response JSON Pointer, authentication header/prefix and extra headers. The default template matches OpenAI non-streaming JSON; nonstandard services still require settings from their API documentation. Whole-value placeholders inject typed model/text/message/image values, for example `{"model":"{{model}}","messages":"{{openai_messages}}"}`. No scripts, loops, arbitrary expressions, generic SSE or automatic fallback are executed. A template response is displayed once in full. Image requests are rejected before sending when the template cannot carry images.
+
+**Legacy connections:** Responses/Anthropic settings become an in-memory template draft when opened; cancel does not migrate the file, and saving switches to non-streaming JSON. Unsaved legacy connections continue using the existing adapters. Default response pointers are `/output/0/content/0/text` and `/content/0/text`. They extract one text block only: reasoning/tool-first or multi-block responses require manual review of the pointer and template, and do not provide the former SDK's full aggregation or terminal-state validation.
+
+**Limits:** HTTP/HTTPS only; no URL credentials, query or fragment. Templates are limited to 64 KiB and 64 levels, responses to 4 MiB. Extra headers must be string-valued JSON, with duplicate names, control characters and transport-control headers rejected. Keys are only injected into the authentication header, never the URL or request template. Errors and save results do not echo template/key/header values. Catalog failures preserve the manually entered model; tests never save automatically.
+
+Keyless support covers model probes and screenshot solving. Existing question-bank model-organizing entry points still require a key and are outside this change.
+
+After a successful save, the complete connection profile is stored in the existing encrypted main configuration: request address, API key, protocol, endpoint, extra headers, response format, request template, response pointer, authentication header/prefix, and model. Up to 20 profiles can be stored. Profiles receive a host-and-protocol name by default and can be renamed. The API key remains in a password input with no plaintext reveal control. Selecting a profile only restores its draft; it becomes active only after **Save API Settings** or **Save All Settings** succeeds.
 
 If configuration loading fails, use **Reload configuration**; saving is temporarily blocked to protect the existing file from empty defaults. Scene-list failures do not block API configuration loading. Unchanged question-bank preferences are not saved, and question-bank failures are reported separately from ordinary settings.
-
-After changing provider or endpoint, explicitly refresh the model list in the Model tab. Refresh and connection tests use the current draft endpoint and API key without requiring a save first. Startup, opening Settings, and saving do not automatically fetch models. An explicit connection test sends a request to the selected provider and may incur charges.
 
 ---
 
@@ -222,7 +235,8 @@ Default shortcuts:
 |:---|:---:|:---:|
 | Screenshot | `F8` | `Cmd + 1` |
 | Send to solve | `Ctrl + J` | `Cmd + J` |
-| Show / Hide window | `F9` | `Cmd + 2` |
+| Ghost mode (screen-capture protection) | `F9` | `Cmd + 2` |
+| Hide / show window | `Ctrl + Shift + H` | `Cmd + 4` |
 | Click-through | `F10` | `Cmd + 3` |
 | Move window slightly | `Alt + Arrow Keys` | `Cmd + Option + Arrow Keys` |
 | Scroll content | `Alt + PgUp / PgDn` | `Cmd + Option + Shift + Arrow Keys` |

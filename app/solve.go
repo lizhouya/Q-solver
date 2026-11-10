@@ -1,6 +1,7 @@
 package app
 
 import (
+	"Q-Solver/pkg/llm"
 	"Q-Solver/pkg/logger"
 	"Q-Solver/pkg/questionbank"
 	"Q-Solver/pkg/solution"
@@ -17,14 +18,15 @@ func (a *App) TriggerScreenshot() {
 	defer a.conversationMu.Unlock()
 	cfg := a.configManager.Get()
 
-	if cfg.APIKey == "" {
-		a.EmitEvent("require-api-key")
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		a.EmitEvent("toast", "请先配置模型接口地址")
+		a.EmitEvent("open-settings", "api")
 		return
 	}
 
 	if cfg.Model == "" {
 		a.EmitEvent("toast", "请先选择模型")
-		a.EmitEvent("open-settings", "model")
+		a.EmitEvent("open-settings", "api")
 		return
 	}
 
@@ -105,14 +107,15 @@ func (a *App) triggerSend(skipResumeWarning bool) {
 	defer a.conversationMu.Unlock()
 	cfg := a.configManager.Get()
 
-	if cfg.APIKey == "" {
-		a.EmitEvent("require-api-key")
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		a.EmitEvent("toast", "请先配置模型接口地址")
+		a.EmitEvent("open-settings", "api")
 		return
 	}
 
 	if cfg.Model == "" {
 		a.EmitEvent("toast", "请先选择模型")
-		a.EmitEvent("open-settings", "model")
+		a.EmitEvent("open-settings", "api")
 		return
 	}
 
@@ -169,8 +172,14 @@ func (a *App) TriggerDeleteScreenshot() {
 func (a *App) solveInternal(ctx context.Context, taskID int64, screenshots []string, displayEpoch, conversationEpoch uint64) bool {
 	cfg := a.configManager.Get()
 
-	if cfg.APIKey == "" {
-		a.EmitEvent("require-api-key")
+	if strings.TrimSpace(cfg.BaseURL) == "" {
+		a.EmitEvent("toast", "请先配置模型接口地址")
+		a.EmitEvent("open-settings", "api")
+		return false
+	}
+
+	if _, err := llm.NewProvider(cfg); err != nil {
+		a.EmitEvent("toast", "模型连接配置无效，请检查设置", "error")
 		return false
 	}
 

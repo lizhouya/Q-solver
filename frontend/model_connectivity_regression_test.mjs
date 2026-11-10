@@ -22,7 +22,11 @@ function setup(overrides = {}) {
     probeStatus: { text: null, vision: null }, showToast() {},
   })
   const api = {
-    getSettings: async () => ({ ...fixture }), getDomainCategories: async () => [],
+    getSettings: async () => ({ ...fixture, activeConnectionProfileId: 'profile-a' }),
+    listConnectionProfiles: async () => ({ profiles: [{ id: 'profile-a', name: '测试连接', active: true, apiProtocol: fixture.apiProtocol, model: fixture.model, apiKeySet: true }], error: null }),
+    getConnectionProfile: async () => ({ success: true, profile: { id: 'profile-a', name: '测试连接', connection: { ...fixture } } }),
+    deleteConnectionProfile: async id => ({ success: true, deletedId: id }),
+    getDomainCategories: async () => [],
     syncSettings: async value => { calls.push(['save', JSON.parse(value)]); return '' },
     listModelsForDraft: async draft => { calls.push(['models', { ...draft }]); return { models: ['suggested-model'], error: null } },
     probeModelConnection: async request => { calls.push(['probe', JSON.parse(JSON.stringify(request))]); return { kind: request.kind, outcome: 'passed', protocol: request.connection.apiProtocol, message: '通过', requestSent: true } },
@@ -45,17 +49,18 @@ assert.equal(h.store.settings.apiProtocol, 'openai_responses', 'protocol must lo
 await h.store.openSettings()
 assert.equal(h.calls.length, 0, 'open must not list models or probe')
 assert.equal(h.store.statusText, '已配置 / 未验证')
-await h.store.refreshModels()
-assert.equal(h.calls[0][1].apiProtocol, 'openai_responses')
+assert.equal(await h.store.refreshModels(), false)
+assert.equal(h.calls.length, 0)
+assert.equal(h.store.tempSettings.apiProtocol, 'custom_json')
 assert.equal(h.store.tempSettings.model, 'manual-model', 'model suggestions must not replace manual model')
 await h.store.testTextConnection()
 await h.store.testVisionConnection()
-assert.deepEqual(h.calls.slice(1).map(call => call[1].kind), ['text', 'vision'])
+assert.deepEqual(h.calls.map(call => call[1].kind), ['text', 'vision'])
 assert.equal(h.ui.probeStatus.text.outcome, 'passed')
 assert.equal(h.ui.probeStatus.vision.outcome, 'passed')
 await h.store.saveSettings({ close: false })
-assert.equal(h.calls[3][1].apiProtocol, 'openai_responses', 'protocol must persist')
-assert.equal(Object.hasOwn(h.calls[3][1], 'probeStatus'), false, 'probe state must not persist')
+assert.equal(h.calls[2][1].apiProtocol, 'custom_json', 'protocol must persist')
+assert.equal(Object.hasOwn(h.calls[2][1], 'probeStatus'), false, 'probe state must not persist')
 
 // 连接身份任一字段变化时，文字和图片结果同时失效。
 h.store.tempSettings.model = 'changed-model'
@@ -78,7 +83,10 @@ assert.equal(h.ui.probeStatus.text, null, 'stale A result must not survive A-B-A
 
 // 关闭再打开后，上个会话迟到结果无效。
 let resolveModels
-h = setup({ listModelsForDraft: () => new Promise(resolve => { resolveModels = resolve }) })
+h = setup({
+  getConnectionProfile: async () => ({ success: true, profile: { id: 'profile-a', name: '测试连接', connection: { ...fixture, apiProtocol: 'openai_chat' } } }),
+  listModelsForDraft: () => new Promise(resolve => { resolveModels = resolve }),
+})
 await h.store.loadSettings()
 await h.store.openSettings()
 const listPending = h.store.refreshModels()
@@ -101,14 +109,14 @@ h.store.tempSettings.apiProtocol = 'openai_chat'
 assert.equal(h.store.tempSettings.apiProtocol, 'openai_chat', 'protocol must remain independently editable')
 
 const provider = fs.readFileSync(new URL('./src/components/ProviderSelect.vue', import.meta.url), 'utf8')
-assert.ok(provider.includes('Anthropic Messages'))
-assert.ok(provider.includes('Responses API'))
+assert.ok(provider.includes('自定义请求模板'))
+assert.ok(provider.includes('OpenAI 兼容 Chat Completions'))
 assert.equal(provider.includes('OPENAI-COMPATIBLE'), false, 'provider header must reflect actual protocol')
 const model = fs.readFileSync(new URL('./src/components/ModelSelect.vue', import.meta.url), 'utf8')
 assert.ok(model.includes('<input'), 'model control must allow manual input')
 assert.ok(model.includes('模型目录参考，非当前通道实测'))
 const modal = fs.readFileSync(new URL('./src/components/SettingsModal.vue', import.meta.url), 'utf8')
-assert.ok(modal.includes('每次点击会调用一次模型，可能产生少量费用'))
+assert.ok(modal.includes('测试连接会调用一次模型，可能产生少量费用'))
 assert.ok(modal.includes('testTextConnection'))
 assert.ok(modal.includes('testVisionConnection'))
 console.log('Model connectivity regression tests passed')

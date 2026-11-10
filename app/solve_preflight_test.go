@@ -2,7 +2,14 @@ package app
 
 import (
 	"Q-Solver/pkg/config"
+	"Q-Solver/pkg/llm"
+	"Q-Solver/pkg/solution"
 	"Q-Solver/pkg/task"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -58,5 +65,45 @@ func TestNeedsResumeConfirmation(t *testing.T) {
 				t.Fatalf("needsResumeConfirmation() = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestKeylessSolveInternalReachesLocalTemplateServer(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("Authorization") != "" {
+			t.Error("keyless request sent default authorization")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if messages, ok := body["messages"].([]any); !ok || len(messages) < 2 {
+			t.Error("missing system and screenshot messages")
+		}
+		_, _ = w.Write([]byte(`{"answer":"local answer"}`))
+	}))
+	defer server.Close()
+	manager := configuredSolveManager(t)
+	if err := manager.Patch(func(c *config.Config) {
+		c.APIKey = ""
+		c.APIProtocol = "custom_json"
+		c.BaseURL = server.URL + "/generate"
+		c.RequestTemplate = `{"messages":"{{openai_messages}}"}`
+		c.ResponseJSONPointer = "/answer"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := llm.NewProvider(manager.Get())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &App{configManager: manager, solver: solution.NewSolver(provider)}
+	if !a.solveInternal(context.Background(), 1, []string{"data:image/png;base64,aW1hZ2U="}, 0, 0) {
+		t.Fatal("keyless solve did not complete")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("requests=%d", calls.Load())
 	}
 }

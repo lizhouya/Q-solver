@@ -10,6 +10,7 @@ import (
 
 	openai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 const chatProbeMaxTokens int64 = 32
@@ -31,8 +32,8 @@ func NewOpenAIAdapter(cfg config.Config) *OpenAIAdapter {
 
 	client := openai.NewClient(
 		option.WithAPIKey(cfg.APIKey),
-		option.WithBaseURL(cfg.BaseURL),
-		option.WithHTTPClient(newProviderHTTPClient()),
+		option.WithBaseURL(strings.TrimRight(cfg.BaseURL, "/")+"/"),
+		option.WithHTTPClient(newProviderHTTPClient(cfg, protocol.OpenAIChat)),
 		option.WithMaxRetries(0),
 	)
 	return &OpenAIAdapter{client: &client, config: cfg}
@@ -90,12 +91,23 @@ func (a *OpenAIAdapter) toOpenAIParts(parts []ContentPart) ([]openai.ChatComplet
 	return result, nil
 }
 
+func (a *OpenAIAdapter) newChatParams(model string, messages []openai.ChatCompletionMessageParamUnion) openai.ChatCompletionNewParams {
+	params := openai.ChatCompletionNewParams{Model: model, Messages: messages}
+	if a.config.ResponseFormat == config.ResponseFormatJSONObject {
+		format := shared.NewResponseFormatJSONObjectParam()
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &format,
+		}
+	}
+	return params
+}
+
 func (a *OpenAIAdapter) GenerateContentStream(ctx context.Context, messages []Message, onChunk StreamCallback) (Message, error) {
 	openaiMessages, err := a.toOpenAIMessages(messages)
 	if err != nil {
 		return Message{}, err
 	}
-	stream := a.client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{Model: a.config.Model, Messages: openaiMessages})
+	stream := a.client.Chat.Completions.NewStreaming(ctx, a.newChatParams(a.config.Model, openaiMessages))
 	defer stream.Close()
 
 	var fullContent strings.Builder
@@ -151,11 +163,9 @@ func (a *OpenAIAdapter) handleThinkingChunk(rawJSON string, builder *strings.Bui
 }
 
 func (a *OpenAIAdapter) TestChat(ctx context.Context) error {
-	resp, err := a.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:               a.config.Model,
-		Messages:            []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hi")},
-		MaxCompletionTokens: openai.Int(chatProbeMaxTokens),
-	})
+	params := a.newChatParams(a.config.Model, []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hi")})
+	params.MaxCompletionTokens = openai.Int(chatProbeMaxTokens)
+	resp, err := a.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return ClassifyProviderError(err, StageSendRequest, protocol.OpenAIChat)
 	}
@@ -171,7 +181,7 @@ func (a *OpenAIAdapter) GenerateContent(ctx context.Context, model string, messa
 	if err != nil {
 		return Message{}, err
 	}
-	resp, err := a.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{Model: model, Messages: openaiMessages})
+	resp, err := a.client.Chat.Completions.New(ctx, a.newChatParams(model, openaiMessages))
 	if err != nil {
 		return Message{}, ClassifyProviderError(err, StageSendRequest, protocol.OpenAIChat)
 	}
@@ -236,11 +246,9 @@ func (a *OpenAIAdapter) generateTextProbe(ctx context.Context, model string, mes
 	if err != nil {
 		return Message{}, err
 	}
-	resp, err := a.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:               model,
-		Messages:            openaiMessages,
-		MaxCompletionTokens: openai.Int(chatProbeMaxTokens),
-	})
+	params := a.newChatParams(model, openaiMessages)
+	params.MaxCompletionTokens = openai.Int(chatProbeMaxTokens)
+	resp, err := a.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return Message{}, ClassifyProviderError(err, StageSendRequest, protocol.OpenAIChat)
 	}

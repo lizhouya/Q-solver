@@ -21,6 +21,8 @@ func NewProvider(cfg config.Config) (Provider, error) {
 		return NewOpenAIResponsesAdapter(normalized), nil
 	case protocol.AnthropicMessages:
 		return NewAnthropicAdapter(normalized), nil
+	case protocol.CustomJSON:
+		return NewCustomJSONAdapter(normalized), nil
 	default:
 		return nil, NewProviderError(ErrorInvalidConfig, StageValidateConfig, p, nil)
 	}

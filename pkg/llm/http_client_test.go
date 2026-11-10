@@ -5,6 +5,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"Q-Solver/pkg/config"
+	"Q-Solver/pkg/llm/protocol"
 )
 
 func TestProviderHTTPClientDoesNotFollowRedirects(t *testing.T) {
@@ -24,7 +27,7 @@ func TestProviderHTTPClientDoesNotFollowRedirects(t *testing.T) {
 			}))
 			defer source.Close()
 
-			resp, err := newProviderHTTPClient().Get(source.URL)
+			resp, err := newProviderHTTPClient(config.Config{}, protocol.OpenAIChat).Get(source.URL)
 			if err != nil {
 				t.Fatal(err)
 			}

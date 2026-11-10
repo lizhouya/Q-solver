@@ -3,10 +3,12 @@ package config
 import (
 	"Q-Solver/pkg/common"
 	"Q-Solver/pkg/logger"
+	"Q-Solver/pkg/shortcut"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -73,13 +75,17 @@ func (cm *ConfigManager) Load() error {
 			return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
 		}
 		var persisted struct {
-			Shortcuts map[string]json.RawMessage `json:"shortcuts"`
+			Shortcuts    map[string]json.RawMessage `json:"shortcuts"`
+			EndpointPath json.RawMessage            `json:"endpointPath"`
 		}
 		if json.Unmarshal(plain, &persisted) != nil {
 			return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")
 		}
 		_, clearMobileDisplayConfigured = persisted.Shortcuts["clear_mobile_display"]
 		_, startNextExamConfigured = persisted.Shortcuts["start_next_exam"]
+		if len(persisted.EndpointPath) == 0 {
+			cfg.EndpointPath = ""
+		}
 	}
 	migrateClearMobileDisplayShortcut(&cfg, clearMobileDisplayConfigured)
 	migrateStartNextExamShortcut(&cfg, startNextExamConfigured)
@@ -132,7 +138,12 @@ func (cm *ConfigManager) saveSnapshot(candidate Config) error {
 func (cm *ConfigManager) Get() Config {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	return cm.config
+	return cloneConfigSnapshot(cm.config)
+}
+
+type connectionProfileUpdateMeta struct {
+	ID   *string `json:"connectionProfileId"`
+	Name *string `json:"connectionProfileName"`
 }
 
 // UpdateFromJSON 从前端 JSON 全量更新配置
@@ -143,10 +154,62 @@ func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
 	if err := cm.Load(); err != nil {
 		return err
 	}
+
+	cm.mu.RLock()
+	oldConfigCopy := cloneConfigSnapshot(cm.config)
+	cm.mu.RUnlock()
+
 	newConfig := NewDefaultConfig()
-	if err := json.Unmarshal([]byte(jsonStr), &newConfig); err != nil {
+	payload := []byte(jsonStr)
+	if err := json.Unmarshal(payload, &newConfig); err != nil {
 		return fmt.Errorf("解析配置 JSON 失败: %w", err)
 	}
+	var persisted struct {
+		EndpointPath json.RawMessage `json:"endpointPath"`
+	}
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		return fmt.Errorf("解析配置 JSON 失败: %w", err)
+	}
+	if len(persisted.EndpointPath) == 0 {
+		newConfig.EndpointPath = ""
+	}
+	var meta connectionProfileUpdateMeta
+	if err := json.Unmarshal(payload, &meta); err != nil {
+		return fmt.Errorf("解析配置 JSON 失败: %w", err)
+	}
+
+	normalizedConnection, err := normalizeConnectionFields(newConfig)
+	if err != nil {
+		return err
+	}
+	newConfig = normalizedConnection
+	newConfig.ConnectionProfiles = cloneConfigSnapshot(oldConfigCopy).ConnectionProfiles
+	newConfig.ActiveConnectionProfileID = oldConfigCopy.ActiveConnectionProfileID
+
+	selectedID := oldConfigCopy.ActiveConnectionProfileID
+	if meta.ID != nil {
+		selectedID = strings.TrimSpace(*meta.ID)
+	}
+	if meta.ID == nil && selectedID == "" {
+		selectedID = LegacyConnectionProfileID
+	}
+	if selectedID == LegacyConnectionProfileID && len(oldConfigCopy.ConnectionProfiles) > 0 {
+		return profileError(ProfileErrorInvalid)
+	}
+
+	selectedName := ""
+	if meta.Name != nil {
+		selectedName = *meta.Name
+	} else if existing, ok := FindConnectionProfile(oldConfigCopy, selectedID); ok {
+		selectedName = existing.Name
+	}
+	profileDraft := profileFromConnectionConfig(newConfig, selectedID, selectedName)
+	savedProfile, err := UpsertConnectionProfile(&newConfig, profileDraft)
+	if err != nil {
+		return err
+	}
+	ApplyProfileToActiveConnection(&newConfig, savedProfile)
+
 	normalized, err := newConfig.NormalizedConnectionSettings()
 	if err != nil {
 		return err
@@ -160,10 +223,9 @@ func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
 	}
 
 	cm.mu.Lock()
-	oldConfigCopy := cm.config
 	cm.oldConfig = oldConfigCopy
 	cm.config = newConfig
-	configCopy := cm.config
+	configCopy := cloneConfigSnapshot(cm.config)
 	subscribers := append([]func(NewConfig Config, oldConfig Config){}, cm.subscribers...)
 	cm.mu.Unlock()
 
@@ -176,6 +238,11 @@ func (cm *ConfigManager) UpdateFromJSON(jsonStr string) error {
 // Patch 部分更新配置字段（避免全量序列化/反序列化的开销）
 // patchFn 接收当前配置指针，直接修改需要变更的字段
 func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
+	return cm.PatchValidated(patchFn, nil)
+}
+
+// PatchValidated 在持久化和发布候选配置前执行附加验证。
+func (cm *ConfigManager) PatchValidated(patchFn func(cfg *Config), validateFn func(candidate Config) error) error {
 	cm.updateMu.Lock()
 	defer cm.updateMu.Unlock()
 
@@ -183,9 +250,9 @@ func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
 		return err
 	}
 	cm.mu.RLock()
-	oldConfigCopy := cm.config
+	oldConfigCopy := cloneConfigSnapshot(cm.config)
 	cm.mu.RUnlock()
-	candidate := oldConfigCopy
+	candidate := cloneConfigSnapshot(oldConfigCopy)
 	patchFn(&candidate)
 	normalized, err := candidate.NormalizedConnectionSettings()
 	if err != nil {
@@ -195,6 +262,11 @@ func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
 	if err := candidate.Validate(); err != nil {
 		return err
 	}
+	if validateFn != nil {
+		if err := validateFn(cloneConfigSnapshot(candidate)); err != nil {
+			return err
+		}
+	}
 	if err := cm.saveSnapshot(candidate); err != nil {
 		return err
 	}
@@ -202,7 +274,7 @@ func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
 	cm.mu.Lock()
 	cm.oldConfig = oldConfigCopy
 	cm.config = candidate
-	configCopy := cm.config
+	configCopy := cloneConfigSnapshot(cm.config)
 	subscribers := append([]func(NewConfig Config, oldConfig Config){}, cm.subscribers...)
 	cm.mu.Unlock()
 
@@ -210,6 +282,29 @@ func (cm *ConfigManager) Patch(patchFn func(cfg *Config)) error {
 		sub(configCopy, oldConfigCopy)
 	}
 	return nil
+}
+
+func cloneConfigSnapshot(source Config) Config {
+	result := source
+	if source.ExtraHeaders != nil {
+		result.ExtraHeaders = make(map[string]string, len(source.ExtraHeaders))
+		for key, value := range source.ExtraHeaders {
+			result.ExtraHeaders[key] = value
+		}
+	}
+	if source.Shortcuts != nil {
+		result.Shortcuts = make(map[string]shortcut.KeyBinding, len(source.Shortcuts))
+		for key, value := range source.Shortcuts {
+			result.Shortcuts[key] = value
+		}
+	}
+	if source.ConnectionProfiles != nil {
+		result.ConnectionProfiles = make([]ConnectionProfile, len(source.ConnectionProfiles))
+		for index, profile := range source.ConnectionProfiles {
+			result.ConnectionProfiles[index] = cloneConnectionProfile(profile)
+		}
+	}
+	return result
 }
 
 func (cm *ConfigManager) Subscribe(callback func(NewConfig Config, oldConfig Config)) {

@@ -44,6 +44,7 @@
 | `034` | question-bank-hard-delete（题库当前分段物理清空） | 已完成 / 自动与用户 GUI 验证通过 / 已提交推送并晋升稳定版 / 未发布 | 2026-10-29 | `034-question-bank-hard-delete/` |
 | `035` | screenshot-capture-recovery（截图快捷键阻塞与三图提示恢复） | 已完成 / 自动与用户 GUI 验收通过 / 稳定版已晋升 / 双提交完成 / 未发布 | 2026-11-03 | `035-screenshot-capture-recovery/` |
 | `036` | mobile-screenshot-status-reset（同步端截图状态与本地清理收敛） | 已完成 / 自动与用户 GUI 验收通过 / race BLOCKED 已披露 / 双提交并推送 / 未发布 | 2026-11-04 | `036-mobile-screenshot-status-reset/` |
+| `037` | unified-api-connection（统一模型与 API 接入） | 已完成 / 自动验证与用户固定 Profile 双启动 GUI 验收通过 / race 环境 BLOCKED 已披露 / 稳定版已晋升 / 功能提交 `0728d8c` / 治理提交与推送已授权 | 2026-11-05 | `037-unified-api-connection/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 

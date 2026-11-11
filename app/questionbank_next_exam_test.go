@@ -82,6 +82,7 @@ func TestStartNextExamSealsThenClearsRuntimeState(t *testing.T) {
 	mobileRuntimeBefore := a.mobileRuntimeState
 	mobileEpochBefore := a.mobileDisplayEpoch()
 	before, _ := store.Snapshot()
+	seedRetryableAttempt(a, a.conversationEpoch)
 
 	result, err := a.StartNextExam(true)
 	if err != nil {
@@ -93,6 +94,7 @@ func TestStartNextExamSealsThenClearsRuntimeState(t *testing.T) {
 	if result.ConversationEpoch != 8 || result.ClearedScreenshotCount != 2 {
 		t.Fatalf("运行时清理结果错误: %+v", result)
 	}
+	assertRetryInvalidated(t, a, 7)
 	after, dirty := store.Snapshot()
 	if dirty || after.ID != before.ID || after.State != questionbank.Ended || after.EndedAt == nil {
 		t.Fatalf("当前分段未封存: session=%+v dirty=%v", after, dirty)

@@ -188,7 +188,7 @@ func (s *Solver) Solve(ctx context.Context, req Request, cb Callbacks) bool {
 			logger.Println("当前任务已中断（用户产生新输入）")
 			if cb.EmitEvent != nil {
 				detail := llm.DiagnoseError(llm.NewProviderError(llm.ErrorCancelled, llm.StageStreamResponse, "", nil))
-				cb.EmitEvent("solution-error", "context canceled", detail)
+				cb.EmitEvent("solution-cancelled", detail.Message, detail)
 			}
 			return false
 		}

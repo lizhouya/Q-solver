@@ -52,6 +52,8 @@ type fakeDelegate struct{}
 func (f *fakeDelegate) TriggerSolve()                        {}
 func (f *fakeDelegate) TriggerScreenshot()                   {}
 func (f *fakeDelegate) TriggerSend()                         {}
+func (f *fakeDelegate) TriggerQuickSend()                    {}
+func (f *fakeDelegate) CancelRunningTask() bool              { return false }
 func (f *fakeDelegate) TriggerDeleteScreenshot()             {}
 func (f *fakeDelegate) ToggleVisibility()                    {}
 func (f *fakeDelegate) ToggleClickThrough() (bool, error)    { return false, nil }
@@ -256,9 +258,9 @@ func TestP4MobileToDualNoAutoShow(t *testing.T) {
 // --- T-P4-09: mobile 模式手动 Show 后不再次强制 Hide ---
 //
 // 模拟用户场景：
-//   1. mode=mobile + server available → auto Hide（1 次）
-//   2. 用户手动 Show（Ctrl+Shift+H / Tray）
-//   3. mode 仍为 mobile → 不应再次 Hide
+//  1. mode=mobile + server available → auto Hide（1 次）
+//  2. 用户手动 Show（Ctrl+Shift+H / Tray）
+//  3. mode 仍为 mobile → 不应再次 Hide
 func TestP4MobileManualShowNoForcedHide(t *testing.T) {
 	fc := &fakeHideController{}
 	a := newPhase4AppWithMobile(t, fc)
@@ -434,8 +436,8 @@ func TestP4RuntimeDualToMobileNoServerNoHide(t *testing.T) {
 // --- T-P4-16: Server unavailable skip 后，仍为 mobile → 后续普通 callback 不补 Hide ---
 //
 // 场景：
-//   1. desktop → mobile + server unavailable → skip（0 Hide）
-//   2. 仍为 mobile → 同一 callback（mobile→mobile）→ 不补 Hide
+//  1. desktop → mobile + server unavailable → skip（0 Hide）
+//  2. 仍为 mobile → 同一 callback（mobile→mobile）→ 不补 Hide
 func TestP4MobileNoServerNoCompensate(t *testing.T) {
 	fc := &fakeHideController{}
 	a := newPhase4App(fc)
@@ -458,9 +460,9 @@ func TestP4MobileNoServerNoCompensate(t *testing.T) {
 // --- T-P4-17: desktop→mobile skip(server unavailable) → desktop → desktop→mobile(server available) → Hide once ---
 //
 // 场景：
-//   1. desktop → mobile + server unavailable → skip
-//   2. mobile → desktop
-//   3. desktop → mobile + server available → Hide exactly once
+//  1. desktop → mobile + server unavailable → skip
+//  2. mobile → desktop
+//  3. desktop → mobile + server available → Hide exactly once
 func TestP4MobileNoServerThenAvailableHides(t *testing.T) {
 	fc := &fakeHideController{}
 	a := newPhase4App(fc) // 初始无 server

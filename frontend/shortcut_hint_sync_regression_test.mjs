@@ -21,15 +21,22 @@ assert.ok(settings.includes("{ action: 'toggle_window', label: '隐藏/显示窗
 assert.ok(welcome.includes('<span>隐身模式</span>'))
 assert.equal(welcome.includes('<span>隐藏窗口</span>'), false)
 
-for (const token of ['settingsStore.solveShortcut', 'settingsStore.sendShortcut', 'settingsStore.toggleShortcut']) {
+for (const token of [
+  'settingsStore.solveShortcut',
+  'settingsStore.sendShortcut',
+  'settingsStore.fastSendShortcut',
+  'settingsStore.cancelSolveShortcut',
+  'settingsStore.toggleShortcut',
+]) {
   assert.ok(topBar.includes(token), `TopBar must use ${token}`)
 }
 assert.match(dock, /storeToRefs\(settingsStore\)/)
-for (const token of ['solveShortcut', 'sendShortcut', 'deleteShortcut']) assert.ok(dock.includes(`{{ ${token} }}`))
+for (const token of ['solveShortcut', 'sendShortcut', 'fastSendShortcut', 'deleteShortcut']) assert.ok(dock.includes(`{{ ${token} }}`))
 assert.ok(solve.includes(':shortcut="settingsStore.solveShortcut"'))
 assert.ok(solve.includes(':sendShortcut="settingsStore.sendShortcut"'))
-assert.ok(solve.includes(':solveShortcut="settingsStore.solveShortcut"'))
+assert.ok(solve.includes(':cancel-shortcut="settingsStore.cancelSolveShortcut"'))
 assert.ok(empty.includes('{{ shortcut }}') && empty.includes('{{ sendShortcut }}'))
-assert.ok(error.includes('{{ solveShortcut }}'))
+assert.equal(error.includes('{{ solveShortcut }}'), false)
+assert.ok(error.includes('重试本题'))
 
 console.log('Shortcut hint sync regression tests passed')

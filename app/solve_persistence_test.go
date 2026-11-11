@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -83,6 +84,62 @@ func configuredSolveManager(t *testing.T) *config.ConfigManager {
 	return manager
 }
 
+type modeCaptureProvider struct {
+	messages [][]llm.Message
+}
+
+func (p *modeCaptureProvider) GenerateContentStream(_ context.Context, messages []llm.Message, _ llm.StreamCallback) (llm.Message, error) {
+	p.messages = append(p.messages, messages)
+	return llm.NewAssistantMessage("A"), nil
+}
+
+func (p *modeCaptureProvider) GenerateContent(context.Context, string, []llm.Message) (llm.Message, error) {
+	return llm.Message{}, nil
+}
+func (p *modeCaptureProvider) GetModels(context.Context) ([]string, error) { return nil, nil }
+func (p *modeCaptureProvider) TestChat(context.Context) error              { return nil }
+
+func TestSolveModeFastUsesGenSpeedWithoutChangingConfig(t *testing.T) {
+	manager := configuredSolveManager(t)
+	if err := manager.Patch(func(c *config.Config) {
+		c.DomainId = "gen-step"
+		c.KeepContext = true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &modeCaptureProvider{}
+	app := &App{configManager: manager, solver: solution.NewSolver(provider), solveAttempts: newSolveAttemptTracker()}
+	before := manager.Get()
+	req := solveRunRequest{screenshots: []string{"image"}, mode: SolveModeFast, normalDomainID: before.DomainId, keepContext: before.KeepContext}
+	if !app.solveInternal(context.Background(), 1, req, 0, 0) {
+		t.Fatal("fast solve failed")
+	}
+	system := provider.messages[0][0].Content
+	if !strings.Contains(system, "Speed Solver") || strings.Contains(system, "Step-by-Step Tutor") {
+		t.Fatalf("fast prompt=%q", system)
+	}
+	after := manager.Get()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("fast solve mutated persisted config")
+	}
+}
+
+func TestSolveModeNormalUsesSelectedDomain(t *testing.T) {
+	manager := configuredSolveManager(t)
+	if err := manager.Patch(func(c *config.Config) { c.DomainId = "gen-step" }); err != nil {
+		t.Fatal(err)
+	}
+	provider := &modeCaptureProvider{}
+	app := &App{configManager: manager, solver: solution.NewSolver(provider), solveAttempts: newSolveAttemptTracker()}
+	req := solveRunRequest{screenshots: []string{"image"}, mode: SolveModeNormal, normalDomainID: "gen-step"}
+	if !app.solveInternal(context.Background(), 2, req, 0, 0) {
+		t.Fatal("normal solve failed")
+	}
+	if !strings.Contains(provider.messages[0][0].Content, "Step-by-Step Tutor") {
+		t.Fatal("selected domain missing")
+	}
+}
+
 func TestSolveCreatesRecordBeforeReadingNumberingContext(t *testing.T) {
 	a, store, image := archiveApp(t)
 	previousID, err := store.BeginWithContext([]string{image}, "test-model", "general-assistant", false)
@@ -102,7 +159,9 @@ func TestSolveCreatesRecordBeforeReadingNumberingContext(t *testing.T) {
 	provider := &numberingCaptureProvider{store: store, answer: answer, t: t}
 	a.solver = solution.NewSolver(provider)
 
-	if ok := a.solveInternal(context.Background(), 2, []string{image}, 0, 0); !ok {
+	cfg := a.configManager.Get()
+	run := solveRunRequest{screenshots: []string{image}, mode: SolveModeNormal, normalDomainID: cfg.DomainId, keepContext: cfg.KeepContext}
+	if ok := a.solveInternal(context.Background(), 2, run, 0, 0); !ok {
 		t.Fatal("有效回答应解题成功")
 	}
 	if provider.calls != 1 {
@@ -126,7 +185,9 @@ func TestSolveWithoutQuestionBankUsesEmptyNumberingContext(t *testing.T) {
 	provider := &numberingCaptureProvider{answer: answer, t: t}
 	a := &App{configManager: manager, solver: solution.NewSolver(provider)}
 
-	if ok := a.solveInternal(context.Background(), 3, []string{"synthetic-image"}, 0, 0); !ok {
+	cfg := manager.Get()
+	run := solveRunRequest{screenshots: []string{"synthetic-image"}, mode: SolveModeNormal, normalDomainID: cfg.DomainId, keepContext: cfg.KeepContext}
+	if ok := a.solveInternal(context.Background(), 3, run, 0, 0); !ok {
 		t.Fatal("无题库时仍应解题成功")
 	}
 	currentUser := provider.messages[len(provider.messages)-1]
@@ -155,7 +216,9 @@ func TestSolveRollsBackConversationWhenQuestionBankCompletionCannotPersist(t *te
 	provider := &persistenceFailureProvider{store: store}
 	a.solver = solution.NewSolver(provider)
 
-	if ok := a.solveInternal(context.Background(), 1, []string{image}, 0, 0); ok {
+	cfg := manager.Get()
+	run := solveRunRequest{screenshots: []string{image}, mode: SolveModeNormal, normalDomainID: cfg.DomainId, keepContext: cfg.KeepContext}
+	if ok := a.solveInternal(context.Background(), 1, run, 0, 0); ok {
 		t.Fatal("题库完成记录保存失败时不应报告整轮成功")
 	}
 	if provider.err != nil {
@@ -209,7 +272,9 @@ func TestKeepContextOffClearsRefsAndStartupHistory(t *testing.T) {
 	a, store, _, _ := nextExamApp(t)
 	a.configManager = configuredSolveManager(t)
 	a.llmService = llm.NewService(a.configManager.Get(), a.configManager)
+	seedRetryableAttempt(a, a.conversationEpoch)
 	a.onConfigChanged(config.Config{KeepContext: false}, config.Config{KeepContext: true})
+	assertRetryInvalidated(t, a, 7)
 	if len(a.conversationRefs) != 0 || len(a.solver.SnapshotConversation().Turns) != 0 {
 		t.Fatal("OFF did not clear refs and solver")
 	}
@@ -251,7 +316,9 @@ func TestKeepContextSwitchDuringSolveDoesNotResurrectRefs(t *testing.T) {
 	provider := &contextSwitchProvider{app: a}
 	a.solver.SetProvider(provider)
 	epoch := a.conversationEpoch
-	if !a.solveInternal(context.Background(), 99, []string{image}, 0, epoch) {
+	cfg := a.configManager.Get()
+	run := solveRunRequest{screenshots: []string{image}, mode: SolveModeNormal, normalDomainID: cfg.DomainId, keepContext: cfg.KeepContext}
+	if !a.solveInternal(context.Background(), 99, run, 0, epoch) {
 		t.Fatal("record should still complete")
 	}
 	if provider.calls != 1 || len(a.conversationRefs) != 0 || len(a.solver.SnapshotConversation().Turns) != 0 {

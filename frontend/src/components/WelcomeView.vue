@@ -39,6 +39,16 @@
           </div>
           <span class="shortcut-sep">·</span>
           <div class="shortcut-pill">
+            <kbd>{{ settingsStore.fastSendShortcut }}</kbd>
+            <span>快速解题</span>
+          </div>
+          <span class="shortcut-sep">·</span>
+          <div class="shortcut-pill">
+            <kbd>{{ settingsStore.cancelSolveShortcut }}</kbd>
+            <span>中断解题</span>
+          </div>
+          <span class="shortcut-sep">·</span>
+          <div class="shortcut-pill">
             <kbd>{{ settingsStore.toggleShortcut }}</kbd>
             <span>隐身模式</span>
           </div>
@@ -190,7 +200,10 @@ watch(() => ui.initStatus, (newVal, oldVal) => {
 .shortcuts-group {
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: var(--sp-2);
+  max-width: min(92vw, 720px);
   user-select: none;
 }
 .shortcut-pill {

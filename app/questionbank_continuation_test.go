@@ -40,6 +40,7 @@ func continuationApp(t *testing.T) (*App, *questionbank.Store, string, string) {
 func TestContinueQuestionBankSessionSwitchesStoreSolverAndEpoch(t *testing.T) {
 	a, store, targetID, targetRecordID := continuationApp(t)
 	before, _ := store.Snapshot()
+	seedRetryableAttempt(a, a.conversationEpoch)
 
 	result, err := a.ContinueQuestionBankSession(targetID)
 	if err != nil {
@@ -48,6 +49,7 @@ func TestContinueQuestionBankSessionSwitchesStoreSolverAndEpoch(t *testing.T) {
 	if result.Epoch != 1 || result.Detail.ID != targetID || result.Detail.State != questionbank.Active {
 		t.Fatalf("续接结果错误: %+v", result)
 	}
+	assertRetryInvalidated(t, a, 0)
 	if result.ContextQuality != questionbank.ConversationQualityReconstructed || result.ContextWarning != reconstructedConversationWarning {
 		t.Fatalf("旧记录重建提示缺失: %+v", result)
 	}

@@ -15,6 +15,9 @@ export const useSolutionStore = defineStore('solution', () => {
   const isLoading = ref(false)
   const isAppending = ref(false)
   const shouldOverwriteHistory = ref(false)
+  const solveControlBusy = ref(false)
+  const solveControlError = ref('')
+  const currentSolveMode = ref('normal')
 
   // Thinking chain
   const isThinking = ref(false)
@@ -125,6 +128,9 @@ export const useSolutionStore = defineStore('solution', () => {
       aiResponse: '',
       answerItems: [],
       answerCopyText: '',
+      mode: 'normal',
+      canRetry: false,
+      interruption: null,
       error: null,
     }
   }
@@ -185,6 +191,9 @@ export const useSolutionStore = defineStore('solution', () => {
       aiResponse: record.answer || '',
       answerItems: record.status === 'completed' ? (record.answerItems || []) : [],
       answerCopyText: record.status === 'completed' ? (record.answerCopyText || '') : '',
+      mode: 'normal',
+      canRetry: false,
+      interruption: record.status === 'cancelled' ? { desc: '已中断，以上内容可能不完整' } : null,
       error: null,
     }
   }
@@ -295,6 +304,7 @@ export const useSolutionStore = defineStore('solution', () => {
     legacyStreamTarget.value = null
     errorState.show = false
     errorState.detail = null
+    solveControlError.value = ''
     history.value.forEach(item => { item.isWritable = false })
     let item = history.value.find(candidate => candidate.sessionId === event.sessionId)
     if (!item) {
@@ -309,24 +319,43 @@ export const useSolutionStore = defineStore('solution', () => {
     item.epoch = Number(event.epoch || 0)
     item.isWritable = true
     item.state = 'active'
+    const mode = event.mode === 'fast' ? 'fast' : 'normal'
+    currentSolveMode.value = mode
     let round = item.rounds.find(candidate => candidate.recordId === event.recordId)
     if (!round) {
       round = {
         recordId: event.recordId,
         time: new Date().toLocaleTimeString(),
-        status: 'running',
-        images: (event.images || []).map((data, index) => ({ index, mime: '', data, loading: false, error: '', requestVersion: 0 })),
-        userScreenshot: event.images?.[0] || '',
+        images: [],
+        userScreenshot: '',
         thinking: '',
         thinkingStatus: 'Thinking Process',
         thinkingDuration: 0,
         aiResponse: '',
-      answerItems: [],
-      answerCopyText: '',
+        answerItems: [],
+        answerCopyText: '',
+        mode,
+        canRetry: false,
+        interruption: null,
         error: null,
       }
       item.rounds.push(round)
     }
+    if (Array.isArray(event.images) && event.images.length > 0) {
+      round.images = event.images.map((data, index) => ({ index, mime: '', data, loading: false, error: '', requestVersion: 0 }))
+      round.userScreenshot = event.images[0] || ''
+    }
+    round.time = new Date().toLocaleTimeString()
+    round.status = 'running'
+    round.mode = mode
+    round.thinking = ''
+    round.thinkingStatus = 'Thinking Process'
+    round.thinkingDuration = 0
+    round.aiResponse = ''
+    round.answerItems = []
+    round.answerCopyText = ''
+    round.canRetry = false
+    round.interruption = null
     round.error = null
     history.value = [item, ...history.value.filter(candidate => candidate !== item)]
     const activeItem = history.value[0]
@@ -381,6 +410,8 @@ export const useSolutionStore = defineStore('solution', () => {
         break
       case 'solution':
         round.error = null
+        round.interruption = null
+        round.canRetry = false
         round.answerItems = event.answerItems || []
         round.answerCopyText = event.answerCopyText || ''
         round.aiResponse = text || round.aiResponse
@@ -393,8 +424,26 @@ export const useSolutionStore = defineStore('solution', () => {
       case 'solution-error':
         round.answerItems = []
         round.answerCopyText = ''
-        round.status = text.includes('canceled') ? 'cancelled' : 'failed'
+        round.status = 'failed'
+        round.canRetry = event.canRetry === true
+        round.interruption = null
         round.error = { title: '请求出错', desc: text || '未知错误', icon: 'x-circle', detail: normalizeErrorDetail(event.errorDetail) }
+        resetStreamState()
+        isLoading.value = false
+        isAppending.value = false
+        streamTarget.value = null
+        break
+      case 'solution-cancelled':
+        round.answerItems = []
+        round.answerCopyText = ''
+        round.status = 'cancelled'
+        round.canRetry = event.canRetry === true
+        round.error = null
+        round.interruption = {
+          title: '已中断',
+          desc: text || '已中断，以上内容可能不完整',
+          detail: normalizeErrorDetail(event.errorDetail),
+        }
         resetStreamState()
         isLoading.value = false
         isAppending.value = false
@@ -402,6 +451,8 @@ export const useSolutionStore = defineStore('solution', () => {
         break
       case 'hidden':
         round.status = event.success ? 'completed' : 'failed'
+        round.canRetry = false
+        round.interruption = null
         resetStreamState()
         isLoading.value = false
         isAppending.value = false
@@ -644,6 +695,48 @@ export const useSolutionStore = defineStore('solution', () => {
     return false
   }
 
+  async function retryRound(round) {
+    if (solveControlBusy.value || !round?.canRetry) return false
+    const item = history.value.find(candidate => candidate.rounds?.includes(round))
+    if (!item?.sessionId || !round.recordId) return false
+    solveControlBusy.value = true
+    solveControlError.value = ''
+    try {
+      const result = await api.retrySolve(item.sessionId, round.recordId)
+      if (result?.success) return true
+      solveControlError.value = result?.message || result?.code || '重试失败'
+      return false
+    } catch (error) {
+      solveControlError.value = error?.message || String(error)
+      return false
+    } finally {
+      solveControlBusy.value = false
+    }
+  }
+
+  async function cancelCurrentSolve() {
+    if (solveControlBusy.value) return false
+    const located = locateTargetRound(streamTarget.value)
+    if (!located?.round || !['running', 'waiting', 'thinking', 'streaming'].includes(located.round.status)) return false
+    const previousStatus = located.round.status
+    located.round.status = 'cancelling'
+    solveControlBusy.value = true
+    solveControlError.value = ''
+    try {
+      const result = await api.cancelSolve()
+      if (result?.success) return true
+      located.round.status = previousStatus
+      solveControlError.value = result?.message || result?.code || '中断失败'
+      return false
+    } catch (error) {
+      located.round.status = previousStatus
+      solveControlError.value = error?.message || String(error)
+      return false
+    } finally {
+      solveControlBusy.value = false
+    }
+  }
+
   function clearInlineError() {
     const located = locateRoundTarget(legacyStreamTarget.value) || locateRoundTarget(selectedRoundTarget.value)
     if (located?.round) located.round.error = null
@@ -668,6 +761,9 @@ export const useSolutionStore = defineStore('solution', () => {
     isLoading.value = false
     isAppending.value = false
     shouldOverwriteHistory.value = false
+    solveControlBusy.value = false
+    solveControlError.value = ''
+    currentSolveMode.value = 'normal'
     isThinking.value = false
     thinkingStatusText.value = 'Thinking Process'
     thinkingExpanded.value = true
@@ -802,12 +898,13 @@ export const useSolutionStore = defineStore('solution', () => {
 
   return {
     history, activeHistoryIndex, selectedRoundTarget, streamTarget, isLoading, isAppending, shouldOverwriteHistory,
+    solveControlBusy, solveControlError, currentSolveMode,
     isThinking, thinkingStatusText, thinkingExpanded, isThinkingStalled,
     normalizeErrorDetail, streamingHtml, errorState, historyEntries, currentRounds, currentHistoryItem, isViewingStreamTarget,
     renderMarkdown, getSummary, getRoundSummary, getRoundsCount, getFullContent, getThinkingPreview,
     selectHistory, selectHistoryEntry, isHistoryEntrySelected,
     handleStreamStart, handleStreamChunk, handleThinkingChunk,
-    handleSolution, handleInlineError, clearInlineError,
+    handleSolution, handleInlineError, clearInlineError, retryRound, cancelCurrentSolve,
     activateQuestionBankSession, handleDesktopSolveEvent, loadRoundImage,
     setStreamBuffer, setUserScreenshot, resetLiveHistory, deleteHistory, exportImage,
   }

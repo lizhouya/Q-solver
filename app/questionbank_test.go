@@ -573,7 +573,7 @@ func TestStructuredCapturePublishesOnlyAfterPersistence(t *testing.T) {
 		t.Run(text, func(t *testing.T) {
 			a, store, image := archiveApp(t)
 			calls := 0
-			capture := a.beginQuestionSolveCapture(context.Background(), config.Config{}, []string{image}, func(event string, data ...interface{}) {
+			capture, err := a.beginQuestionSolveCapture(context.Background(), config.Config{}, []string{image}, nil, func(event string, data ...interface{}) {
 				if event != "solution" {
 					return
 				}
@@ -599,6 +599,9 @@ func TestStructuredCapturePublishesOnlyAfterPersistence(t *testing.T) {
 					t.Fatal("persisted items differ")
 				}
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			capture.Emit("solution", text)
 			if calls != 0 {
 				t.Fatal("early terminal")

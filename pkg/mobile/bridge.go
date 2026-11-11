@@ -147,6 +147,7 @@ func (b *Bridge) publishLocked(event string, data []interface{}) bool {
 	case "solution-stream-start":
 		b.seq++
 		b.state = b.baseSnapshot(StatusWaiting, StageThinking)
+		b.state.Payload.SolveMode = mobileSolveMode(data)
 
 	case "solution-stream-thinking":
 		b.applyStreamBody(&b.state.Payload.Analysis, data)
@@ -176,21 +177,18 @@ func (b *Bridge) publishLocked(event string, data []interface{}) bool {
 		b.state.ErrorDetail = nil
 
 	case "solution-error":
-		b.state.ErrorDetail = nil
-		if len(data) > 1 {
-			if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
-				b.state.ErrorDetail = llm.CleanDiagnostic(&detail)
-			}
-		}
+		b.applyTerminalDiagnostic(data)
 		b.seq++
 		b.state.Ts = nowMillis()
 		b.state.Status = StatusError
 		b.state.Stage = StageContent
-		if len(data) > 0 {
-			if value, ok := data[0].(string); ok {
-				b.state.Error = value
-			}
-		}
+
+	case "solution-cancelled":
+		b.applyTerminalDiagnostic(data)
+		b.seq++
+		b.state.Ts = nowMillis()
+		b.state.Status = StatusCancelled
+		b.state.Stage = StageContent
 
 	default:
 		return false
@@ -250,6 +248,28 @@ func (b *Bridge) PublishControl(direction string) bool {
 	b.broadcastLocked(true)
 	b.state.Control = ""
 	return true
+}
+
+func mobileSolveMode(data []interface{}) string {
+	if len(data) > 0 {
+		if value, ok := data[0].(string); ok && value == "fast" {
+			return "fast"
+		}
+	}
+	return "normal"
+}
+
+func (b *Bridge) applyTerminalDiagnostic(data []interface{}) {
+	b.state.Error = ""
+	b.state.ErrorDetail = nil
+	if len(data) > 0 {
+		b.state.Error, _ = data[0].(string)
+	}
+	if len(data) > 1 {
+		if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
+			b.state.ErrorDetail = llm.CleanDiagnostic(&detail)
+		}
+	}
 }
 
 func (b *Bridge) applyStreamBody(dst *string, data []interface{}) {
@@ -363,7 +383,7 @@ func drainSnapshots(ch chan Snapshot) {
 }
 
 // broadcastLocked 向全部订阅者广播当前快照且不阻塞解题主流程。
-// 控制帧在队列满时替换积压快照；流式中间帧可丢弃；done/error 必须排队，
+// 控制帧在队列满时替换积压快照；流式中间帧可丢弃；done/error/cancelled 必须排队，
 // 并保留尚未发送的控制帧。调用前必须持有 b.mu。
 func (b *Bridge) broadcastLocked(control bool) {
 	snapshot := cloneSnapshot(b.state)
@@ -374,7 +394,7 @@ func (b *Bridge) broadcastLocked(control bool) {
 		default:
 		}
 		if !control {
-			if snapshot.Status != StatusDone && snapshot.Status != StatusError {
+			if snapshot.Status != StatusDone && snapshot.Status != StatusError && snapshot.Status != StatusCancelled {
 				continue
 			}
 			pending := make([]Snapshot, 0, cap(ch))

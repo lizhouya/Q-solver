@@ -13,6 +13,7 @@ const (
 	StatusStreaming = "streaming" // 流式中
 	StatusDone      = "done"      // 完成
 	StatusError     = "error"     // 出错
+	StatusCancelled = "cancelled" // 用户中断，正文可能不完整
 )
 
 // Stage 阶段标识（用于手机页区分分析过程 / 正文）
@@ -25,10 +26,11 @@ const (
 type Payload struct {
 	AnswerItems    []answersummary.Item `json:"answerItems,omitempty"`
 	AnswerCopyText string               `json:"answerCopyText,omitempty"`
-	Question       string               `json:"question"` // 当前题目（第一版为空，占位；不传输截图）
-	Analysis       string               `json:"analysis"` // 简短分析（映射 solution-stream-thinking 累积）
-	Answer         string               `json:"answer"`   // 最终答案（映射 solution-stream-chunk / solution）
-	Model          string               `json:"model"`    // 当前模型名
+	Question       string               `json:"question"`            // 当前题目（第一版为空，占位；不传输截图）
+	Analysis       string               `json:"analysis"`            // 简短分析（映射 solution-stream-thinking 累积）
+	Answer         string               `json:"answer"`              // 最终答案（映射 solution-stream-chunk / solution）
+	Model          string               `json:"model"`               // 当前模型名
+	SolveMode      string               `json:"solveMode,omitempty"` // normal | fast，仅用于展示本轮模式
 }
 
 // ShortcutHint 是可安全发送到手机端的快捷键提示。

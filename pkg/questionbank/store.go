@@ -359,6 +359,60 @@ func findRecord(session *Session, id string) *Record {
 	return nil
 }
 
+func (s *Store) RestartRecord(recordID, model, scene string, keepContext bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.ensureWriteAllowedLocked(); err != nil {
+		return err
+	}
+	if s.current == nil || (s.current.State != Active && s.current.State != Paused) {
+		return fmt.Errorf("当前分段不可重试")
+	}
+	if s.dirty || len(s.pending) > 0 {
+		return fmt.Errorf("当前分段存在未落盘内容，不能重试")
+	}
+
+	working := cloneSession(s.current)
+	record := findRecord(working, recordID)
+	if record == nil {
+		return fmt.Errorf("未找到可重试题目记录")
+	}
+	if record.Status != Failed && record.Status != Cancelled && record.Status != Interrupted {
+		return fmt.Errorf("当前题目状态不可重试")
+	}
+	if len(record.Images) < 1 || len(record.Images) > 3 {
+		return fmt.Errorf("可重试题目图片数量无效")
+	}
+
+	record.Status = Running
+	record.Model = model
+	record.Scene = scene
+	keep := keepContext
+	record.KeepContext = &keep
+	record.Answer = ""
+	record.AnswerItems = nil
+	record.Questions = nil
+	record.OrganizeError = ""
+	record.OrganizeFailure = nil
+	record.MetadataSuggestion = nil
+
+	base := s.currentBase
+	if base == "" {
+		base = s.recordsRoot
+	}
+	if err := s.saveSessionLocked(working, base, s.pending); err != nil {
+		return err
+	}
+
+	s.current = working
+	s.currentBase = base
+	clear(s.pending)
+	s.dirty = false
+	s.lastSave = time.Now()
+	return nil
+}
+
 func (s *Store) Append(id, chunk string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

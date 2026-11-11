@@ -13,6 +13,8 @@ assert.match(html, /id="capture-status-card"[^>]*\shidden(?:\s|>)/, '截图 Dock
 assert.match(html, /#capture-status-card\s*\{[^}]*position:\s*fixed[^}]*bottom:/s, '截图 Dock 必须固定在页面底部')
 assert.match(html, /id="screenshot-count"/, '截图状态卡必须显示待发送数量')
 assert.match(html, /id="capture-hints"/, '截图状态卡必须显示截图工作流快捷键')
+assert.match(html, /id="interruption-note"/, '中断状态必须提供独立的不完整内容提示')
+assert.doesNotMatch(html, /RetrySolve|CancelSolve|retryToken|recordId|\/retry\b/, 'Mobile 页面必须保持只读，不得包含解题控制端点')
 
 class StubElement {
   constructor(id = '') {
@@ -426,11 +428,13 @@ source.emit('snapshot', snapshot('numbered-session', 1, 5, '', 0, '', {status:'i
 assert.equal(elements.get('copy-numbered-answers').hidden, true)
 
 // 可选输入来自 Go 测试的真实 SSE 输出，而非手造的业务序号。
+let activePageContext = context
 if (process.argv[2]) {
   elements.clear()
   rafCallbacks.length = 0
   scrollCalls.length = 0
   const freshContext = vm.createContext({ ...context })
+  activePageContext = freshContext
   vm.runInContext(match[1], freshContext, { filename: 'pkg/mobile/web/index.html' })
   const realtimeSource = StubEventSource.instances.at(-1)
   let completed = 0
@@ -471,4 +475,29 @@ diagnosticSource.emit('snapshot', snapshot('diagnostic-session', 2, 5, '', 0, ''
 assert.equal(elements.get('error-diagnostics-text').textContent, '')
 diagnosticSource.emit('message', snapshot('diagnostic-session', 1, 6, '', 0, '', { status: 'error', errorDetail: diagnostic }))
 assert.equal(elements.get('error-diagnostics-text').textContent, '', '旧 clearSeq 错误不得穿透清屏')
+
+// Change 038：中断保留部分答案并标记不完整；错误只提示回桌面重试，不提供远程控制。
+diagnosticSource.emit('snapshot', snapshot('cancel-session', 1, 10, 'partial', 0, '', {
+  status: 'cancelled',
+  payload: { answer: 'partial', solveMode: 'fast' },
+}))
+assert.match(elements.get('status-badge').children.at(-1).textContent, /已中断/)
+assert.match(elements.get('answer-text').innerHTML, /partial/)
+assert.equal(elements.get('answer-card').style.display, 'block')
+assert.equal(elements.get('error-card').style.display, 'none')
+assert.match(elements.get('interruption-note').textContent, /内容可能不完整/)
+assert.match(elements.get('model-label').textContent, /快速解题/)
+
+diagnosticSource.emit('message', snapshot('cancel-session', 1, 11, '完整新答案'))
+activePageContext.selectHistory(10)
+assert.match(elements.get('status-badge').children.at(-1).textContent, /已中断/, '历史中的中断轮不得显示为已完成')
+assert.match(elements.get('interruption-note').textContent, /内容可能不完整/, '历史中的中断轮必须保留不完整提示')
+assert.match(elements.get('model-label').textContent, /快速解题/, '历史中的中断轮必须保留 fast 模式')
+activePageContext.selectHistory(11)
+
+diagnosticSource.emit('message', snapshot('cancel-session', 1, 12, '', 0, '', {
+  status: 'error', payload: {}, error: '网络请求失败',
+}))
+assert.match(elements.get('error-text').innerHTML, /桌面端重试本题/)
+assert.equal(elements.get('error-text').innerHTML.includes('<button'), false)
 console.log('Mobile error diagnostics DOM regression tests passed')

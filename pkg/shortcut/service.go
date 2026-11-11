@@ -84,6 +84,17 @@ func (s *Service) handleTrigger(action string) {
 	case "send":
 		logger.Println("触发发送")
 		s.delegate.TriggerSend()
+	case "send_fast":
+		logger.Println("触发快速解题")
+		s.delegate.TriggerQuickSend()
+	case "cancel_solve":
+		logger.Println("触发中断解题")
+		if !s.delegate.CancelRunningTask() {
+			s.delegate.EmitEvent("toast", map[string]string{
+				"text": "当前没有正在进行的解题",
+				"type": "info",
+			})
+		}
 	case "delete":
 		logger.Println("触发删除截图")
 		s.delegate.TriggerDeleteScreenshot()

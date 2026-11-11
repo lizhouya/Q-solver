@@ -54,8 +54,10 @@ func TestSolveDiagnosticForCancelledAndEmptyTerminal(t *testing.T) {
 			provider.err = context.Canceled
 		}
 		var args []interface{}
+		terminalEvent := ""
 		NewSolver(provider).Solve(ctx, Request{Config: config.Config{APIKey: "test-key"}}, Callbacks{EmitEvent: func(event string, data ...interface{}) {
-			if event == "solution-error" {
+			if event == "solution-error" || event == "solution-cancelled" {
+				terminalEvent = event
 				args = data
 			}
 		}})
@@ -67,11 +69,11 @@ func TestSolveDiagnosticForCancelledAndEmptyTerminal(t *testing.T) {
 		if !ok {
 			t.Fatal("invalid diagnostic type")
 		}
-		if cancelled && (args[0] != "context canceled" || detail.Code != llm.ErrorCancelled) {
-			t.Fatal("cancellation contract changed")
+		if cancelled && (terminalEvent != "solution-cancelled" || detail.Code != llm.ErrorCancelled) {
+			t.Fatalf("cancellation contract changed: event=%q detail=%+v", terminalEvent, detail)
 		}
-		if !cancelled && detail.Code != llm.ErrorEmptyResponse {
-			t.Fatal("empty response classification changed")
+		if !cancelled && (terminalEvent != "solution-error" || detail.Code != llm.ErrorEmptyResponse) {
+			t.Fatalf("empty response classification changed: event=%q detail=%+v", terminalEvent, detail)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"Q-Solver/pkg/answersummary"
+	"Q-Solver/pkg/llm"
 	"bufio"
 	"context"
 	"encoding/hex"
@@ -32,6 +33,22 @@ func newTestBridge(t *testing.T) *Bridge {
 }
 
 // TestBridgeEventSequence 验证 Bridge 状态机：事件流 → 期望快照。
+func TestBridgeFastModeAndCancelledPreservePartialAnswer(t *testing.T) {
+	b := newTestBridge(t)
+	b.Publish("solution-stream-start", "fast")
+	b.Publish("solution-stream-chunk", "B")
+	detail := llm.DiagnoseError(context.Canceled)
+	b.Publish("solution-cancelled", "模型请求已取消", detail)
+
+	state := b.GetState()
+	if state.Status != StatusCancelled || state.Payload.SolveMode != "fast" || state.Payload.Answer != "B" {
+		t.Fatalf("state=%+v", state)
+	}
+	if len(state.Payload.AnswerItems) != 0 || state.Payload.AnswerCopyText != "" {
+		t.Fatal("cancelled snapshot must not expose completed answer summary")
+	}
+}
+
 func TestBridgeEventSequence(t *testing.T) {
 	b := newTestBridge(t)
 	b.SetModel("gpt-4o")
@@ -454,7 +471,7 @@ func TestBusinessSnapshotSequenceAdvancesOnEveryEvent(t *testing.T) {
 	sub, initial := b.Subscribe()
 	defer b.Unsubscribe(sub)
 	previous := initial.Seq
-	for _, event := range []string{"solution-stream-start", "solution-stream-thinking", "solution-stream-chunk", "solution", "solution-stream-start", "solution-error"} {
+	for _, event := range []string{"solution-stream-start", "solution-stream-thinking", "solution-stream-chunk", "solution", "solution-stream-start", "solution-error", "solution-stream-start", "solution-cancelled"} {
 		b.Publish(event, "synthetic")
 		snap := <-sub
 		if snap.Seq <= previous {
@@ -468,7 +485,7 @@ func TestBusinessSnapshotSequenceAdvancesOnEveryEvent(t *testing.T) {
 }
 
 func TestTerminalSnapshotSurvivesFullQueue(t *testing.T) {
-	for _, terminal := range []string{"solution", "solution-error"} {
+	for _, terminal := range []string{"solution", "solution-error", "solution-cancelled"} {
 		t.Run(terminal, func(t *testing.T) {
 			b := newTestBridge(t)
 			sub, _ := b.Subscribe()
@@ -484,7 +501,7 @@ func TestTerminalSnapshotSurvivesFullQueue(t *testing.T) {
 				if snap.Control == "down" {
 					foundControl = true
 				}
-				if snap.Status == StatusDone || snap.Status == StatusError {
+				if snap.Status == StatusDone || snap.Status == StatusError || snap.Status == StatusCancelled {
 					foundTerminal = true
 				}
 			}

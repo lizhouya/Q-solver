@@ -29,6 +29,7 @@ func TestDiscardQuestionBankSegmentPhysicallyDeletesThenClearsContext(t *testing
 	bridge.SetScreenshotState(len(a.screenshotBuffer), MaxScreenshots)
 	mobileBefore := bridge.GetState()
 	runtimeBefore := a.mobileRuntimeState
+	seedRetryableAttempt(a, a.conversationEpoch)
 
 	if err = a.DiscardQuestionBankSegment(true); err != nil {
 		t.Fatal(err)
@@ -42,6 +43,7 @@ func TestDiscardQuestionBankSegmentPhysicallyDeletesThenClearsContext(t *testing
 	if len(a.solver.SnapshotConversation().Turns) != 0 || len(a.conversationRefs) != 0 || a.conversationEpoch != 8 {
 		t.Fatalf("清空成功后模型上下文未清理: refs=%+v epoch=%d conversation=%+v", a.conversationRefs, a.conversationEpoch, a.solver.SnapshotConversation())
 	}
+	assertRetryInvalidated(t, a, 7)
 	if len(a.screenshotBuffer) != 2 {
 		t.Fatalf("清空已完成分段不应删除尚未发送截图: %+v", a.screenshotBuffer)
 	}

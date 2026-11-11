@@ -872,6 +872,22 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class SolveControlResult {
+	    success: boolean;
+	    code?: string;
+	    message?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SolveControlResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.code = source["code"];
+	        this.message = source["message"];
+	    }
+	}
 	export class StartNextExamResult {
 	    sessionId: string;
 	    previousState: string;

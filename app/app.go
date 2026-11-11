@@ -39,6 +39,8 @@ type App struct {
 	conversationEpoch uint64
 	conversationRefs  []questionbank.ConversationTurnRef
 	screenshotBuffer  []string
+	solveAttempts     *solveAttemptTracker
+	pendingSolveMode  SolveMode
 
 	// Mobile Output：专用状态、显示边界与可重试的 SSE 服务。
 	mobileOpMu             sync.Mutex
@@ -71,6 +73,7 @@ func NewApp() *App {
 		stateManager:       state.NewStateManager(),
 		taskManager:        task.NewTaskCoordinator(),
 		screenService:      screen.NewService(),
+		solveAttempts:      newSolveAttemptTracker(),
 		mobileStateManager: config.NewMobileStateManager(),
 	}
 
@@ -146,6 +149,7 @@ func (a *App) onConfigChanged(newConfig config.Config, oldConfig config.Config) 
 			a.solver.ClearHistory()
 		}
 		a.conversationRefs = nil
+		a.invalidateSolveRetryLocked()
 		a.conversationEpoch++
 		if b := a.questionBank; b != nil {
 			b.mu.Lock()

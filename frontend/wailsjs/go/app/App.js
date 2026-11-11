@@ -10,6 +10,10 @@ export function CancelRunningTask() {
   return window['go']['app']['App']['CancelRunningTask']();
 }
 
+export function CancelSolve() {
+  return window['go']['app']['App']['CancelSolve']();
+}
+
 export function CheckMicrophoneAccess() {
   return window['go']['app']['App']['CheckMicrophoneAccess']();
 }
@@ -222,6 +226,10 @@ export function RetryMobileOutput() {
   return window['go']['app']['App']['RetryMobileOutput']();
 }
 
+export function RetrySolve(arg1, arg2) {
+  return window['go']['app']['App']['RetrySolve'](arg1, arg2);
+}
+
 export function SaveConnectionSettings(arg1) {
   return window['go']['app']['App']['SaveConnectionSettings'](arg1);
 }
@@ -308,6 +316,10 @@ export function ToggleWindowVisible() {
 
 export function TriggerDeleteScreenshot() {
   return window['go']['app']['App']['TriggerDeleteScreenshot']();
+}
+
+export function TriggerQuickSend() {
+  return window['go']['app']['App']['TriggerQuickSend']();
 }
 
 export function TriggerScreenshot() {

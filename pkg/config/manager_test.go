@@ -166,6 +166,52 @@ func TestLoadMigratesStartNextExamShortcutSafely(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesSolveControlShortcutsSafely(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skipf("Windows-only migration test on %s", runtime.GOOS)
+	}
+	defaults := map[string]shortcut.KeyBinding{
+		"send_fast":    {ComboID: "74+160+162", KeyName: "Ctrl+Shift+J"},
+		"cancel_solve": {ComboID: "88+160+162", KeyName: "Ctrl+Shift+X"},
+	}
+	for action, binding := range defaults {
+		t.Run(action+" free default", func(t *testing.T) {
+			cm := isolatedManager(t)
+			writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{
+				"screenshot": {ComboID: "119", KeyName: "F8"},
+			})
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Get().Shortcuts[action]; got != binding {
+				t.Fatalf("want %+v got %+v", binding, got)
+			}
+		})
+		t.Run(action+" occupied default", func(t *testing.T) {
+			cm := isolatedManager(t)
+			occupied := shortcut.KeyBinding{ComboID: binding.ComboID, KeyName: "Legacy Binding"}
+			writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{"legacy_action": occupied})
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			got := cm.Get().Shortcuts
+			if got["legacy_action"] != occupied || got[action] != (shortcut.KeyBinding{}) {
+				t.Fatalf("migration stole occupied combo: %+v", got)
+			}
+		})
+		for _, explicit := range []shortcut.KeyBinding{{}, {ComboID: "77+160+162", KeyName: "Ctrl+Shift+M"}} {
+			cm := isolatedManager(t)
+			writeShortcutConfig(t, cm, map[string]shortcut.KeyBinding{action: explicit})
+			if err := cm.Load(); err != nil {
+				t.Fatal(err)
+			}
+			if got := cm.Get().Shortcuts[action]; got != explicit {
+				t.Fatalf("explicit want %+v got %+v", explicit, got)
+			}
+		}
+	}
+}
+
 func TestLoadMigratesClearMobileDisplayShortcut(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skipf("Windows-only migration test on %s", runtime.GOOS)

@@ -588,6 +588,7 @@ func (a *App) DiscardQuestionBankSegment(confirmed bool) error {
 
 	a.solver.ClearHistory()
 	a.conversationRefs = nil
+	a.invalidateSolveRetryLocked()
 	a.conversationEpoch++
 	b.message = "当前分段和截图已从本地永久删除"
 	b.lastExport = questionbank.ExportResult{}

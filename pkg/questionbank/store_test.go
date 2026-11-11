@@ -11,9 +11,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"Q-Solver/pkg/answersummary"
 	"Q-Solver/pkg/llm"
 )
 
@@ -396,5 +398,123 @@ func TestOutputRootMustBeExplicitAndOutsideGit(t *testing.T) {
 	}
 	if _, err := NewStore(dir); err == nil {
 		t.Fatal("accepted archive inside repository")
+	}
+}
+
+func TestRestartRecordReusesImagesAndClearsTerminalOutput(t *testing.T) {
+	store := bank(t)
+	image := shot(t, false)
+	recordID, err := store.BeginWithContext([]string{image}, "old-model", "gen-solver", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Append(recordID, "partial"); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Finish(recordID, "", Failed); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	record := store.recordLocked(recordID)
+	record.AnswerItems = []answersummary.Item{{Label: "A", Value: "旧答案"}}
+	record.Questions = []Question{{Title: "旧题目", Stem: "旧题干"}}
+	record.OrganizeError = "旧整理错误"
+	record.OrganizeFailure = &OrganizeFailure{Code: "old"}
+	record.MetadataSuggestion = &SourceMetadataSuggestion{Company: "旧建议"}
+	if err = store.saveLocked(); err != nil {
+		store.mu.Unlock()
+		t.Fatal(err)
+	}
+	store.mu.Unlock()
+
+	before, _ := store.Snapshot()
+	images := append([]string(nil), before.Records[0].Images...)
+	createdAt := before.Records[0].CreatedAt
+	if err = store.RestartRecord(recordID, "new-model", "gen-speed", false); err != nil {
+		t.Fatal(err)
+	}
+	after, dirty := store.Snapshot()
+	restarted := after.Records[0]
+	if dirty || len(after.Records) != 1 || restarted.ID != recordID || restarted.Status != Running {
+		t.Fatalf("restart changed record identity: %+v dirty=%v", after.Records, dirty)
+	}
+	if !restarted.CreatedAt.Equal(createdAt) || !reflect.DeepEqual(restarted.Images, images) {
+		t.Fatalf("restart changed immutable fields: %+v", restarted)
+	}
+	if restarted.Answer != "" || len(restarted.AnswerItems) != 0 || len(restarted.Questions) != 0 ||
+		restarted.OrganizeError != "" || restarted.OrganizeFailure != nil || restarted.MetadataSuggestion != nil {
+		t.Fatalf("restart did not clear terminal output: %+v", restarted)
+	}
+	if restarted.Model != "new-model" || restarted.Scene != "gen-speed" || restarted.KeepContext == nil || *restarted.KeepContext {
+		t.Fatalf("restart semantics not updated: %+v", restarted)
+	}
+}
+
+func TestRestartRecordAllowsAllRetryableTerminalStates(t *testing.T) {
+	for _, status := range []string{Failed, Cancelled, Interrupted} {
+		t.Run(status, func(t *testing.T) {
+			store := bank(t)
+			recordID, err := store.Begin([]string{shot(t, false)}, "model", "scene")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = store.Finish(recordID, "", status); err != nil {
+				t.Fatal(err)
+			}
+			if err = store.RestartRecord(recordID, "new-model", "gen-speed", true); err != nil {
+				t.Fatalf("status %s should be retryable: %v", status, err)
+			}
+		})
+	}
+}
+
+func TestRestartRecordRejectsRunningCompletedAndMissing(t *testing.T) {
+	store := bank(t)
+	runningID, err := store.Begin([]string{shot(t, false)}, "model", "scene")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RestartRecord(runningID, "model", "scene", false); err == nil {
+		t.Fatal("running record restart should fail")
+	}
+	if err = store.Finish(runningID, "answer", Completed); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RestartRecord(runningID, "model", "scene", false); err == nil {
+		t.Fatal("completed record restart should fail")
+	}
+	if err = store.RestartRecord("0123456789abcdef01234567", "model", "scene", false); err == nil {
+		t.Fatal("missing record restart should fail")
+	}
+}
+
+func TestRestartRecordSaveFailureLeavesMemoryAndDiskTerminal(t *testing.T) {
+	store := bank(t)
+	recordID, err := store.Begin([]string{shot(t, false)}, "model", "scene")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Finish(recordID, "", Cancelled); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := store.Snapshot()
+	store.saveSessionHook = func(*Session, string) error { return errors.New("synthetic restart failure") }
+	if err = store.RestartRecord(recordID, "new", "gen-speed", false); err == nil {
+		t.Fatal("restart should surface persistence failure")
+	}
+	after, _ := store.Snapshot()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed restart changed memory: before=%+v after=%+v", before, after)
+	}
+	manifest, err := os.ReadFile(filepath.Join(store.sessionDir(before.ID), "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted Session
+	if err = json.Unmarshal(manifest, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Records[0].Status != Cancelled {
+		t.Fatalf("failed restart changed disk status: %+v", persisted.Records[0])
 	}
 }

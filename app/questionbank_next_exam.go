@@ -75,6 +75,7 @@ func (a *App) startNextExamLocked() (StartNextExamResult, error) {
 	// Store commit (or an idempotently safe ended/exported result) succeeded.
 	a.solver.ClearHistory()
 	a.conversationRefs = nil
+	a.invalidateSolveRetryLocked()
 	a.conversationEpoch++
 	clearedScreenshots := len(a.screenshotBuffer)
 	a.screenshotBuffer = nil

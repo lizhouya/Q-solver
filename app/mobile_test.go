@@ -99,6 +99,28 @@ func TestMobileShortcutHintsOnlyExposeLabelsAndDisplayNames(t *testing.T) {
 	}
 }
 
+func TestMobileShortcutHintsIncludeFastAndCancelWithoutComboIDs(t *testing.T) {
+	hints := mobileShortcutHints(map[string]shortcut.KeyBinding{
+		"send_fast":    {ComboID: "74+160+162", KeyName: "Ctrl+Shift+J"},
+		"cancel_solve": {ComboID: "88+160+162", KeyName: "Ctrl+Shift+X"},
+	})
+	raw, err := json.Marshal(hints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, expected := range []string{"快速解题", "中断解题", "Ctrl+Shift+J", "Ctrl+Shift+X"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("hints missing %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"74+160+162", "88+160+162", "combo"} {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
+			t.Fatalf("mobile hints leaked %q: %s", forbidden, text)
+		}
+	}
+}
+
 func assertMobileHint(t *testing.T, hints []mobile.ShortcutHint, label, keyName string) {
 	t.Helper()
 	for _, hint := range hints {
@@ -117,6 +139,7 @@ func TestSolutionOutputEvents(t *testing.T) {
 		"solution-stream-chunk",
 		"solution",
 		"solution-error",
+		"solution-cancelled",
 	}
 	for _, e := range expect {
 		if !isSolutionOutputEvent(e) {

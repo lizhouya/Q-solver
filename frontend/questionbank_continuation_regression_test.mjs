@@ -311,8 +311,8 @@ assert.ok(dock.includes("on('desktop-solve-event', event =>"))
 assert.ok(dock.includes("event?.event === 'request-start'"))
 
 const mobile = fs.readFileSync(new URL('../app/mobile.go', import.meta.url), 'utf8')
-assert.ok(mobile.includes('bridge.PublishIfCurrent(expectedDisplay, event, data...)'))
-assert.ok(mobile.includes('Epoch:     target.epoch'))
+assert.ok(mobile.includes('bridge.PublishIfCurrent(expectedDisplay, event, mobileData...)'))
+assert.ok(mobile.includes('Mode:      string(normalizedSolveMode(mode))'))
 assert.ok(mobile.includes('runtimeEmit(a.ctx, "desktop-solve-event", envelope)'))
 
 console.log('Question bank continuation regression tests passed')

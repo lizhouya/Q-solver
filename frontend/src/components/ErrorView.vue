@@ -6,9 +6,13 @@
     <div class="error-title">{{ errorState.title }}</div>
     <div class="error-desc">{{ errorState.desc }}</div>
     <ErrorDiagnostics :detail="errorState.detail" />
-    <div class="error-hint">
-      按 <kbd class="shortcut-key">{{ solveShortcut }}</kbd> 重试
-    </div>
+    <button
+      v-if="canRetry"
+      type="button"
+      class="retry-btn"
+      :disabled="busy"
+      @click="emit('retry')"
+    >{{ busy ? '正在重试…' : '重试本题' }}</button>
   </div>
 </template>
 
@@ -18,8 +22,11 @@ import ErrorDiagnostics from './ErrorDiagnostics.vue'
 
 defineProps({
   errorState: Object,
-  solveShortcut: String
+  canRetry: { type: Boolean, default: false },
+  busy: { type: Boolean, default: false },
 })
+
+const emit = defineEmits(['retry'])
 </script>
 
 <style scoped>
@@ -65,27 +72,24 @@ defineProps({
   max-width: 80%;
   line-height: var(--leading-relaxed);
 }
-.error-hint {
-  font-size: var(--text-sm);
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  animation: pulseOpacity 2s infinite;
-}
-@keyframes pulseOpacity {
-  0% { opacity: 0.5; }
-  50% { opacity: 1; }
-  100% { opacity: 0.5; }
-}
-.shortcut-key {
-  background: var(--accent-muted);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  font-family: var(--font-mono);
-  font-weight: var(--weight-semibold);
-  color: var(--accent);
+.retry-btn {
+  margin-top: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
   border: 1px solid var(--accent-border);
-  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+.retry-btn:hover:not(:disabled) {
+  background: var(--surface-card-hover);
+  border-color: var(--accent);
+}
+.retry-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>

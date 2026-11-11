@@ -172,6 +172,12 @@
     .error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
     .error-diagnostics p { line-height: 1.6; }
     .error-box { background: rgba(248, 113, 113, .08); border: 1px solid rgba(248, 113, 113, .35); color: var(--error); }
+    .interruption-note {
+      margin: 12px 0 0; padding: 9px 11px; border: 1px solid rgba(251, 191, 36, .35);
+      border-radius: 9px; background: rgba(251, 191, 36, .08); color: var(--thinking);
+      font-size: 12px; font-weight: 700;
+    }
+    .interruption-note[hidden] { display: none; }
 
     /* 待发送截图 Dock：仅有待发送截图时固定显示在底部 */
     #capture-status-card {
@@ -309,6 +315,7 @@
       <div class="card" id="answer-card" style="display:none">
         <div class="card-title"><span class="ico">💡</span> 参考答案</div>
         <div class="md" id="answer-text"></div>
+        <p id="interruption-note" class="interruption-note" hidden>已中断，以上内容可能不完整。</p>
         <div class="copy-actions">
           <button type="button" id="copy-numbered-answers" hidden disabled>复制题号＋答案</button>
           <button type="button" id="copy-answers" hidden disabled>复制答案</button>
@@ -369,6 +376,7 @@
     var waitingText = document.getElementById('waiting-text');
     var answerCard = document.getElementById('answer-card');
     var answerText = document.getElementById('answer-text');
+    var interruptionNote = document.getElementById('interruption-note');
     var copyNumberedAnswers = document.getElementById('copy-numbered-answers');
     var copyAnswers = document.getElementById('copy-answers');
     var copyFeedback = document.getElementById('copy-feedback');
@@ -597,10 +605,17 @@
     function showAnswer(html, payload) {
       setCopyTarget(payload);
       answerText.innerHTML = html;
+      interruptionNote.hidden = true;
+      interruptionNote.textContent = '';
       waitingCard.style.display = 'none';
       answerCard.style.display = 'block';
       errorCard.style.display = 'none';
       clearErrorDiagnostics();
+    }
+    function showCancelled(payload) {
+      showAnswer(renderMarkdown(payload.answer || ''), payload);
+      interruptionNote.textContent = '已中断，以上内容可能不完整。可在桌面端重试本题。';
+      interruptionNote.hidden = false;
     }
     function scheduleLatestAnswerScroll() {
       if (selectedSeq >= 0 || answerScrollPending) return false;
@@ -651,7 +666,7 @@
     function showError(msg, detail) {
       renderErrorDiagnostics(detail);
       setCopyTarget(null);
-      errorText.innerHTML = escapeHtml(msg || '未知错误');
+      errorText.innerHTML = escapeHtml(msg || '未知错误') + '<p>可在桌面端重试本题。</p>';
       waitingCard.style.display = 'none';
       answerCard.style.display = 'none';
       errorCard.style.display = 'block';
@@ -667,6 +682,8 @@
 
       waitingText.textContent = '正在等待解题结果…';
       answerText.innerHTML = '';
+      interruptionNote.hidden = true;
+      interruptionNote.textContent = '';
       errorText.innerHTML = '';
       waitingCard.style.display = 'none';
       answerCard.style.display = 'none';
@@ -717,7 +734,9 @@
         answer: p.answer || '',
         answerItems: p.answerItems || [],
         answerCopyText: p.answerCopyText || '',
-        model: p.model || ''
+        model: p.model || '',
+        solveMode: p.solveMode === 'fast' ? 'fast' : 'normal',
+        status: snap.status === 'cancelled' ? 'cancelled' : 'done'
       };
       var idx = findHistory(snap.seq);
       if (idx >= 0) { sessionHistory[idx] = entry; return; }
@@ -770,8 +789,16 @@
       if (seq === (latestSnapshot && latestSnapshot.seq)) { selectedSeq = -1; }
       else { selectedSeq = seq; }
       var e = sessionHistory[idx];
-      if (e) showAnswer(renderMarkdown(e.answer), e);
-      setBadge('已完成', 'live');
+      if (e) {
+        renderModelAndMode(e);
+        if (e.status === 'cancelled') {
+          showCancelled(e);
+          setBadge('已中断', 'thinking');
+        } else {
+          showAnswer(renderMarkdown(e.answer), e);
+          setBadge('已完成', 'live');
+        }
+      }
       renderHistoryList();
     }
 
@@ -933,7 +960,7 @@
           lastBusinessSeq = seq;
         }
         var idlePayload = snap.payload || {};
-        if (idlePayload.model) modelLabel.textContent = '模型 ' + idlePayload.model;
+        renderModelAndMode(idlePayload);
         return true;
       }
       if (seq <= lastBusinessSeq) return false;
@@ -942,6 +969,13 @@
       lastBusinessSeq = seq;
       applySnapshot(snap);
       return true;
+    }
+    function renderModelAndMode(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      var label = payload.model ? '模型 ' + payload.model : '';
+      if (payload.solveMode === 'fast') label += (label ? ' · ' : '') + '快速解题';
+      else if (payload.solveMode === 'normal') label += (label ? ' · ' : '') + '普通解题';
+      if (label) modelLabel.textContent = label;
     }
     function applySnapshot(snap) {
       var payload = snap.payload || {};
@@ -955,10 +989,19 @@
       }
 
       latestSnapshot = snap;
-      if (payload.model) modelLabel.textContent = '模型 ' + payload.model;
+      renderModelAndMode(payload);
 
       if (selectedSeq >= 0) {
-        if (snap.status === 'done') upsertHistory(snap);
+        if (snap.status === 'done' || snap.status === 'cancelled') upsertHistory(snap);
+        renderHistoryList();
+        return;
+      }
+      if (snap.status === 'cancelled') {
+        upsertHistory(snap);
+        selectedSeq = -1;
+        setBadge('已中断', 'thinking');
+        showCancelled(payload);
+        scheduleLatestAnswerScroll();
         renderHistoryList();
         return;
       }
@@ -977,19 +1020,19 @@
         return;
       }
       if (snap.status === 'streaming') {
-        setBadge('处理中', 'thinking');
+        setBadge(payload.solveMode === 'fast' ? '快速处理中' : '处理中', 'thinking');
         // 不显示 analysis：streaming-thinking 阶段仅业务状态，不渲染正文
         if (payload.answer && (selectedSeq === -1 || isLatest(selectedSeq))) {
           showAnswer(renderMarkdown(payload.answer));
           scheduleLatestAnswerScroll();
         } else {
-          showWaiting('正在分析题目…');
+          showWaiting(payload.solveMode === 'fast' ? '快速解题中…' : '正在分析题目…');
         }
         return;
       }
       if (snap.status === 'waiting') {
-        setBadge('等待', 'thinking');
-        showWaiting('正在等待解题结果…');
+        setBadge(payload.solveMode === 'fast' ? '快速解题' : '等待', 'thinking');
+        showWaiting(payload.solveMode === 'fast' ? '快速解题中…' : '正在等待解题结果…');
         return;
       }
       // 未知状态不恢复已清除的业务内容

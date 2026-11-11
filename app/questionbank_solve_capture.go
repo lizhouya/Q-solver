@@ -3,6 +3,7 @@ package app
 import (
 	"Q-Solver/pkg/answersummary"
 	"context"
+	"fmt"
 	"sync"
 
 	"Q-Solver/pkg/config"
@@ -25,25 +26,49 @@ type questionSolveCapture struct {
 	passthrough func(string, ...interface{})
 }
 
-func (a *App) beginQuestionSolveCapture(ctx context.Context, cfg config.Config, images []string, passthrough func(string, ...interface{})) *questionSolveCapture {
+func (a *App) beginQuestionSolveCapture(ctx context.Context, cfg config.Config, images []string, retryTarget *desktopSolveTarget, passthrough func(string, ...interface{})) (*questionSolveCapture, error) {
 	capture := &questionSolveCapture{app: a, ctx: ctx, passthrough: passthrough}
 	b := a.questionBank
 	if b == nil {
-		return capture
+		if retryTarget != nil {
+			capture.sessionID = retryTarget.sessionID
+			capture.recordID = retryTarget.recordID
+		}
+		return capture, nil
 	}
 	b.mu.Lock()
 	if b.closing || b.store == nil {
 		b.mu.Unlock()
-		return capture
+		if retryTarget != nil {
+			return capture, fmt.Errorf("题库服务不可用")
+		}
+		return capture, nil
 	}
 	capture.bank = b
 	capture.store = b.store
-	id, beginErr := capture.store.BeginWithContext(images, cfg.Model, cfg.DomainId, cfg.KeepContext)
-	capture.recordID = id
-	if id != "" {
-		if session, _ := capture.store.Snapshot(); session != nil {
-			capture.sessionID = session.ID
+	var beginErr error
+	if retryTarget != nil {
+		session, _ := capture.store.Snapshot()
+		if session == nil || session.ID != retryTarget.sessionID {
+			b.mu.Unlock()
+			return capture, fmt.Errorf("重试题目不在当前分段")
 		}
+		beginErr = capture.store.RestartRecord(retryTarget.recordID, cfg.Model, cfg.DomainId, cfg.KeepContext)
+		if beginErr != nil {
+			b.mu.Unlock()
+			return capture, beginErr
+		}
+		capture.recordID = retryTarget.recordID
+		capture.sessionID = retryTarget.sessionID
+	} else {
+		capture.recordID, beginErr = capture.store.BeginWithContext(images, cfg.Model, cfg.DomainId, cfg.KeepContext)
+		if capture.recordID != "" {
+			if session, _ := capture.store.Snapshot(); session != nil {
+				capture.sessionID = session.ID
+			}
+		}
+	}
+	if capture.recordID != "" {
 		b.captures++
 		b.workers.Add(1)
 	}
@@ -51,14 +76,14 @@ func (a *App) beginQuestionSolveCapture(ctx context.Context, cfg config.Config, 
 		b.message = "截图归档未完全保存，请勿退出并在题库面板重试保存"
 	}
 	b.mu.Unlock()
-	if id != "" {
+	if capture.recordID != "" {
 		a.notifyQuestionBank()
 	}
 	capture.warn(beginErr)
-	if id == "" && beginErr != nil {
+	if capture.recordID == "" && beginErr != nil {
 		a.EmitEvent("toast", "截图归档失败，本次解题仍继续", "error")
 	}
-	return capture
+	return capture, nil
 }
 
 func (c *questionSolveCapture) warn(err error) {
@@ -98,11 +123,10 @@ func (c *questionSolveCapture) Emit(event string, data ...interface{}) {
 	case "solution-stream-chunk":
 		c.warn(c.store.Append(c.recordID, text))
 	case "solution-error":
-		status := questionbank.Failed
-		if c.ctx.Err() != nil {
-			status = questionbank.Cancelled
-		}
-		c.warn(c.store.Finish(c.recordID, "", status))
+		c.warn(c.store.Finish(c.recordID, "", questionbank.Failed))
+		c.terminal = true
+	case "solution-cancelled":
+		c.warn(c.store.Finish(c.recordID, "", questionbank.Cancelled))
 		c.terminal = true
 	}
 	c.passthrough(event, data...)

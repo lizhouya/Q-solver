@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestTriggerSendWaitsForResumeConfirmationBeforeConsumingScreenshots(t *testing.T) {
@@ -42,6 +44,70 @@ func TestTriggerSendWaitsForResumeConfirmationBeforeConsumingScreenshots(t *test
 	}
 	if len(a.screenshotBuffer) != 1 || a.screenshotBuffer[0] != "pending-image" {
 		t.Fatal("简历确认前不应消费待发送截图")
+	}
+}
+
+type resumeModeBlockingProvider struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *resumeModeBlockingProvider) GenerateContentStream(ctx context.Context, _ []llm.Message, _ llm.StreamCallback) (llm.Message, error) {
+	close(p.started)
+	select {
+	case <-p.release:
+		return llm.NewAssistantMessage("answer"), nil
+	case <-ctx.Done():
+		return llm.Message{}, ctx.Err()
+	}
+}
+func (p *resumeModeBlockingProvider) GenerateContent(context.Context, string, []llm.Message) (llm.Message, error) {
+	return llm.Message{}, nil
+}
+func (p *resumeModeBlockingProvider) GetModels(context.Context) ([]string, error) { return nil, nil }
+func (p *resumeModeBlockingProvider) TestChat(context.Context) error              { return nil }
+
+func TestQuickSendResumeConfirmationPreservesFastMode(t *testing.T) {
+	manager := configuredSolveManager(t)
+	if err := manager.Patch(func(cfg *config.Config) {
+		cfg.ResumePath = "resume.pdf"
+		cfg.ResumeContent = ""
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &resumeModeBlockingProvider{started: make(chan struct{}), release: make(chan struct{})}
+	coordinator := task.NewTaskCoordinator()
+	a := &App{
+		configManager:    manager,
+		taskManager:      coordinator,
+		solver:           solution.NewSolver(provider),
+		solveAttempts:    newSolveAttemptTracker(),
+		screenshotBuffer: []string{"pending-image"},
+	}
+
+	a.TriggerQuickSend()
+	if a.pendingSolveMode != SolveModeFast || coordinator.HasInFlightTask() {
+		t.Fatalf("fast mode was not retained before confirmation: mode=%q", a.pendingSolveMode)
+	}
+	a.ConfirmSolveWithoutResume()
+	select {
+	case <-provider.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("confirmed fast solve did not start")
+	}
+	a.solveAttempts.mu.Lock()
+	attempt := cloneSolveAttempt(a.solveAttempts.current)
+	a.solveAttempts.mu.Unlock()
+	if attempt.mode != SolveModeFast || attempt.normalDomainID == "gen-speed" {
+		t.Fatalf("confirmed mode=%q normalDomainID=%q", attempt.mode, attempt.normalDomainID)
+	}
+	close(provider.release)
+	deadline := time.Now().Add(2 * time.Second)
+	for coordinator.HasInFlightTask() && time.Now().Before(deadline) {
+		runtime.Gosched()
+	}
+	if coordinator.HasInFlightTask() {
+		t.Fatal("confirmed solve did not finish")
 	}
 }
 
@@ -100,7 +166,9 @@ func TestKeylessSolveInternalReachesLocalTemplateServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &App{configManager: manager, solver: solution.NewSolver(provider)}
-	if !a.solveInternal(context.Background(), 1, []string{"data:image/png;base64,aW1hZ2U="}, 0, 0) {
+	cfg := manager.Get()
+	run := solveRunRequest{screenshots: []string{"data:image/png;base64,aW1hZ2U="}, mode: SolveModeNormal, normalDomainID: cfg.DomainId, keepContext: cfg.KeepContext}
+	if !a.solveInternal(context.Background(), 1, run, 0, 0) {
 		t.Fatal("keyless solve did not complete")
 	}
 	if calls.Load() != 1 {

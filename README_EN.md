@@ -99,6 +99,8 @@ Its core strengths are:
 ## Core Features
 
 - AI problem-solving assistant: capture content from your screen and send it directly to your model
+- Original-image retry and interruption: retry a failed request with the same one to three screenshots, or cancel the current request in a time-limited situation
+- Fast solve: use the `gen-speed` scene for one request without changing the persistent default scene
 - History panel: keep recent results for continuous review
 - Model switching: explicitly refresh candidate models from the current endpoint or type a model name directly
 - Scene presets: switch prompt styles for different question types
@@ -235,6 +237,8 @@ Default shortcuts:
 |:---|:---:|:---:|
 | Screenshot | `F8` | `Cmd + 1` |
 | Send to solve | `Ctrl + J` | `Cmd + J` |
+| Fast solve | `Ctrl + Shift + J` | `Cmd + Shift + J` |
+| Interrupt solve | `Ctrl + Shift + X` | `Cmd + Shift + X` |
 | Ghost mode (screen-capture protection) | `F9` | `Cmd + 2` |
 | Hide / show window | `Ctrl + Shift + H` | `Cmd + 4` |
 | Click-through | `F10` | `Cmd + 3` |
@@ -248,6 +252,13 @@ Default shortcuts:
 > **Clear mobile display** is Windows-only and defaults specifically to left `Shift + C`; it can be re-recorded under **Settings → General**. The shortcut only opens the confirmation dialog, and the global hook consumes the matching key combination. During upgrade, if a legacy action such as Hide Window still owns that default combination, the legacy action is unbound and the combination is migrated to Clear Mobile Display so `Shift+C` cannot hide the main window.
 > **Start next exam** also has a Windows-only default and can be re-recorded under **Settings → General**. It shares the same confirmation flow as the main-view button, never deletes durable question-bank data, and does not clear Mobile output. An existing user action that owns the default combination is never displaced during upgrade.
 
+### Retry, interrupt, and fast solve
+
+- After a network error, timeout, temporary service failure, or interrupted stream, the error card shows **Retry this question** while the backend still owns the round snapshot. Retry reuses the original one to three screenshots and the same question-bank record; it calls the currently saved model connection again and may incur another provider charge.
+- **Interrupt solve** cancels the current provider request. It is not pause-and-resume or token-level continuation. Text already streamed remains visible and is marked as possibly incomplete; new sends and retries are briefly rejected until the old request has fully exited.
+- **Fast solve** uses the existing `gen-speed` scene for that request only and does not overwrite the persistent default scene. It asks for a direct answer as quickly as possible, but cannot guarantee fixed network, provider, or server latency.
+- On Windows, the two new shortcuts can be re-recorded. Upgrade migration installs each default only when its combination is free; it never takes an existing user binding.
+
 ### Mobile connection and scrolling
 
 - Open **Settings → Output** to view the phone connection entry. The page refreshes service status whenever Settings opens or the Output tab is selected. Read failures, not-started service, unavailable port, and ready service are reported separately, and retryable failures can be recovered in place.
@@ -257,6 +268,7 @@ Default shortcuts:
 - The mobile page uses an HTTP Token link. Anyone who can reach the address and has the complete link may view synchronized content. Copies, screenshots, and offline saves cannot be remotely revoked.
 - A successful Clear message means the server state was committed and broadcast. SSE has no client acknowledgement, so it does not prove that every device has visibly rendered the blank state.
 - Selecting an output-mode card is only a draft until you click **Save**. The page also shows the currently active mode so an unsaved `mobile` selection cannot be mistaken for an active route.
+- The Mobile view displays normal/fast mode and interrupted status, and tells you to return to the desktop to retry an error. It remains read-only and provides no remote retry or interrupt control.
 - The up/down arrows in the top bar scroll answer content. You can click them, use the saved global shortcuts, or place the pointer over the two-arrow control group and use the mouse wheel. Wheel handling does not take over Settings, the normal answer-reading area, or other system areas.
 - While the phone is showing a historical answer, desktop scroll commands only move the current phone page; they do not switch the selection back to the latest answer. Reconnecting also does not replay an old scroll command.
 

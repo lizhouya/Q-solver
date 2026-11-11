@@ -200,8 +200,9 @@ assert.equal(historyItem.includes('roundsCount'), false)
 assert.equal(historyItem.includes('rounds-badge'), false)
 
 const app = fs.readFileSync(new URL('./src/App.vue', import.meta.url), 'utf8')
-assert.ok(app.includes('current.rounds.pop()'))
-assert.ok(app.includes('solution.selectHistory(0)'))
+assert.equal(app.includes('current.rounds.pop()'), false)
+assert.ok(app.includes("case 'solution-cancelled':"))
+assert.ok(app.includes("on('solution-cancelled', () =>"))
 
 console.log('History round selection regression tests passed')
 

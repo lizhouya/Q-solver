@@ -26,6 +26,16 @@
           <kbd class="dock-kbd">{{ sendShortcut }}</kbd>
           <span>发送</span>
         </div>
+        <button
+          type="button"
+          class="dock-hint dock-action"
+          :disabled="quickSending"
+          title="本次使用快速场景解题，不修改默认场景"
+          @click="quickSend"
+        >
+          <kbd class="dock-kbd">{{ fastSendShortcut }}</kbd>
+          <span>{{ quickSending ? '发送中…' : '快速解题' }}</span>
+        </button>
       </div>
     </div>
   </Transition>
@@ -36,12 +46,29 @@ import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import Icon from './Icon.vue'
 import { useSettingsStore } from '../stores/settings'
+import { useUIStore } from '../stores/ui'
+import { api } from '../services/api'
 import { on } from '../services/events'
 
 const settingsStore = useSettingsStore()
+const ui = useUIStore()
 const { solveShortcut, sendShortcut, deleteShortcut } = storeToRefs(settingsStore)
+const { fastSendShortcut } = storeToRefs(settingsStore)
 
 const screenshots = ref([])
+const quickSending = ref(false)
+
+async function quickSend() {
+  if (quickSending.value) return
+  quickSending.value = true
+  try {
+    await api.triggerQuickSend()
+  } catch (_) {
+    ui.showToast('快速解题发送失败，请稍后再试', 'error')
+  } finally {
+    quickSending.value = false
+  }
+}
 
 // 监听后端事件
 on('screenshot-taken', (base64, count) => {
@@ -148,6 +175,26 @@ defineExpose({ screenshots })
   color: var(--text-tertiary);
   font-size: var(--text-sm);
   white-space: nowrap;
+}
+
+.dock-action {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-muted);
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+
+.dock-action:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-card-hover);
+}
+
+.dock-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .dock-limit {

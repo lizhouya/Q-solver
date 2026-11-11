@@ -10,6 +10,8 @@ export function CancelQuestionBankOrganizing():Promise<void>;
 
 export function CancelRunningTask():Promise<boolean>;
 
+export function CancelSolve():Promise<app.SolveControlResult>;
+
 export function CheckMicrophoneAccess():Promise<number>;
 
 export function CheckScreenCapturePermission():Promise<boolean>;
@@ -116,6 +118,8 @@ export function RetryFailedQuestionBankRecords(arg1:string):Promise<void>;
 
 export function RetryMobileOutput():Promise<app.MobileInfo>;
 
+export function RetrySolve(arg1:string,arg2:string):Promise<app.SolveControlResult>;
+
 export function SaveConnectionSettings(arg1:app.ConnectionProfileDraft):Promise<app.SaveConnectionResult>;
 
 export function SaveImageToFile(arg1:string):Promise<boolean>;
@@ -159,6 +163,8 @@ export function ToggleVisibility():Promise<void>;
 export function ToggleWindowVisible():Promise<string>;
 
 export function TriggerDeleteScreenshot():Promise<void>;
+
+export function TriggerQuickSend():Promise<void>;
 
 export function TriggerScreenshot():Promise<void>;
 

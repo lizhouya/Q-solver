@@ -120,6 +120,8 @@ func getDefaultShortcutsForOS(goos string) map[string]shortcut.KeyBinding {
 		return map[string]shortcut.KeyBinding{
 			"solve":         {ComboID: "Cmd+1", KeyName: "⌘1"},
 			"send":          {ComboID: "Cmd+J", KeyName: "⌘J"},
+			"send_fast":     {ComboID: "Cmd+Shift+J", KeyName: "⌘⇧J"},
+			"cancel_solve":  {ComboID: "Cmd+Shift+X", KeyName: "⌘⇧X"},
 			"delete":        {ComboID: "Cmd+D", KeyName: "⌘D"},
 			"toggle":        {ComboID: "Cmd+2", KeyName: "⌘2"},
 			"clickthrough":  {ComboID: "Cmd+3", KeyName: "⌘3"},
@@ -136,6 +138,8 @@ func getDefaultShortcutsForOS(goos string) map[string]shortcut.KeyBinding {
 	return map[string]shortcut.KeyBinding{
 		"screenshot":           {ComboID: "119", KeyName: "F8"},
 		"send":                 {ComboID: "74+162", KeyName: "Ctrl+J"},
+		"send_fast":            {ComboID: "74+160+162", KeyName: "Ctrl+Shift+J"},
+		"cancel_solve":         {ComboID: "88+160+162", KeyName: "Ctrl+Shift+X"},
 		"delete":               {ComboID: "68+162", KeyName: "Ctrl+D"},
 		"toggle":               {ComboID: "120", KeyName: "F9"},
 		"clickthrough":         {ComboID: "121", KeyName: "F10"},
@@ -149,6 +153,22 @@ func getDefaultShortcutsForOS(goos string) map[string]shortcut.KeyBinding {
 		"clear_mobile_display": {ComboID: "67+160", KeyName: "Shift+C"},
 		"start_next_exam":      {ComboID: "78+160+162", KeyName: "Ctrl+Shift+N"},
 	}
+}
+
+func migrateDefaultShortcut(cfg *Config, action string, binding shortcut.KeyBinding, explicitlyConfigured bool) {
+	if cfg.Shortcuts == nil {
+		cfg.Shortcuts = make(map[string]shortcut.KeyBinding)
+	}
+	if explicitlyConfigured {
+		return
+	}
+	for other, existing := range cfg.Shortcuts {
+		if other != action && existing.ComboID != "" && existing.ComboID == binding.ComboID {
+			cfg.Shortcuts[action] = shortcut.KeyBinding{}
+			return
+		}
+	}
+	cfg.Shortcuts[action] = binding
 }
 
 func migrateStartNextExamShortcut(cfg *Config, explicitlyConfigured bool) {

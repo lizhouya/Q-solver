@@ -11,6 +11,9 @@ type mockDelegate struct {
 	solveCalls              int
 	screenshotCalls         int
 	sendCalls               int
+	quickSendCalls          int
+	cancelCalls             int
+	cancelResult            bool
 	deleteScreenshotCalls   int
 	toggleVisibilityCalls   int
 	toggleClickThroughCalls int
@@ -26,6 +29,8 @@ type mockDelegate struct {
 func (m *mockDelegate) TriggerSolve()            { m.solveCalls++ }
 func (m *mockDelegate) TriggerScreenshot()       { m.screenshotCalls++ }
 func (m *mockDelegate) TriggerSend()             { m.sendCalls++ }
+func (m *mockDelegate) TriggerQuickSend()        { m.quickSendCalls++ }
+func (m *mockDelegate) CancelRunningTask() bool  { m.cancelCalls++; return m.cancelResult }
 func (m *mockDelegate) TriggerDeleteScreenshot() { m.deleteScreenshotCalls++ }
 func (m *mockDelegate) ToggleVisibility()        { m.toggleVisibilityCalls++ }
 func (m *mockDelegate) ToggleClickThrough() (bool, error) {
@@ -51,6 +56,33 @@ func noopSubscribe(func(map[string]KeyBinding)) {}
 // newTestService 构造一个隔离的 Service（不启动 Windows 钩子）。
 func newTestService(d *mockDelegate) *Service {
 	return NewService(d, map[string]KeyBinding{}, noopSubscribe)
+}
+
+func TestHandleTriggerFastSendAndCancel(t *testing.T) {
+	d := &mockDelegate{cancelResult: true}
+	s := newTestService(d)
+
+	s.handleTrigger("send_fast")
+	s.handleTrigger("cancel_solve")
+
+	if d.quickSendCalls != 1 || d.cancelCalls != 1 {
+		t.Fatalf("quick=%d cancel=%d", d.quickSendCalls, d.cancelCalls)
+	}
+	if len(d.events) != 0 {
+		t.Fatalf("successful controls emitted unexpected events: %v", d.events)
+	}
+}
+
+func TestHandleTriggerCancelWithoutTaskEmitsInfoToast(t *testing.T) {
+	d := &mockDelegate{cancelResult: false}
+	s := newTestService(d)
+
+	s.handleTrigger("cancel_solve")
+
+	if d.cancelCalls != 1 {
+		t.Fatalf("cancel calls=%d", d.cancelCalls)
+	}
+	assertSingleToast(t, d, "当前没有正在进行的解题", "info")
 }
 
 func TestHandleTriggerToggleWindow(t *testing.T) {

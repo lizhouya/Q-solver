@@ -13,6 +13,22 @@ import (
 
 const MaxScreenshots = 3
 
+type solveStartRequest struct {
+	mode        SolveMode
+	retryTarget *desktopSolveTarget
+	screenshots []string
+}
+
+type solveRunRequest struct {
+	screenshots    []string
+	mode           SolveMode
+	normalDomainID string
+	keepContext    bool
+	retryTarget    *desktopSolveTarget
+	capture        *questionSolveCapture
+	target         desktopSolveTarget
+}
+
 func (a *App) TriggerScreenshot() {
 	a.conversationMu.Lock()
 	defer a.conversationMu.Unlock()
@@ -30,8 +46,8 @@ func (a *App) TriggerScreenshot() {
 		return
 	}
 
-	if a.taskManager.HasRunningTask() {
-		logger.Println("忽略截图：当前有任务正在运行")
+	if a.taskManager != nil && a.taskManager.HasInFlightTask() {
+		logger.Println("忽略截图：当前有任务尚未完全结束")
 		a.EmitEvent("toast", "正在处理中，请稍候...")
 		return
 	}
@@ -54,7 +70,7 @@ func (a *App) TriggerScreenshot() {
 		return
 	}
 
-	a.screenshotBuffer = append(a.screenshotBuffer, previewResult.Base64)
+	a.appendScreenshotLocked(previewResult.Base64)
 	a.syncMobileScreenshotState(len(a.screenshotBuffer))
 	a.EmitEvent("screenshot-taken", previewResult.Base64, len(a.screenshotBuffer))
 }
@@ -86,8 +102,22 @@ func (a *App) ClearScreenshots() {
 	a.conversationMu.Lock()
 	defer a.conversationMu.Unlock()
 	a.screenshotBuffer = nil
+	if a.taskManager == nil || !a.taskManager.HasInFlightTask() {
+		a.invalidateSolveRetryLocked()
+	}
 	a.syncMobileScreenshotState(0)
 	a.EmitEvent("screenshots-cleared")
+}
+
+func (a *App) invalidateSolveRetryLocked() {
+	if a.solveAttempts != nil {
+		a.solveAttempts.Invalidate()
+	}
+}
+
+func (a *App) appendScreenshotLocked(image string) {
+	a.invalidateSolveRetryLocked()
+	a.screenshotBuffer = append(a.screenshotBuffer, image)
 }
 
 func needsResumeConfirmation(resumePath, resumeContent string) bool {
@@ -95,70 +125,236 @@ func needsResumeConfirmation(resumePath, resumeContent string) bool {
 }
 
 func (a *App) TriggerSend() {
-	a.triggerSend(false)
+	a.triggerSend(SolveModeNormal, false)
+}
+
+func (a *App) TriggerQuickSend() {
+	a.triggerSend(SolveModeFast, false)
 }
 
 func (a *App) ConfirmSolveWithoutResume() {
-	a.triggerSend(true)
-}
-
-func (a *App) triggerSend(skipResumeWarning bool) {
 	a.conversationMu.Lock()
 	defer a.conversationMu.Unlock()
+	mode := a.pendingSolveMode
+	if mode == "" {
+		mode = SolveModeNormal
+	}
+	a.pendingSolveMode = ""
+	a.startSolveLockedWithResume(solveStartRequest{mode: mode}, true)
+}
+
+func (a *App) triggerSend(mode SolveMode, skipResumeWarning bool) {
+	a.conversationMu.Lock()
+	defer a.conversationMu.Unlock()
+	a.startSolveLockedWithResume(solveStartRequest{mode: mode}, skipResumeWarning)
+}
+
+func (a *App) startSolve(request solveStartRequest) SolveControlResult {
+	a.conversationMu.Lock()
+	defer a.conversationMu.Unlock()
+	return a.startSolveLocked(request)
+}
+
+func (a *App) startSolveLocked(request solveStartRequest) SolveControlResult {
+	return a.startSolveLockedWithResume(request, false)
+}
+
+func (a *App) RetrySolve(sessionID, recordID string) SolveControlResult {
+	a.conversationMu.Lock()
+	defer a.conversationMu.Unlock()
+	if a.taskManager == nil {
+		return solveControlFailure(solveRetryPrepareFailed, safeSolveControlMessage(solveRetryPrepareFailed))
+	}
+	if a.taskManager.HasRunningTask() {
+		return solveControlFailure(solveTaskRunning, safeSolveControlMessage(solveTaskRunning))
+	}
+	if a.taskManager.HasInFlightTask() {
+		return solveControlFailure(solveTaskDraining, safeSolveControlMessage(solveTaskDraining))
+	}
+	if a.solveAttempts == nil {
+		return solveControlFailure(solveNoRetryAvailable, safeSolveControlMessage(solveNoRetryAvailable))
+	}
+	snapshot, code := a.solveAttempts.RetrySnapshot(sessionID, recordID, a.conversationEpoch)
+	if code != "" {
+		return solveControlFailure(code, safeSolveControlMessage(code))
+	}
+	target := snapshot.target
+	return a.startSolveLockedWithResume(solveStartRequest{
+		mode:        snapshot.mode,
+		retryTarget: &target,
+		screenshots: append([]string(nil), snapshot.screenshots...),
+	}, true)
+}
+
+func (a *App) startSolveLockedWithResume(request solveStartRequest, skipResumeWarning bool) SolveControlResult {
+	if a.configManager == nil {
+		return solveControlFailure(solveRetryPrepareFailed, "解题配置不可用")
+	}
 	cfg := a.configManager.Get()
 
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		a.EmitEvent("toast", "请先配置模型接口地址")
 		a.EmitEvent("open-settings", "api")
-		return
+		return solveControlFailure(solveRetryPrepareFailed, "请先配置模型接口地址")
 	}
-
 	if cfg.Model == "" {
 		a.EmitEvent("toast", "请先选择模型")
 		a.EmitEvent("open-settings", "api")
-		return
+		return solveControlFailure(solveRetryPrepareFailed, "请先选择模型")
 	}
-
 	if !skipResumeWarning && needsResumeConfirmation(cfg.ResumePath, cfg.ResumeContent) {
+		a.pendingSolveMode = normalizedSolveMode(request.mode)
 		a.EmitEvent("resume-warning-required")
-		return
+		return solveControlFailure(solveRetryPrepareFailed, "请确认是否忽略未解析的简历")
 	}
-
-	if len(a.screenshotBuffer) == 0 {
-		previewResult, err := a.GetScreenshotPreview(
-			cfg.CompressionQuality,
-			cfg.Sharpening,
-			cfg.Grayscale,
-			cfg.NoCompression,
-			cfg.ScreenshotMode,
-		)
-		if err != nil {
-			logger.Printf("截图失败: %v\n", err)
-			a.EmitEvent("toast", "截图失败: "+err.Error())
-			return
-		}
-		a.screenshotBuffer = append(a.screenshotBuffer, previewResult.Base64)
-		a.syncMobileScreenshotState(len(a.screenshotBuffer))
+	if a.taskManager == nil {
+		return solveControlFailure(solveRetryPrepareFailed, "解题服务尚未就绪")
 	}
-
 	if a.taskManager.HasRunningTask() {
 		logger.Println("忽略重复触发：当前有任务正在运行")
-		a.EmitEvent("toast", "正在处理中，请稍候...")
-		return
+		a.EmitEvent("toast", safeSolveControlMessage(solveTaskRunning))
+		return solveControlFailure(solveTaskRunning, safeSolveControlMessage(solveTaskRunning))
+	}
+	if a.taskManager.HasInFlightTask() {
+		logger.Println("忽略重复触发：上一个任务尚未完全结束")
+		a.EmitEvent("toast", safeSolveControlMessage(solveTaskDraining))
+		return solveControlFailure(solveTaskDraining, safeSolveControlMessage(solveTaskDraining))
 	}
 
-	screenshots := make([]string, len(a.screenshotBuffer))
-	copy(screenshots, a.screenshotBuffer)
-	a.screenshotBuffer = nil
-	a.syncMobileScreenshotState(0)
+	mode := normalizedSolveMode(request.mode)
+	screenshots := append([]string(nil), request.screenshots...)
+	normalDomainID := cfg.DomainId
+	keepContext := cfg.KeepContext
+	if request.retryTarget != nil {
+		if a.solveAttempts == nil {
+			return solveControlFailure(solveNoRetryAvailable, safeSolveControlMessage(solveNoRetryAvailable))
+		}
+		snapshot, code := a.solveAttempts.RetrySnapshot(request.retryTarget.sessionID, request.retryTarget.recordID, a.conversationEpoch)
+		if code != "" {
+			return solveControlFailure(code, safeSolveControlMessage(code))
+		}
+		mode = snapshot.mode
+		screenshots = append([]string(nil), snapshot.screenshots...)
+		normalDomainID = snapshot.normalDomainID
+		keepContext = snapshot.keepContext
+	} else if len(screenshots) == 0 {
+		if len(a.screenshotBuffer) == 0 {
+			previewResult, err := a.GetScreenshotPreview(
+				cfg.CompressionQuality,
+				cfg.Sharpening,
+				cfg.Grayscale,
+				cfg.NoCompression,
+				cfg.ScreenshotMode,
+			)
+			if err != nil {
+				logger.Printf("截图失败: %v\n", err)
+				a.EmitEvent("toast", "截图失败: "+err.Error())
+				return solveControlFailure(solveRetryPrepareFailed, "截图失败")
+			}
+			a.appendScreenshotLocked(previewResult.Base64)
+			a.syncMobileScreenshotState(len(a.screenshotBuffer))
+		}
+		screenshots = append([]string(nil), a.screenshotBuffer...)
+		a.screenshotBuffer = nil
+		a.syncMobileScreenshotState(0)
+	}
+	if len(screenshots) < 1 || len(screenshots) > MaxScreenshots {
+		return solveControlFailure(solveRetryPrepareFailed, "每次解题需要 1～3 张截图")
+	}
 
 	displayEpoch := a.mobileDisplayEpoch()
 	conversationEpoch := a.conversationEpoch
+	runRequest := solveRunRequest{
+		screenshots:    screenshots,
+		mode:           mode,
+		normalDomainID: normalDomainID,
+		keepContext:    keepContext,
+		retryTarget:    request.retryTarget,
+	}
+	solveCfg := cfg
+	if mode == SolveModeFast {
+		solveCfg.DomainId = "gen-speed"
+	} else {
+		solveCfg.DomainId = normalDomainID
+	}
+	solveCfg.KeepContext = keepContext
+	if _, err := llm.NewProvider(solveCfg); err != nil {
+		a.EmitEvent("toast", "模型连接配置无效，请检查设置", "error")
+		return solveControlFailure(solveRetryPrepareFailed, safeSolveControlMessage(solveRetryPrepareFailed))
+	}
+
 	ctx, taskID := a.taskManager.StartTask("solve")
+	var target desktopSolveTarget
+	capture, err := a.beginQuestionSolveCapture(ctx, solveCfg, screenshots, request.retryTarget, func(event string, data ...interface{}) {
+		a.routeSolveAttemptEvent(taskID, displayEpoch, target, mode, event, data...)
+	})
+	if err != nil {
+		a.taskManager.CompleteTask(taskID)
+		return solveControlFailure(solveRetryPrepareFailed, safeSolveControlMessage(solveRetryPrepareFailed))
+	}
+	if request.retryTarget != nil {
+		target = *request.retryTarget
+	} else {
+		target = desktopSolveTarget{epoch: conversationEpoch, sessionID: capture.sessionID, recordID: capture.recordID}
+		if target.sessionID == "" {
+			target.sessionID = "live"
+		}
+		if target.recordID == "" {
+			target.recordID = fmt.Sprintf("task-%d", taskID)
+		}
+	}
+	if a.solveAttempts == nil {
+		a.solveAttempts = newSolveAttemptTracker()
+	}
+	a.solveAttempts.Start(taskID, screenshots, mode, normalDomainID, keepContext, conversationEpoch)
+	a.solveAttempts.BindTarget(taskID, target)
+	a.pendingSolveMode = ""
+	runRequest.capture = capture
+	runRequest.target = target
+	a.emitSolveRequestStart(target, mode, screenshots)
+
 	go func() {
-		defer a.taskManager.CompleteTask(taskID)
-		a.solveInternal(ctx, taskID, screenshots, displayEpoch, conversationEpoch)
+		ok := a.solveInternal(ctx, taskID, runRequest, displayEpoch, conversationEpoch)
+		a.taskManager.CompleteTask(taskID)
+		terminal := attemptFailed
+		if ok {
+			terminal = attemptCompleted
+		} else if ctx.Err() != nil {
+			terminal = attemptCancelled
+		}
+		a.solveAttempts.Finish(taskID, terminal)
 	}()
+	return solveControlSuccess("", "")
+}
+
+func (a *App) routeSolveAttemptEvent(taskID int64, displayEpoch uint64, target desktopSolveTarget, mode SolveMode, event string, data ...interface{}) {
+	if a.solveAttempts != nil {
+		switch event {
+		case "solution-error":
+			a.solveAttempts.Finish(taskID, attemptFailed)
+		case "solution-cancelled":
+			a.solveAttempts.Finish(taskID, attemptCancelled)
+		}
+	}
+	canRetry := false
+	if (event == "solution-error" || event == "solution-cancelled") && a.solveAttempts != nil {
+		_, code := a.solveAttempts.RetrySnapshot(target.sessionID, target.recordID, target.epoch)
+		canRetry = code == ""
+	}
+	a.routeConversationSolutionEvent(displayEpoch, target, mode, canRetry, event, data...)
+}
+
+func (a *App) emitSolveRequestStart(target desktopSolveTarget, mode SolveMode, screenshots []string) {
+	envelope := newDesktopSolveEvent(target, mode, false, "request-start")
+	envelope.Images = append([]string(nil), screenshots...)
+	runtimeEmit(a.ctx, "desktop-solve-event", envelope)
+}
+
+func normalizedSolveMode(mode SolveMode) SolveMode {
+	if mode == SolveModeFast {
+		return SolveModeFast
+	}
+	return SolveModeNormal
 }
 
 func (a *App) TriggerSolve() {
@@ -169,8 +365,14 @@ func (a *App) TriggerDeleteScreenshot() {
 	a.RemoveLastScreenshot()
 }
 
-func (a *App) solveInternal(ctx context.Context, taskID int64, screenshots []string, displayEpoch, conversationEpoch uint64) bool {
+func (a *App) solveInternal(ctx context.Context, taskID int64, run solveRunRequest, displayEpoch, conversationEpoch uint64) bool {
 	cfg := a.configManager.Get()
+	if run.mode == SolveModeFast {
+		cfg.DomainId = "gen-speed"
+	} else {
+		cfg.DomainId = run.normalDomainID
+	}
+	cfg.KeepContext = run.keepContext
 
 	if strings.TrimSpace(cfg.BaseURL) == "" {
 		a.EmitEvent("toast", "请先配置模型接口地址")
@@ -183,25 +385,33 @@ func (a *App) solveInternal(ctx context.Context, taskID int64, screenshots []str
 		return false
 	}
 
-	var target desktopSolveTarget
-	capture := a.beginQuestionSolveCapture(ctx, cfg, screenshots, func(event string, data ...interface{}) {
-		a.routeConversationSolutionEvent(displayEpoch, target, event, data...)
-	})
-	target = desktopSolveTarget{epoch: conversationEpoch, sessionID: capture.sessionID, recordID: capture.recordID}
-	if target.sessionID == "" {
-		target.sessionID = "live"
+	capture := run.capture
+	target := run.target
+	if capture == nil {
+		var err error
+		capture, err = a.beginQuestionSolveCapture(ctx, cfg, run.screenshots, run.retryTarget, func(event string, data ...interface{}) {
+			a.routeSolveAttemptEvent(taskID, displayEpoch, target, run.mode, event, data...)
+		})
+		if err != nil {
+			return false
+		}
+		if run.retryTarget != nil {
+			target = *run.retryTarget
+		} else {
+			target = desktopSolveTarget{epoch: conversationEpoch, sessionID: capture.sessionID, recordID: capture.recordID}
+			if target.sessionID == "" {
+				target.sessionID = "live"
+			}
+			if target.recordID == "" {
+				target.recordID = fmt.Sprintf("task-%d", taskID)
+			}
+		}
+		if a.solveAttempts != nil {
+			a.solveAttempts.BindTarget(taskID, target)
+		}
+		a.emitSolveRequestStart(target, run.mode, run.screenshots)
 	}
-	if target.recordID == "" {
-		target.recordID = fmt.Sprintf("task-%d", taskID)
-	}
-	runtimeEmit(a.ctx, "desktop-solve-event", DesktopSolveEvent{
-		Epoch:     target.epoch,
-		SessionID: target.sessionID,
-		RecordID:  target.recordID,
-		Event:     "request-start",
-		Images:    append([]string(nil), screenshots...),
-	})
-	req := solution.Request{Config: cfg, Screenshots: screenshots}
+	req := solution.Request{Config: cfg, Screenshots: run.screenshots}
 	if capture.store != nil && capture.recordID != "" {
 		req.NumberingContext = capture.store.CurrentNumberingContext(capture.recordID)
 	}
@@ -250,8 +460,28 @@ func (a *App) solveInternal(ctx context.Context, taskID int64, screenshots []str
 	return ok
 }
 
+func (a *App) CancelSolve() SolveControlResult {
+	a.conversationMu.Lock()
+	defer a.conversationMu.Unlock()
+
+	if a.taskManager == nil {
+		return solveControlFailure(solveNoRunningTask, safeSolveControlMessage(solveNoRunningTask))
+	}
+	taskID := a.taskManager.GetCurrentTaskID()
+	if taskID == 0 || a.solveAttempts == nil || !a.solveAttempts.MarkCancelling(taskID) {
+		return solveControlFailure(solveNoRunningTask, safeSolveControlMessage(solveNoRunningTask))
+	}
+	if a.taskManager.CancelCurrentTask() {
+		return solveControlSuccess(solveCancelRequested, "正在中断解题")
+	}
+	if a.taskManager.HasInFlightTask() {
+		return solveControlSuccess(solveCancelRequested, "正在中断解题")
+	}
+	return solveControlFailure(solveNoRunningTask, safeSolveControlMessage(solveNoRunningTask))
+}
+
 func (a *App) CancelRunningTask() bool {
-	return a.taskManager.CancelCurrentTask()
+	return a.CancelSolve().Success
 }
 
 func (a *App) IsInterruptThinkingEnabled() bool {

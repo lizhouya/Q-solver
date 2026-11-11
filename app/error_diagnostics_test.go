@@ -32,14 +32,17 @@ func TestSolveDiagnosticSurvivesCaptureAndDesktopEnvelope(t *testing.T) {
 	cfg := config.Config{APIKey: "TEST_ONLY_PRIVATE_KEY", Model: "test-model"}
 	var envelopes []DesktopSolveEvent
 	target := desktopSolveTarget{epoch: 7, sessionID: "session-test", recordID: "record-test"}
-	capture := a.beginQuestionSolveCapture(context.Background(), cfg, []string{img}, func(event string, data ...interface{}) {
+	capture, err := a.beginQuestionSolveCapture(context.Background(), cfg, []string{img}, nil, func(event string, data ...interface{}) {
 		if event == "solution-error" {
 			if _, ok := data[0].(string); !ok {
 				t.Fatal("legacy consumer no longer sees string")
 			}
-			envelopes = append(envelopes, newDesktopSolveEvent(target, event, data...))
+			envelopes = append(envelopes, newDesktopSolveEvent(target, SolveModeNormal, true, event, data...))
 		}
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	solver := solution.NewSolver(diagnosticFailureProvider{fmt.Errorf("TEST_ONLY_PRIVATE_TOKEN: %w", pe)})
 	if solver.Solve(context.Background(), solution.Request{Config: cfg, Screenshots: []string{img}}, solution.Callbacks{EmitEvent: capture.Emit}) {
 		t.Fatal("failure became success")
@@ -64,7 +67,7 @@ func TestSolveDiagnosticSurvivesCaptureAndDesktopEnvelope(t *testing.T) {
 	if strings.Contains(string(raw), "TEST_ONLY_PRIVATE") || strings.Contains(string(raw), "errorDetail") {
 		t.Fatal("unexpected diagnostic/private persistence")
 	}
-	old := newDesktopSolveEvent(target, "solution-error", "legacy error")
+	old := newDesktopSolveEvent(target, SolveModeNormal, false, "solution-error", "legacy error")
 	if old.Text != "legacy error" || old.ErrorDetail != nil {
 		t.Fatal("legacy envelope changed")
 	}

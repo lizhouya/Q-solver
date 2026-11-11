@@ -53,6 +53,38 @@ func TestShortcutsJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDefaultFastAndCancelSolveShortcuts(t *testing.T) {
+	windows := getDefaultShortcutsForOS("windows")
+	if got := windows["send_fast"]; got.ComboID != "74+160+162" || got.KeyName != "Ctrl+Shift+J" {
+		t.Fatalf("send_fast=%+v", got)
+	}
+	if got := windows["cancel_solve"]; got.ComboID != "88+160+162" || got.KeyName != "Ctrl+Shift+X" {
+		t.Fatalf("cancel_solve=%+v", got)
+	}
+	mac := getDefaultShortcutsForOS("darwin")
+	if got := mac["send_fast"]; got.ComboID != "Cmd+Shift+J" || got.KeyName != "⌘⇧J" {
+		t.Fatalf("mac send_fast=%+v", got)
+	}
+	if got := mac["cancel_solve"]; got.ComboID != "Cmd+Shift+X" || got.KeyName != "⌘⇧X" {
+		t.Fatalf("mac cancel_solve=%+v", got)
+	}
+}
+
+func TestDefaultSolveControlShortcutCombosAreUnique(t *testing.T) {
+	for _, goos := range []string{"windows", "darwin"} {
+		owners := map[string]string{}
+		for action, binding := range getDefaultShortcutsForOS(goos) {
+			if binding.ComboID == "" {
+				continue
+			}
+			if previous, exists := owners[binding.ComboID]; exists {
+				t.Fatalf("%s combo %q shared by %s and %s", goos, binding.ComboID, previous, action)
+			}
+			owners[binding.ComboID] = action
+		}
+	}
+}
+
 func TestDefaultClearMobileDisplayShortcut(t *testing.T) {
 	cfg := NewDefaultConfig()
 	kb, ok := cfg.Shortcuts["clear_mobile_display"]

@@ -84,6 +84,7 @@ func (a *App) ContinueQuestionBankSession(id string) (QuestionBankContinuation, 
 	}
 
 	a.conversationRefs = append([]questionbank.ConversationTurnRef(nil), snapshot.Turns...)
+	a.invalidateSolveRetryLocked()
 	a.conversationEpoch++
 	result := QuestionBankContinuation{
 		Epoch:          a.conversationEpoch,

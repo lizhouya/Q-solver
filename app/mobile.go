@@ -20,6 +20,8 @@ type DesktopSolveEvent struct {
 	Event          string               `json:"event"`
 	Text           string               `json:"text,omitempty"`
 	Images         []string             `json:"images,omitempty"`
+	Mode           string               `json:"mode,omitempty"`
+	CanRetry       bool                 `json:"canRetry,omitempty"`
 	Success        *bool                `json:"success,omitempty"`
 }
 
@@ -44,6 +46,7 @@ var solutionOutputEvents = map[string]bool{
 	"solution-stream-chunk":    true, // 正文流式
 	"solution":                 true, // 最终答案
 	"solution-error":           true, // 出错
+	"solution-cancelled":       true, // 用户中断
 }
 
 type mobileShortcutHintDefinition struct {
@@ -56,6 +59,8 @@ type mobileShortcutHintDefinition struct {
 var mobileShortcutHintDefinitions = []mobileShortcutHintDefinition{
 	{label: "截图", actions: []string{"screenshot", "solve"}},
 	{label: "发送解题", actions: []string{"send"}},
+	{label: "快速解题", actions: []string{"send_fast"}},
+	{label: "中断解题", actions: []string{"cancel_solve"}},
 	{label: "删除截图", actions: []string{"delete"}},
 	{label: "隐身模式", actions: []string{"toggle"}},
 	{label: "隐藏/显示窗口", actions: []string{"toggle_window"}},
@@ -164,7 +169,7 @@ func (a *App) routeSolutionEvent(event string, data ...interface{}) {
 
 	if decision.needDesktop {
 		runtimeEmit(a.ctx, event, data...)
-	} else if event == "solution" || event == "solution-error" {
+	} else if event == "solution" || event == "solution-error" || event == "solution-cancelled" {
 		// mobile 模式：桌面不渲染答案，但终态告知前端「已转发到手机端」，收敛 loading 状态
 		runtimeEmit(a.ctx, "solution-hidden", map[string]bool{"success": event == "solution"})
 	}
@@ -183,23 +188,27 @@ func (a *App) routeTaskSolutionEvent(expected uint64, event string, data ...inte
 
 	if decision.needDesktop {
 		runtimeEmit(a.ctx, event, data...)
-	} else if event == "solution" || event == "solution-error" {
+	} else if event == "solution" || event == "solution-error" || event == "solution-cancelled" {
 		runtimeEmit(a.ctx, "solution-hidden", map[string]bool{"success": event == "solution"})
 	}
 }
 
-func (a *App) routeConversationSolutionEvent(expectedDisplay uint64, target desktopSolveTarget, event string, data ...interface{}) {
+func (a *App) routeConversationSolutionEvent(expectedDisplay uint64, target desktopSolveTarget, mode SolveMode, canRetry bool, event string, data ...interface{}) {
 	decision := decideRoute(a.mobileOutputMode(), a.mobileOutputEnabled())
 	if decision.needMobile {
 		if bridge := a.mobileBridgeForUse(); bridge != nil {
-			bridge.PublishIfCurrent(expectedDisplay, event, data...)
+			mobileData := data
+			if event == "solution-stream-start" {
+				mobileData = []interface{}{string(normalizedSolveMode(mode))}
+			}
+			bridge.PublishIfCurrent(expectedDisplay, event, mobileData...)
 		}
 	}
 
-	envelope := newDesktopSolveEvent(target, event, data...)
+	envelope := newDesktopSolveEvent(target, mode, canRetry, event, data...)
 	if decision.needDesktop {
 		runtimeEmit(a.ctx, "desktop-solve-event", envelope)
-	} else if event == "solution" || event == "solution-error" {
+	} else if event == "solution" || event == "solution-error" || event == "solution-cancelled" {
 		success := event == "solution"
 		envelope.Event = "hidden"
 		envelope.Success = &success
@@ -208,17 +217,19 @@ func (a *App) routeConversationSolutionEvent(expectedDisplay uint64, target desk
 }
 
 // newDesktopSolveEvent 把错误和安全诊断放入同一个带轮次标识的封套。
-func newDesktopSolveEvent(target desktopSolveTarget, event string, data ...interface{}) DesktopSolveEvent {
+func newDesktopSolveEvent(target desktopSolveTarget, mode SolveMode, canRetry bool, event string, data ...interface{}) DesktopSolveEvent {
 	envelope := DesktopSolveEvent{
 		Epoch:     target.epoch,
 		SessionID: target.sessionID,
 		RecordID:  target.recordID,
 		Event:     event,
+		Mode:      string(normalizedSolveMode(mode)),
+		CanRetry:  canRetry,
 	}
 	if len(data) > 0 {
 		envelope.Text, _ = data[0].(string)
 	}
-	if event == "solution-error" && len(data) > 1 {
+	if (event == "solution-error" || event == "solution-cancelled") && len(data) > 1 {
 		if detail, ok := data[1].(llm.ErrorDiagnostic); ok {
 			envelope.ErrorDetail = llm.CleanDiagnostic(&detail)
 		}

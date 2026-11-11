@@ -11,9 +11,11 @@
 
       <div class="bar-right" style="--wails-draggable: no-drag">
         <div class="shortcuts-hint">
-          <kbd>{{ settingsStore.solveShortcut }}</kbd>
-          <kbd>{{ settingsStore.sendShortcut }}</kbd>
-          <kbd>{{ settingsStore.toggleShortcut }}</kbd>
+          <kbd :title="`截图：${settingsStore.solveShortcut}`">{{ settingsStore.solveShortcut }}</kbd>
+          <kbd :title="`发送解题：${settingsStore.sendShortcut}`">{{ settingsStore.sendShortcut }}</kbd>
+          <kbd :title="`快速解题：${settingsStore.fastSendShortcut}`">{{ settingsStore.fastSendShortcut }}</kbd>
+          <kbd :title="`中断解题：${settingsStore.cancelSolveShortcut}`">{{ settingsStore.cancelSolveShortcut }}</kbd>
+          <kbd :title="`隐身模式：${settingsStore.toggleShortcut}`">{{ settingsStore.toggleShortcut }}</kbd>
         </div>
 
         <div class="bar-divider" />

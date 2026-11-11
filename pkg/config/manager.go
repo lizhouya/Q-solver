@@ -62,6 +62,8 @@ func (cm *ConfigManager) Load() error {
 	cfg := NewDefaultConfig()
 	clearMobileDisplayConfigured := true
 	startNextExamConfigured := true
+	sendFastConfigured := true
+	cancelSolveConfigured := true
 	data, err := os.ReadFile(cm.configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("无法读取配置文件，原配置未修改，请检查文件访问权限后重试")
@@ -83,12 +85,17 @@ func (cm *ConfigManager) Load() error {
 		}
 		_, clearMobileDisplayConfigured = persisted.Shortcuts["clear_mobile_display"]
 		_, startNextExamConfigured = persisted.Shortcuts["start_next_exam"]
+		_, sendFastConfigured = persisted.Shortcuts["send_fast"]
+		_, cancelSolveConfigured = persisted.Shortcuts["cancel_solve"]
 		if len(persisted.EndpointPath) == 0 {
 			cfg.EndpointPath = ""
 		}
 	}
 	migrateClearMobileDisplayShortcut(&cfg, clearMobileDisplayConfigured)
 	migrateStartNextExamShortcut(&cfg, startNextExamConfigured)
+	defaultShortcuts := getDefaultShortcuts()
+	migrateDefaultShortcut(&cfg, "send_fast", defaultShortcuts["send_fast"], sendFastConfigured)
+	migrateDefaultShortcut(&cfg, "cancel_solve", defaultShortcuts["cancel_solve"], cancelSolveConfigured)
 	normalized, normalizeErr := cfg.NormalizedConnectionSettings()
 	if normalizeErr != nil {
 		return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")

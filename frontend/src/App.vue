@@ -157,7 +157,7 @@ onMounted(() => {
       case 'request-start':
       case 'solution-stream-start':
         ui.flash('solve')
-        settingsStore.statusText = '正在思考...'
+        settingsStore.statusText = event.mode === 'fast' ? '快速解题中...' : '正在思考...'
         settingsStore.statusIcon = '...'
         break
       case 'solution':
@@ -165,7 +165,11 @@ onMounted(() => {
         settingsStore.statusIcon = '✓'
         break
       case 'solution-error':
-        settingsStore.statusText = event.text?.includes('canceled') ? '已取消' : '出错'
+        settingsStore.statusText = '出错'
+        settingsStore.statusIcon = '!'
+        break
+      case 'solution-cancelled':
+        settingsStore.statusText = '已中断'
         settingsStore.statusIcon = '!'
         break
       case 'hidden':
@@ -255,10 +259,6 @@ onMounted(() => {
   on('solution-stream-thinking', (token) => solution.handleThinkingChunk(token))
 
   on('solution-error', (rawErrMsg, errorDetail) => {
-    if (rawErrMsg && (rawErrMsg.includes('context canceled') || rawErrMsg.includes('canceled'))) {
-      handleUserCancellation()
-      return
-    }
     let title = '请求出错'
     let desc = rawErrMsg || '未知错误'
     const icon = 'x-circle'
@@ -279,26 +279,13 @@ onMounted(() => {
     }
   })
 
-  function handleUserCancellation() {
-    if (solution.history.length > 0 && solution.activeHistoryIndex === 0) {
-      const current = solution.history[0]
-      if (settingsStore.settings.keepContext && current.rounds?.length > 1) {
-        current.rounds.pop()
-        solution.selectHistory(0)
-        solution.setStreamBuffer('')
-        solution.isAppending = true
-        solution.isLoading = false
-        solution.shouldOverwriteHistory = false
-      } else {
-        if (current.rounds?.length) current.rounds[0].aiResponse = ''
-        solution.setStreamBuffer('')
-        solution.isLoading = true
-        settingsStore.statusText = '正在思考...'
-        settingsStore.statusIcon = '...'
-        solution.shouldOverwriteHistory = true
-      }
-    }
-  }
+  on('solution-cancelled', () => {
+    settingsStore.statusText = '已中断'
+    settingsStore.statusIcon = '!'
+    solution.isLoading = false
+    solution.isAppending = false
+    solution.isThinking = false
+  })
 
   on('require-api-key', () => {
     if (!ui.showSettings) settingsStore.openSettings()

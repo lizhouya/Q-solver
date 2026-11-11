@@ -84,6 +84,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const allShortcutActions = [
     { action: 'screenshot', label: '截图', default: 'F8', macDefault: 'Cmd+1' },
     { action: 'send', label: '发送解题', default: 'Ctrl+J', macDefault: 'Cmd+J' },
+    { action: 'send_fast', label: '快速解题', default: 'Ctrl+Shift+J', macDefault: '⌘⇧J' },
+    { action: 'cancel_solve', label: '中断解题', default: 'Ctrl+Shift+X', macDefault: '⌘⇧X' },
     { action: 'delete', label: '删除截图', default: 'Ctrl+D', macDefault: 'Cmd+D' },
     { action: 'toggle', label: '隐身模式', default: 'F9', macDefault: 'Cmd+2' },
     { action: 'toggle_window', label: '隐藏/显示窗口', default: 'Ctrl+Shift+H', macDefault: 'Cmd+4' },
@@ -117,6 +119,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const solveShortcut = computed(() => shortcuts.screenshot?.keyName || shortcuts.solve?.keyName || 'F8')
   const sendShortcut = computed(() => shortcuts.send?.keyName || 'Ctrl+J')
+  const fastSendShortcut = computed(() => shortcuts.send_fast?.keyName || (isMacOS.value ? '⌘⇧J' : 'Ctrl+Shift+J'))
+  const cancelSolveShortcut = computed(() => shortcuts.cancel_solve?.keyName || (isMacOS.value ? '⌘⇧X' : 'Ctrl+Shift+X'))
   const deleteShortcut = computed(() => shortcuts.delete?.keyName || 'Ctrl+D')
   const toggleShortcut = computed(() => shortcuts.toggle?.keyName || 'F9')
 
@@ -1101,7 +1105,7 @@ export const useSettingsStore = defineStore('settings', () => {
     resumeRawContent, isResumeParsing,
     isMacOS,
     recordingAction, recordingText, shortcutActions, shortcutDisplayName,
-    maskedKey, solveShortcut, sendShortcut, deleteShortcut, toggleShortcut,
+    maskedKey, solveShortcut, sendShortcut, fastSendShortcut, cancelSolveShortcut, deleteShortcut, toggleShortcut,
     statusText, statusIcon, resetStatus,
     loadSettings, fetchModels, refreshModels, ensureCCRModelCatalog, testConnection,
     testTextConnection, testVisionConnection, applyProviderPreset, applyConnectionPreset,

@@ -38,10 +38,22 @@
       <!-- Error state -->
       <ErrorView v-else-if="solution.errorState.show"
         :errorState="solution.errorState"
-        :solveShortcut="settingsStore.solveShortcut" />
+        :can-retry="activeRound?.canRetry === true"
+        :busy="solution.solveControlBusy"
+        @retry="retryRound(activeRound)" />
 
       <!-- Loading state (initial) -->
-      <LoadingView v-else-if="solution.isViewingStreamTarget && solution.isLoading && !solution.isThinking && solution.currentRounds.length <= 1 && !hasAnyContent" />
+      <div v-else-if="solution.isViewingStreamTarget && solution.isLoading && !solution.isThinking && solution.currentRounds.length <= 1 && !hasAnyContent" class="loading-state">
+        <LoadingView />
+        <SolveControls
+          :mode="activeRound?.mode || solution.currentSolveMode"
+          :running="true"
+          :cancelling="activeRound?.status === 'cancelling'"
+          :busy="solution.solveControlBusy"
+          :cancel-shortcut="settingsStore.cancelSolveShortcut"
+          @cancel="cancelCurrentSolve"
+        />
+      </div>
 
       <!-- Content area -->
       <div v-else id="content" class="content-area md-body">
@@ -85,6 +97,19 @@
                 <ErrorDiagnostics :detail="round.error.detail" />
               </div>
             </div>
+
+            <SolveControls
+              :mode="round.mode || 'normal'"
+              :running="isRoundRunning(round, idx)"
+              :cancelling="round.status === 'cancelling'"
+              :cancelled="round.status === 'cancelled'"
+              :can-retry="round.canRetry === true"
+              :busy="solution.solveControlBusy"
+              :interruption="round.interruption"
+              :cancel-shortcut="settingsStore.cancelSolveShortcut"
+              @retry="retryRound(round)"
+              @cancel="cancelCurrentSolve"
+            />
 
             <!-- Action bar (only for completed rounds with content) -->
             <ActionBar
@@ -134,12 +159,30 @@ import LoadingView from './LoadingView.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import ActionBar from './ActionBar.vue'
 import RoundScreenshots from './RoundScreenshots.vue'
+import SolveControls from './SolveControls.vue'
 
 const solution = useSolutionStore()
 const settingsStore = useSettingsStore()
 const ui = useUIStore()
 
 const isHistoryCollapsed = ref(false)
+const activeRound = computed(() => solution.currentRounds?.[0] || null)
+
+function isRoundRunning(round, idx) {
+  return solution.isViewingStreamTarget &&
+    idx === solution.currentRounds.length - 1 &&
+    ['running', 'waiting', 'thinking', 'streaming', 'cancelling'].includes(round?.status)
+}
+
+async function retryRound(round) {
+  const success = await solution.retryRound(round)
+  if (!success) ui.showToast('重试失败，请稍后再试', 'error')
+}
+
+async function cancelCurrentSolve() {
+  const success = await solution.cancelCurrentSolve()
+  if (!success) ui.showToast('中断失败，请稍后再试', 'error')
+}
 
 function roundScopeKey(round, idx) {
   const item = solution.currentHistoryItem
@@ -258,6 +301,18 @@ const hasAnyContent = computed(() => {
 }
 
 /* ---- Content Area ---- */
+.loading-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--sp-5);
+}
+.loading-state :deep(.solve-controls) {
+  width: min(100%, 460px);
+  align-self: center;
+}
 .content-area {
   flex: 1;
   overflow-y: auto;

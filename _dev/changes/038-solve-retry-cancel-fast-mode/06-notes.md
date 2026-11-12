@@ -2,7 +2,7 @@
 
 ## 当前摘要
 
-Change 038 已完成后端单槽 SolveAttempt、原图同轮重试、真实 context 中断、请求级快速模式、快捷键迁移、Desktop/Mobile 状态与提示、Wails bindings 和双语文档。普通自动门禁及保护候选验证通过；race 为 `BLOCKED` 并已披露。用户于 2026-11-11 确认当前测试版本没有问题并授权提交、推送，功能提交为 `5564a45`；治理记录随第二个提交归档，未晋升稳定版、未发布。
+Change 038 已完成后端单槽 SolveAttempt、原图同轮重试、真实 context 中断、请求级快速模式、快捷键迁移、Desktop/Mobile 状态与提示、Wails bindings 和双语文档。普通自动门禁及保护候选验证通过；race 为 `BLOCKED` 并已披露。用户于 2026-11-11 确认当前测试版本没有问题并授权提交、推送，功能提交 `5564a45` 与治理提交 `2502b31` 已推送；随后明确要求更新本地版本，稳定版已晋升，未发布。
 
 ## 已实现原则
 
@@ -31,11 +31,13 @@ Change 038 已完成后端单槽 SolveAttempt、原图同轮重试、真实 cont
 
 ## 候选与稳定版
 
-- 候选：`build/bin/testing/current/Q-Solver-candidate-change038.exe`
-- 候选大小：42,550,784 字节
-- 候选 SHA-256：`8A868263F29E170F1204E8BABC8064055D5533B870ED1A023309C99F1758D220`
-- 根稳定版 SHA-256：`8B19B242F7917D4BC0267E45BB6248077E2BA5BD2D3CE428AC9E1B836C8B4994`
-- 根稳定版和 Release 资产均未修改；`testing/current` 保留最终候选供后续人工验收。
+- 晋升前候选：`build/bin/testing/current/Q-Solver-candidate-change038.exe`
+- 本地根稳定版：`build/bin/Q-Solver.exe`
+- 根稳定版大小：42,550,784 字节
+- 根稳定版 SHA-256：`8A868263F29E170F1204E8BABC8064055D5533B870ED1A023309C99F1758D220`
+- 被替代稳定版：`build/bin/archive/superseded/change-038/Q-Solver-stable-before-change038.exe`，SHA-256 `8B19B242F7917D4BC0267E45BB6248077E2BA5BD2D3CE428AC9E1B836C8B4994`。
+- 通过候选归档：`build/bin/archive/validation/change-038/Q-Solver-candidate-change038.exe`，哈希与根稳定版一致。
+- `testing/current/` 已清空；三个 Release 资产与清单未修改。
 - 首版候选 `ABB231…67AB9` 因 Mobile 页面内历史 cancelled 语义回修失效，已归档到 `archive/transient/` 并通过哈希清单验证。
 
 ## 后续维护约束
@@ -60,7 +62,7 @@ Change 038 已完成后端单槽 SolveAttempt、原图同轮重试、真实 cont
 - message：`chore: add change 038 governance records`
 - 范围：`_dev/audits/038-solve-retry-cancel-fast-mode.md`、`_dev/changes/038-solve-retry-cancel-fast-mode/**`、`_dev/changes/INDEX.md`。
 
-用户已授权本次提交与推送到 `origin/dev/qsolver-custom`。当前没有独立功能分支可合并，未制造 merge commit；稳定版晋升、Tag、Release 未授权且未执行。
+用户已授权本次提交与推送到 `origin/dev/qsolver-custom`，双提交现已完成。当前没有独立功能分支可合并，未制造 merge commit；用户随后单独授权并完成本地稳定版晋升。Tag、Release 仍未授权且未执行。
 
 ## 参考资源
 

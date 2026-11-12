@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-普通自动门禁、固定 Wails v2.11.0 保护构建和隔离 Profile 基础 GUI 验证已完成。race 因 Windows 启动错误 `0xc0000139` 为 `BLOCKED` 并已披露；用户于 2026-11-11 确认当前测试版本“没有什么问题”。结合自动证据与用户验收，Change 038 的产品验收通过，可按授权提交和关闭；稳定版晋升与发布不在本次授权范围。
+普通自动门禁、固定 Wails v2.11.0 保护构建和隔离 Profile 基础 GUI 验证已完成。race 因 Windows 启动错误 `0xc0000139` 为 `BLOCKED` 并已披露；用户于 2026-11-11 确认当前测试版本“没有什么问题”。结合自动证据与用户验收，Change 038 的产品验收通过；功能与治理提交已推送。用户随后明确要求更新本地版本，稳定版晋升已完成；发布不在授权范围。
 
 ## 自动验证
 
@@ -51,18 +51,20 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -s \
 
 | 项目 | 结果 |
 |---|---|
-| 候选路径 | `build/bin/testing/current/Q-Solver-candidate-change038.exe` |
-| 候选大小 | 42,550,784 字节 |
-| 候选 SHA-256 | `8A868263F29E170F1204E8BABC8064055D5533B870ED1A023309C99F1758D220` |
-| 测试前稳定版路径 | `build/bin/testing/current/Q-Solver-stable-before-test.exe` |
-| 测试前稳定版 SHA-256 | `8B19B242F7917D4BC0267E45BB6248077E2BA5BD2D3CE428AC9E1B836C8B4994` |
-| 当前根稳定版 | 哈希仍为 `8B19…4994`，未覆盖 |
+| 晋升前候选路径 | `build/bin/testing/current/Q-Solver-candidate-change038.exe` |
+| 晋升后根稳定版 | `build/bin/Q-Solver.exe` |
+| 根稳定版大小 | 42,550,784 字节 |
+| 根稳定版 SHA-256 | `8A868263F29E170F1204E8BABC8064055D5533B870ED1A023309C99F1758D220` |
+| 被替代稳定版归档 | `build/bin/archive/superseded/change-038/Q-Solver-stable-before-change038.exe` |
+| 被替代稳定版 SHA-256 | `8B19B242F7917D4BC0267E45BB6248077E2BA5BD2D3CE428AC9E1B836C8B4994` |
+| 通过候选归档 | `build/bin/archive/validation/change-038/Q-Solver-candidate-change038.exe` |
 | Wails runtime | `go version -m` 显示 `github.com/wailsapp/wails/v2 v2.11.0` |
-| `testing/current/SHA256SUMS` | 两个文件均 `OK` |
-| Release | rc.1、rc.2、rc.3 各自 `SHA256SUMS` 全部 `OK` |
-| bindings/runtime/index | 构建后保护哈希不变 |
+| 归档清单 | superseded 与 validation 的 `SHA256SUMS` 均匹配 |
+| 测试区 | `testing/current/` 已清空 |
+| Release | rc.1、rc.2、rc.3 资产和清单哈希不变 |
+| bindings/runtime/index | 构建及晋升后保护哈希不变 |
 
-候选在用户验收通过后仍保留于 `testing/current/`，因为稳定版晋升未包含在本次授权中；未复制到 validation、未修改 releases。首版候选 `ABB231…67AB9` 在边界审计发现 Mobile 历史 cancelled 语义缺口后已移入 `archive/transient/`；回修后的全部普通门禁和最终候选验证均重新执行。
+候选在用户验收通过后先保留于 `testing/current/`；用户随后明确要求更新本地版本，已按构建产物生命周期政策完成旧稳定版归档、同卷根 EXE 替换、验证候选归档和测试区清理。首版候选 `ABB231…67AB9` 在边界审计发现 Mobile 历史 cancelled 语义缺口后已移入 `archive/transient/`；回修后的全部普通门禁和最终候选验证均重新执行。
 
 ## 隔离 Profile GUI 验证
 
@@ -102,6 +104,6 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.11.0 build -s \
 
 ## 结论
 
-状态：**产品验收通过 / 普通自动门禁 PASS / 用户确认测试版本无问题 / race BLOCKED 已披露 / 功能提交 `5564a45` / 未晋升未发布**。
+状态：**产品验收通过 / 普通自动门禁 PASS / 用户确认测试版本无问题 / race BLOCKED 已披露 / 功能提交 `5564a45` / 治理提交 `2502b31` / 本地稳定版已晋升 / 未发布**。
 
-功能提交已创建，治理记录随第二个提交归档。当前分支本身就是 `dev/qsolver-custom`，无独立功能分支需要合并；不修改 `main`。
+双提交已推送到 `origin/dev/qsolver-custom`。当前分支本身就是目标开发分支，无独立功能分支需要合并；不修改 `main`。用户后续授权的本地稳定版晋升已完成，Tag 与 Release 未执行。

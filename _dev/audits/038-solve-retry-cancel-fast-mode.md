@@ -4,7 +4,7 @@
 
 三项需求均可在现有架构上实现，但不能作为三个互不关联的按钮补丁。推荐引入统一、后端权威的解题尝试生命周期：失败/取消保存单槽 retry snapshot；重试原位复用轮次和题库 Record；中断通过既有 context 传播；快速模式只修改请求 Config 副本。
 
-2026-11-11 已按批准的详细 TDD 计划完成业务实现、普通自动门禁、固定 Wails v2.11.0 bindings 和保护候选验证。实现遵守审计不变量：Retry API 不接收图片或配置，题库原位重启，中断等待 in-flight 完成，fast 不写持久配置，Mobile 保持只读。race 因 Windows `0xc0000139` 为 `BLOCKED` 并已披露；用户确认当前测试版本没有问题，功能提交为 `5564a45`。
+2026-11-11 已按批准的详细 TDD 计划完成业务实现、普通自动门禁、固定 Wails v2.11.0 bindings 和保护候选验证。实现遵守审计不变量：Retry API 不接收图片或配置，题库原位重启，中断等待 in-flight 完成，fast 不写持久配置，Mobile 保持只读。race 因 Windows `0xc0000139` 为 `BLOCKED` 并已披露；用户确认当前测试版本没有问题，功能提交为 `5564a45`，治理提交为 `2502b31`。用户随后明确要求更新本地版本，Change 038 候选已晋升为根稳定版。
 
 ## 当前调用链
 
@@ -96,7 +96,7 @@ RestartRecord 必须 clone Session → 修改候选 → 完整保存 → 交换�
 - **持久化边界**：QuestionBank RestartRecord 先 clone/save 后交换；fast 不写 Config；新增快捷键只按冲突安全迁移；未修改 Connection Profile schema。
 - **Mobile 边界**：HTML/Snapshot 仅增加 `cancelled`、`solveMode` 和文字提示；无 RetrySolve、CancelSolve、POST、WebSocket 或新 URL 参数。
 - **生成边界**：固定 v2.11.0 只更新三个 Go bindings；`go.mod`、`go.sum` 和 Wails runtime 哈希不变。
-- **产物边界**：候选保留在 ignored 的 `testing/current`；根稳定版、Release、Git index 未改变。
+- **产物边界**：候选经用户单独授权后晋升为根稳定版；旧稳定版和通过候选分别归档到 `archive/superseded/change-038/` 与 `archive/validation/change-038/`，`testing/current/` 已清空，Release 未改变。
 - **secret 边界**：测试使用 fake Provider、`httptest` 和隔离 Profile；未调用真实收费 API，文档未记录 Key、Token、完整 URL、Header 或截图内容。
 
 ## 建议提交白名单（未授权）
@@ -107,4 +107,4 @@ RestartRecord 必须 clone Session → 修改候选 → 完整保存 → 交换�
 
 ## 当前授权边界
 
-用户已批准 Change 038 设计、书面规格和详细实施计划，并于 2026-11-11 确认当前测试版本没有问题，明确授权本次提交和推送。功能提交 `5564a45` 已创建；治理记录按双提交规则随本文提交，并推送到 `origin/dev/qsolver-custom`。当前分支即目标开发分支，没有独立分支可合并，未创建 merge commit，也未修改 `main`。稳定版晋升、Tag、Release 和真实收费 API 不在本次授权中，均未执行。
+用户已批准 Change 038 设计、书面规格和详细实施计划，并于 2026-11-11 确认当前测试版本没有问题，明确授权本次提交和推送。功能提交 `5564a45` 与治理提交 `2502b31` 已推送到 `origin/dev/qsolver-custom`。当前分支即目标开发分支，没有独立分支可合并，未创建 merge commit，也未修改 `main`。用户随后明确要求“本地版本更新”，稳定版晋升已完成；Tag、Release 和真实收费 API 不在授权中，均未执行。

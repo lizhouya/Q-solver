@@ -50,7 +50,7 @@
 | `040` | mobile-shortcut-hint-sync（同步端五项快捷键提示一致性） | 已完成 / 普通自动验证与用户 GUI 验收通过 / race BLOCKED 已披露 / 功能提交 `09dd485` / 双提交与分支推送完成 / rc.4 Release 失败 / 待 rc.5 | 2026-11-12 | `040-mobile-shortcut-hint-sync/` |
 | `041` | choice-option-consistency（选择题字母与选项文本一致性） | 已完成 / 普通自动验证与用户模型复验通过 / race BLOCKED 已披露 / 功能提交 `ac8af04` / 双提交与分支推送完成 / rc.4 Release 失败 / 待 rc.5 | 2026-11-12 | `041-choice-option-consistency/` |
 | `042` | v1.1.0-rc.4-release（rc.4 预发布上线） | 进行中 / Tag 已推送 / Windows PASS / macOS arm64 回归 FAIL / Intel CANCELLED / Release 未创建 / 转 Change 043 | 2026-11-12 | `042-v1.1.0-rc.4-release/` |
-| `043` | cross-platform-test-config-isolation（跨平台测试配置隔离） | 进行中 / 本地普通全量门禁 PASS / race BLOCKED / 功能提交 `532c828` / rc.5 文档已准备 / 待治理提交与三平台验证 | 2026-11-12 | `043-cross-platform-test-config-isolation/` |
+| `043` | cross-platform-test-config-isolation（跨平台测试配置隔离） | 进行中 / 本地普通门禁与 Windows CI PASS / macOS runner BLOCKED / 功能 `532c828` / 治理 `8734b3e` / rc.5 Tag 已推送但 Release 未创建 / 待用户决定发布范围 | 2026-11-12 | `043-cross-platform-test-config-isolation/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 

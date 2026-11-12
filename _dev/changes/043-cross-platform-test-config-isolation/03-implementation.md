@@ -19,6 +19,9 @@ rc.4 CI 根因已定位，Change 043 已完成 helper、调用点迁移、本地
 | 2026-11-12 | 功能/测试提交 | 创建 `532c828 fix: isolate test config directories across platforms` | 6 个 app 测试文件 | 治理文件未混入 |
 | 2026-11-12 | rc.5 准备 | 新增 rc.5 正文，README/README_EN/CHANGELOG 指向前进修复 | 发布文档 | rc.4 Tag 与失败 run 保持不可变 |
 | 2026-11-12 | rc.5 文档验证 | 核对相对链接、敏感模式、diagnostics、diff 和 Tag 占用 | 发布/治理文档 | 全部通过；本地/远程 rc.5 Tag 未占用 |
+| 2026-11-12 | rc.5 双提交与 Tag | 功能 `532c828`、治理 `8734b3e` 推送；annotated Tag 指向治理提交 | Git / origin | 分支与远程 Tag 核对一致 |
+| 2026-11-12 | rc.5 Actions | 两次独立 run 的 Windows 均 PASS；macOS jobs 无 runner 后取消 | runs `43232814169`、`43246684317` | `runner_id=0`、steps 为空；Create Release 均 SKIPPED |
+| 2026-11-12 | 公开状态纠正 | README 回退到实际存在的 rc.3 Release，rc.4/rc.5 标候选 Tag | README / CHANGELOG | 不把不存在的 Release 写成已发布 |
 
 ## 与计划的偏差
 
@@ -32,7 +35,6 @@ rc.4 CI 根因已定位，Change 043 已完成 helper、调用点迁移、本地
 
 ## 遗留未完成项
 
-- 治理/rc.5 发布准备提交。
-- 推送开发分支并创建不可变 rc.5 Tag。
-- rc.5 三平台构建、回归、Create Release、附件与校验和核对。
-- macOS GUI 仍无人工验收；发布说明继续披露。
+- 用户决定后选择：继续等待三平台 macOS runner，或另行明确授权 Windows-only RC 范围。
+- rc.5 Tag 和两次失败/取消 run 保持不可变；当前不创建 Release。
+- macOS GUI 与 Windows race 继续如实披露。

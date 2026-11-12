@@ -1,13 +1,14 @@
 # 变更日志
 
-## v1.1.0-rc.5 — 2026-11-12（预发布）
+## v1.1.0-rc.5 — 2026-11-12（候选 Tag，Release 受 macOS runner 阻塞）
 
 - 修复 app 测试仅设置 Windows `APPDATA`，导致 macOS/Linux 读取 CI runner 或开发者真实 Q-Solver 配置的问题。
 - 新增跨平台配置目录隔离 helper，并迁移解题、重试、Mobile、题库和 Settings 测试。
 - 本地配置隔离合同、两个 rc.4 失败测试、app/全仓 Go、vet、build、mod verify、前端与 Mobile 回归及 Vite build 通过。
 - Windows race 仍因 `0xc0000139` 处于 `BLOCKED`；macOS GUI 仍未人工验证，因此保持 RC。
+- run `43232814169` 与 `43246684317` 的 Windows job 均 PASS；两个 macOS job 均未分配 runner（`runner_id=0`、无 steps）并在约 15 分钟后取消，Create Release 跳过，因此 rc.5 目前没有 Release 或公开附件。
 
-详细功能、下载方式、安全边界与已知限制见 [RC5 发布说明](_dev/releases/v1.1.0-rc.5.md)。
+rc.5 的候选内容、安全边界与已知限制见 [RC5 发布说明](_dev/releases/v1.1.0-rc.5.md)。当前实际公开 Release 仍为 [v1.1.0-rc.3](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.3)。
 
 ## v1.1.0-rc.4 — 2026-11-12（候选 Tag，未创建 Release）
 

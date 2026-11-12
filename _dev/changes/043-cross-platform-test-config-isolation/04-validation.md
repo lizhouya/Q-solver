@@ -34,14 +34,26 @@ Change 043 helper、所有 APPDATA-only 调用点迁移和本地普通全量门�
 | rc.5 文档、链接与 Tag 占用 | PASS | body/相对目标存在；README 入口为 rc.5；本地/远程 Tag 未占用 |
 | 敏感信息扫描 | PASS | 未发现凭据、Token 实值或本机路径 |
 
+## rc.5 远程验证
+
+| 检查项 | run `43232814169` | run `43246684317` | 结论 |
+|---|---|---|---|
+| Build Windows | PASS | PASS | Windows 构建、回归和 artifact 上传稳定通过 |
+| Build macOS (Apple Silicon) | CANCELLED | CANCELLED | 均未分配 runner，`runner_id=0`、steps 为空 |
+| Build macOS (Intel) | CANCELLED | CANCELLED | 均未分配 runner，`runner_id=0`、steps 为空 |
+| Create Release | SKIPPED | SKIPPED | 依赖 macOS job 未成功 |
+| rc.5 Release | NOT CREATED | NOT CREATED | 无附件或 `SHA256SUMS` |
+
+跨平台测试修复尚未获得 macOS runner 执行机会；不能将取消状态记为 PASS 或测试 FAIL。
+
 ## 验收标准对照
 
 - [x] 跨平台配置目录 helper 合同通过。
 - [x] 所有 APPDATA-only 测试完成迁移。
 - [x] 两个 rc.4 失败测试和 app 全包通过。
 - [x] 普通全量本地门禁通过；race BLOCKED 已披露。
-- [ ] 后续 rc.5 三平台和 Create Release 通过。
+- [ ] 后续 rc.5 三平台和 Create Release 通过：**未满足**，macOS runner 未分配，两次 Create Release 均跳过。
 
 ## 结论
 
-状态：**实现完成 / 普通本地门禁 PASS / race BLOCKED 已披露 / 功能提交 `532c828` / 待治理提交与 rc.5 三平台验证**。远程验证未完成，不关闭 Change 043。
+状态：**实现完成 / 本地普通门禁 PASS / Windows CI PASS / macOS CI BLOCKED（无 runner）/ race BLOCKED / rc.5 Release 未创建 / 不关闭**。需要用户决定继续等待三平台或另行批准 Windows-only 预发布。

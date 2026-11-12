@@ -2,7 +2,7 @@
 
 ## 当前摘要
 
-Change 043 已新增跨平台测试配置隔离 helper，统一控制 Windows/Linux/macOS 使用的目录环境变量，并迁移 app 中所有 APPDATA-only ConfigManager 测试。两个 rc.4 失败测试、app 全包和普通全量门禁均通过；生产代码零改动。功能/测试提交为 `532c828`。race 仍受 Windows `0xc0000139` 阻塞，rc.5 远程验证待执行。
+Change 043 已新增跨平台测试配置隔离 helper，统一控制 Windows/Linux/macOS 使用的目录环境变量，并迁移 app 中所有 APPDATA-only ConfigManager 测试。两个 rc.4 失败测试、app 全包和普通全量门禁均通过；生产代码零改动。功能/测试提交为 `532c828`，治理/rc.5 准备提交为 `8734b3e`。rc.5 两次 run 的 Windows 均通过，但 macOS job 均未分配 runner 后取消，Release 未创建。
 
 ## 长期约束
 
@@ -13,9 +13,8 @@ Change 043 已新增跨平台测试配置隔离 helper，统一控制 Windows/Li
 
 ## 遗留项
 
-- 创建治理/rc.5 发布准备提交并推送开发分支。
-- 创建并推送不可变 rc.5 Tag。
-- rc.5 三平台构建、回归、Create Release、附件与校验和核对。
+- 用户决定继续等待三平台 runner，或明确批准 Windows-only RC 降级范围。
+- rc.5 Tag、两次 run 和“无 Release”事实保持不可变。
 - macOS GUI 与 Windows race 继续如实披露。
 
 ## 参考资源

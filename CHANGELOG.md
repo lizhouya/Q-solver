@@ -1,6 +1,15 @@
 # 变更日志
 
-## v1.1.0-rc.4 — 2026-11-12（预发布）
+## v1.1.0-rc.5 — 2026-11-12（预发布）
+
+- 修复 app 测试仅设置 Windows `APPDATA`，导致 macOS/Linux 读取 CI runner 或开发者真实 Q-Solver 配置的问题。
+- 新增跨平台配置目录隔离 helper，并迁移解题、重试、Mobile、题库和 Settings 测试。
+- 本地配置隔离合同、两个 rc.4 失败测试、app/全仓 Go、vet、build、mod verify、前端与 Mobile 回归及 Vite build 通过。
+- Windows race 仍因 `0xc0000139` 处于 `BLOCKED`；macOS GUI 仍未人工验证，因此保持 RC。
+
+详细功能、下载方式、安全边界与已知限制见 [RC5 发布说明](_dev/releases/v1.1.0-rc.5.md)。
+
+## v1.1.0-rc.4 — 2026-11-12（候选 Tag，未创建 Release）
 
 - 整合题库整理失败恢复、逐题解析、历史分段保护和当前分段物理清空。
 - 增强多协议 Provider、CCR、Responses 与视觉失败诊断，统一 API Profile、模型刷新和连接测试。
@@ -9,8 +18,9 @@
 - 恢复最多三张截图，新增原图重试、中断与快速解题，修复 F10/F12 和历史快捷键字段错配。
 - 选择题先映射原始字母与选项文本，再回填答案；冲突或无法辨认时标记“待核对”。
 - Windows race 仍因启动错误 `0xc0000139` 处于 `BLOCKED`，macOS GUI 未人工验证，部分较早人工验收仍待完成；因此保持 RC，不标记稳定版或 Latest。
+- Tag 对应 run `43212159818` 中 Windows PASS，macOS arm64 回归 FAIL，Intel CANCELLED，Create Release SKIPPED；没有 rc.4 Release 或公开附件。
 
-详细功能、下载方式、安全边界与已知限制见 [RC4 发布说明](_dev/releases/v1.1.0-rc.4.md)。
+rc.4 的计划内容见 [RC4 发布说明](_dev/releases/v1.1.0-rc.4.md)；失败根因由 Change 043 修复并前进至 rc.5。
 
 ## v1.1.0-rc.2 — 2026-10-22（预发布）
 

@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-发布文档编写中。业务实现验证沿用 Change 040、041 的当日证据；本 Change 只修改 Markdown 治理与发布资料，不在 Tag 前重复本地业务构建。自动 Tag workflow 将重新执行三平台构建和回归。
+发布准备、分支与 Tag 推送已完成。run `43212159818` 的 Windows job 通过，但 macOS Apple Silicon 回归失败，Intel job 取消，Create Release 跳过；rc.4 发布失败且没有 Release。失败由 Change 043 接续处理。
 
 ## 发布前验证
 
@@ -22,21 +22,21 @@
 
 | Job / 检查 | 结果 | 证据 |
 |---|---|---|
-| Build Windows | 待执行 | Tag push 后记录 |
-| Build macOS (Apple Silicon) | 待执行 | Tag push 后记录 |
-| Build macOS (Intel) | 待执行 | Tag push 后记录 |
-| Create Release | 待执行 | Tag push 后记录 |
-| Release 属性 | 待执行 | 非 draft、prerelease、非 Latest |
-| Release 附件 | 待执行 | 三个平台附件 + `SHA256SUMS` |
+| Build Windows | PASS | run `43212159818`，Build App、Regression Tests、Upload Artifact 通过 |
+| Build macOS (Apple Silicon) | FAIL | Build App 通过；Regression Tests 的两个 app 测试失败 |
+| Build macOS (Intel) | CANCELLED | 无通过证据 |
+| Create Release | SKIPPED | 依赖 job 未全部成功 |
+| Release 属性 | NOT CREATED | `v1.1.0-rc.4` Release 不存在 |
+| Release 附件 | NOT CREATED | 无公开附件或 `SHA256SUMS` |
 
 ## 验收标准对照
 
-- [ ] rc.4 正文存在于 Tag 对应提交且无敏感信息。
-- [ ] 中英文 README 与 CHANGELOG 指向 rc.4 并明确预发布。
-- [ ] 分支和 Tag 仅推送至 `origin`。
-- [ ] 自动三平台 Release 成功，附件与校验和完整。
-- [ ] 最终治理事实已提交并推送。
+- [x] rc.4 正文存在于 Tag 对应提交且无敏感信息。
+- [x] 中英文 README 与 CHANGELOG 指向 rc.4 并明确预发布。
+- [x] 分支和 Tag 仅推送至 `origin`。
+- [ ] 自动三平台 Release 成功：**未满足**，macOS arm64 FAIL、Intel CANCELLED、Create Release SKIPPED。
+- [ ] 最终成功发布事实：**不存在**，由 Change 043/rc.5 前进处理。
 
 ## 结论
 
-状态：**发布准备进行中**。在自动 workflow 和 Release 核对完成前，不报告发布成功或关闭 Change 042。
+状态：**rc.4 Tag 已推送 / CI FAIL / Release 未创建 / 不关闭**。失败证据真实保留，后续由 Change 043 修复并发布 rc.5；不得把 Windows 单平台通过冒充完整发布成功。

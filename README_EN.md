@@ -27,9 +27,9 @@
 
 ## Current Prerelease
 
-**[v1.1.0-rc.4 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4)** includes question-bank and provider diagnostics, build-artifact governance, unified API profiles, Mobile UI improvements, three-image capture, same-image retry, cancel/fast solve controls, the F8–F12 workflow hints, and multiple-choice consistency checks. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
+**[v1.1.0-rc.5 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.5)** includes question-bank and provider diagnostics, build-artifact governance, unified API profiles, Mobile UI improvements, three-image capture, same-image retry, cancel/fast solve controls, the F8–F12 workflow hints, multiple-choice consistency checks, and cross-platform CI config isolation. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
 
-This is not a stable release: Windows race testing still exits during startup with `0xc0000139`, some earlier manual acceptance checks remain pending, and macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.4.md).
+This is not a stable release: Windows race testing still exits during startup with `0xc0000139`, some earlier manual acceptance checks remain pending, and macOS GUI behavior has not been manually verified. The rc.4 tag failed its macOS regression and produced no Release; rc.5 is the forward fix. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.5.md).
 
 ## What This Is
 
@@ -166,7 +166,7 @@ Other exam tools can later have their own sibling directories alongside Q-Solver
 
 ### Option 1: Download the App
 
-Download this repository's current prerelease from the [personal fork v1.1.0-rc.4 Release](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4). Official upstream builds remain available from [jym66/Q-solver Releases](https://github.com/jym66/Q-solver/releases); their features and acceptance status differ, so do not mix the two release lines.
+Download this repository's current prerelease from the [personal fork v1.1.0-rc.5 Release](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.5). Official upstream builds remain available from [jym66/Q-solver Releases](https://github.com/jym66/Q-solver/releases); their features and acceptance status differ, so do not mix the two release lines.
 
 > [!NOTE]
 > If macOS blocks the app on first launch, run:

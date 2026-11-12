@@ -2,7 +2,7 @@
 
 ## 当前摘要
 
-Change 042 负责将 rc.3 之后 Change 024～041 的成果作为 `v1.1.0-rc.4` 预发布上线。当前已完成版本边界、自动发布合同与文件白名单审计，正在准备发布文档；尚未创建 Tag 或 Release。
+Change 042 已将 rc.3 后 Change 024～041 的内容准备为 `v1.1.0-rc.4`，完成发布准备提交 `36b4192`、分支推送和 annotated Tag 推送。Actions run `43212159818` 中 Windows 通过，macOS arm64 回归失败，Intel 取消，Create Release 跳过，因此 rc.4 没有 Release。失败根因由 Change 043 接续修复，后续使用 rc.5。
 
 ## 长期约束
 
@@ -23,10 +23,9 @@ Change 042 负责将 rc.3 之后 Change 024～041 的成果作为 `v1.1.0-rc.4` 
 
 ## 遗留项
 
-- 发布准备文档检查、提交与分支推送。
-- rc.4 Tag 创建、显式推送及 Actions 监控。
-- Release 属性、附件和校验和核对。
-- 最终运行事实补录、治理提交与分支推送。
+- Change 043 修复 APPDATA-only 测试导致的 macOS 配置污染。
+- rc.5 完成三个构建 job 与 Create Release 后，再核对附件和校验和。
+- rc.4 Tag 和失败 run 保持不可变；不得补造 rc.4 Release。
 
 ## 参考资源
 

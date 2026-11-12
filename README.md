@@ -27,9 +27,9 @@
 
 ## 当前预发布版本
 
-**[v1.1.0-rc.4 — 个人 fork 预发布](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4)** 包含题库与 Provider 诊断、构建产物治理、统一 API Profile、同步端优化、三图截图、原图重试、中断/快速解题、F8～F12 工作流提示和选择题一致性修复。请从个人 fork 的 Release 下载，而非下方历史上游链接。升级前正常退出旧实例并备份自己的配置/题库；本地统一入口为 `build/bin/Q-Solver.exe`，旧验证版保存在其 `archive/` 子目录。
+**[v1.1.0-rc.5 — 个人 fork 预发布](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.5)** 包含题库与 Provider 诊断、构建产物治理、统一 API Profile、同步端优化、三图截图、原图重试、中断/快速解题、F8～F12 工作流提示、选择题一致性及跨平台 CI 配置隔离修复。请从个人 fork 的 Release 下载，而非下方历史上游链接。升级前正常退出旧实例并备份自己的配置/题库；本地统一入口为 `build/bin/Q-Solver.exe`，旧验证版保存在其 `archive/` 子目录。
 
-本版本不是稳定版：Windows race 环境仍在启动阶段返回 `0xc0000139`，部分较早人工验收仍未完成，macOS 附件也未经人工 GUI 验证。详见 [变更日志](CHANGELOG.md) 与 [发布说明](_dev/releases/v1.1.0-rc.4.md)。
+本版本不是稳定版：Windows race 环境仍在启动阶段返回 `0xc0000139`，部分较早人工验收仍未完成，macOS 附件也未经人工 GUI 验证。rc.4 Tag 的 macOS 回归失败且未创建 Release，rc.5 为前进修复。详见 [变更日志](CHANGELOG.md) 与 [发布说明](_dev/releases/v1.1.0-rc.5.md)。
 
 ## 这是什么
 
@@ -168,7 +168,7 @@ Q-Solver 是一个桌面端 AI 做题助手。
 
 ### 方式一：直接下载
 
-前往 [个人 fork v1.1.0-rc.4 Release](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4) 下载本仓库当前预发布版。上游官方版本仍在 [jym66/Q-solver Releases](https://github.com/jym66/Q-solver/releases)；两者功能和验收状态不同，请勿混用。
+前往 [个人 fork v1.1.0-rc.5 Release](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.5) 下载本仓库当前预发布版。上游官方版本仍在 [jym66/Q-solver Releases](https://github.com/jym66/Q-solver/releases)；两者功能和验收状态不同，请勿混用。
 
 > [!NOTE]
 > macOS 首次运行如果提示无法打开，可执行：

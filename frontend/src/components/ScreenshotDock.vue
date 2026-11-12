@@ -13,14 +13,9 @@
       </div>
       <div class="dock-divider" />
       <div class="dock-hints">
-        <div v-if="screenshots.length < 3" class="dock-hint">
-          <kbd class="dock-kbd">{{ solveShortcut }}</kbd>
-          <span>继续截图</span>
-        </div>
-        <span v-else class="dock-limit">已满 3 张</span>
         <div class="dock-hint">
-          <kbd class="dock-kbd">{{ deleteShortcut }}</kbd>
-          <span>删除</span>
+          <kbd class="dock-kbd">{{ solveShortcut }}</kbd>
+          <span>{{ screenshots.length < 3 ? '继续截图' : '已满 3 张' }}</span>
         </div>
         <div class="dock-hint">
           <kbd class="dock-kbd">{{ sendShortcut }}</kbd>
@@ -36,6 +31,14 @@
           <kbd class="dock-kbd">{{ fastSendShortcut }}</kbd>
           <span>{{ quickSending ? '发送中…' : '快速解题' }}</span>
         </button>
+        <div class="dock-hint">
+          <kbd class="dock-kbd">{{ cancelSolveShortcut }}</kbd>
+          <span>中断</span>
+        </div>
+        <div class="dock-hint">
+          <kbd class="dock-kbd">{{ deleteShortcut }}</kbd>
+          <span>删除</span>
+        </div>
       </div>
     </div>
   </Transition>
@@ -52,8 +55,7 @@ import { on } from '../services/events'
 
 const settingsStore = useSettingsStore()
 const ui = useUIStore()
-const { solveShortcut, sendShortcut, deleteShortcut } = storeToRefs(settingsStore)
-const { fastSendShortcut } = storeToRefs(settingsStore)
+const { solveShortcut, sendShortcut, fastSendShortcut, cancelSolveShortcut, deleteShortcut } = storeToRefs(settingsStore)
 
 const screenshots = ref([])
 const quickSending = ref(false)
@@ -164,7 +166,7 @@ defineExpose({ screenshots })
 .dock-hints {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
   flex-shrink: 0;
 }
 

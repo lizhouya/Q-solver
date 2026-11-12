@@ -86,6 +86,10 @@ func (s *Service) handleTrigger(action string) {
 		s.delegate.TriggerSend()
 	case "send_fast":
 		logger.Println("触发快速解题")
+		s.delegate.EmitEvent("toast", map[string]string{
+			"text": "快捷键已触发：快速解题",
+			"type": "info",
+		})
 		s.delegate.TriggerQuickSend()
 	case "cancel_solve":
 		logger.Println("触发中断解题")
@@ -97,6 +101,10 @@ func (s *Service) handleTrigger(action string) {
 		}
 	case "delete":
 		logger.Println("触发删除截图")
+		s.delegate.EmitEvent("toast", map[string]string{
+			"text": "快捷键已触发：删除截图",
+			"type": "info",
+		})
 		s.delegate.TriggerDeleteScreenshot()
 	case "toggle":
 		logger.Println("切换可见性")

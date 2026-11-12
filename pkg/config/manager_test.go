@@ -930,3 +930,63 @@ func TestConnectionProfilesPersistEncryptedWithoutPlaintextSentinels(t *testing.
 		t.Fatal("encrypted profile did not round trip")
 	}
 }
+
+func TestLoadRepairsCorruptFunctionKeyShortcutsInMemoryWithoutWriting(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skipf("Windows-only shortcut repair test on %s", runtime.GOOS)
+	}
+	manager := isolatedManager(t)
+	writeShortcutConfig(t, manager, map[string]shortcut.KeyBinding{
+		"cancel_solve":  {ComboID: "88+160+162", KeyName: "F11"},
+		"clickthrough":  {ComboID: "121", KeyName: "F3"},
+		"delete":        {ComboID: "68+162", KeyName: "F12"},
+		"send_fast":     {ComboID: "74+160+162", KeyName: "F10"},
+		"toggle_window": {ComboID: "72+160+162", KeyName: "F2"},
+	})
+	before, err := os.ReadFile(manager.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"cancel_solve": "122", "clickthrough": "114", "delete": "123",
+		"send_fast": "121", "toggle_window": "113",
+	}
+	got := manager.Get().Shortcuts
+	owners := make(map[string]string)
+	for action, comboID := range want {
+		if got[action].ComboID != comboID {
+			t.Fatalf("%s: want combo %s, got %+v", action, comboID, got[action])
+		}
+		if other, exists := owners[comboID]; exists {
+			t.Fatalf("迁移后组合冲突: %s 与 %s 共用 %s", other, action, comboID)
+		}
+		owners[comboID] = action
+	}
+	after, err := os.ReadFile(manager.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("Load 中的内存修复不得重写加密配置")
+	}
+}
+
+func TestRepairCorruptFunctionKeyShortcutsRejectsAmbiguousOrOccupiedTargets(t *testing.T) {
+	cfg := Config{Shortcuts: map[string]shortcut.KeyBinding{
+		"duplicate_a": {ComboID: "65", KeyName: "F10"},
+		"duplicate_b": {ComboID: "66", KeyName: "F10"},
+		"delete":      {ComboID: "68+162", KeyName: "F12"},
+		"f12_owner":   {ComboID: "123", KeyName: "F12"},
+		"modified":    {ComboID: "75", KeyName: "Ctrl+K"},
+	}}
+	before := cloneConfigSnapshot(cfg)
+	if repaired := repairCorruptFunctionKeyShortcutsForOS(&cfg, "windows"); len(repaired) != 0 {
+		t.Fatalf("歧义或占用目标不得迁移，实际修复 %v", repaired)
+	}
+	if !reflect.DeepEqual(cfg, before) {
+		t.Fatalf("拒绝迁移时配置发生变化: before=%+v after=%+v", before.Shortcuts, cfg.Shortcuts)
+	}
+}

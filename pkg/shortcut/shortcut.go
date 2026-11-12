@@ -3,6 +3,7 @@ package shortcut
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +30,36 @@ func GetComboID(keys map[uint32]bool) string {
 		idBuilder.WriteString(fmt.Sprintf("%d", code))
 	}
 	return idBuilder.String()
+}
+
+func FunctionKeyComboID(keyName string) (string, bool) {
+	if len(keyName) < 2 || keyName[0] != 'F' {
+		return "", false
+	}
+	number, err := strconv.Atoi(keyName[1:])
+	if err != nil || number < 1 || number > 24 {
+		return "", false
+	}
+	return strconv.Itoa(0x70 + number - 1), true
+}
+
+func ReadableNameFromComboID(comboID string) (string, bool) {
+	if comboID == "" {
+		return "", false
+	}
+	keys := make(map[uint32]bool)
+	for _, part := range strings.Split(comboID, "+") {
+		code, err := strconv.ParseUint(part, 10, 32)
+		if err != nil {
+			return "", false
+		}
+		key := uint32(code)
+		if keys[key] {
+			return "", false
+		}
+		keys[key] = true
+	}
+	return GetReadableName(keys), true
 }
 
 // GetReadableName 根据按键 map 生成可读的快捷键名称

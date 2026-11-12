@@ -68,9 +68,19 @@ func TestHandleTriggerFastSendAndCancel(t *testing.T) {
 	if d.quickSendCalls != 1 || d.cancelCalls != 1 {
 		t.Fatalf("quick=%d cancel=%d", d.quickSendCalls, d.cancelCalls)
 	}
-	if len(d.events) != 0 {
-		t.Fatalf("successful controls emitted unexpected events: %v", d.events)
+	assertSingleToast(t, d, "快捷键已触发：快速解题", "info")
+}
+
+func TestHandleTriggerDeleteEmitsDispatchFeedback(t *testing.T) {
+	d := &mockDelegate{}
+	s := newTestService(d)
+
+	s.handleTrigger("delete")
+
+	if d.deleteScreenshotCalls != 1 {
+		t.Fatalf("delete calls=%d", d.deleteScreenshotCalls)
 	}
+	assertSingleToast(t, d, "快捷键已触发：删除截图", "info")
 }
 
 func TestHandleTriggerCancelWithoutTaskEmitsInfoToast(t *testing.T) {

@@ -108,11 +108,13 @@ onMounted(() => {
 
   on('key-recorded', (data) => {
     if (data && data.action) {
-      settingsStore.tempShortcuts[data.action] = {
+      const recordedBinding = {
         ...(settingsStore.tempShortcuts[data.action] || {}),
         keyName: data.keyName,
-        comboID: data.comboID,
+        vkCode: data.comboID,
       }
+      delete recordedBinding.comboID
+      settingsStore.tempShortcuts[data.action] = recordedBinding
       if (settingsStore.recordingAction === data.action) {
         settingsStore.recordingText = data.keyName
       }

@@ -96,6 +96,9 @@ func (cm *ConfigManager) Load() error {
 	defaultShortcuts := getDefaultShortcuts()
 	migrateDefaultShortcut(&cfg, "send_fast", defaultShortcuts["send_fast"], sendFastConfigured)
 	migrateDefaultShortcut(&cfg, "cancel_solve", defaultShortcuts["cancel_solve"], cancelSolveConfigured)
+	if repaired := repairCorruptFunctionKeyShortcuts(&cfg); len(repaired) > 0 {
+		logger.Printf("已在内存修复 %d 项历史快捷键绑定", len(repaired))
+	}
 	normalized, normalizeErr := cfg.NormalizedConnectionSettings()
 	if normalizeErr != nil {
 		return fmt.Errorf("配置格式无效，原配置未修改，请检查配置文件后重试")

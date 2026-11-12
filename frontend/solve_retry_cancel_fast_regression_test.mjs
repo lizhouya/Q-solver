@@ -115,6 +115,11 @@ assert.match(apiSource, /retrySolve:\s*\(sessionId, recordId\)/)
 assert.match(apiSource, /cancelSolve:\s*\(\)/)
 assert.match(apiSource, /triggerQuickSend:\s*\(\)/)
 
+const appSource = fs.readFileSync(new URL('./src/App.vue', import.meta.url), 'utf8')
+assert.match(appSource, /vkCode:\s*data\.comboID/)
+assert.match(appSource, /delete\s+recordedBinding\.comboID/)
+assert.doesNotMatch(appSource, /comboID:\s*data\.comboID/)
+
 const solveView = fs.readFileSync(new URL('./src/components/SolveView.vue', import.meta.url), 'utf8')
 const controls = fs.readFileSync(new URL('./src/components/SolveControls.vue', import.meta.url), 'utf8')
 const errorView = fs.readFileSync(new URL('./src/components/ErrorView.vue', import.meta.url), 'utf8')

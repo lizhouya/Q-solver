@@ -7,7 +7,7 @@
 
   <p>
     <a href="https://github.com/jym66/Q-solver/stargazers"><img src="https://img.shields.io/github/stars/jym66/Q-solver?color=ffcb6b&style=for-the-badge&labelColor=30363d" alt="Stars"></a>
-    <a href="https://github.com/jym66/Q-solver/releases"><img src="https://img.shields.io/github/v/release/jym66/Q-solver?color=89d185&style=for-the-badge&labelColor=30363d" alt="Release"></a>
+    <a href="https://github.com/lizhouya/Q-solver/releases"><img src="https://img.shields.io/github/v/release/lizhouya/Q-solver?include_prereleases&color=89d185&style=for-the-badge&labelColor=30363d" alt="Release"></a>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go&logoColor=white&labelColor=30363d" alt="Go">
     <img src="https://img.shields.io/badge/Vue-3.x-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white&labelColor=30363d" alt="Vue">
     <img src="https://img.shields.io/badge/Wails-v2-E30613?style=for-the-badge&logo=wails&logoColor=white&labelColor=30363d" alt="Wails">
@@ -27,9 +27,9 @@
 
 ## Current Prerelease
 
-**[v1.1.0-rc.2 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.2)** includes question-bank, API settings, and live-sync fixes. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
+**[v1.1.0-rc.4 — personal fork prerelease](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4)** includes question-bank and provider diagnostics, build-artifact governance, unified API profiles, Mobile UI improvements, three-image capture, same-image retry, cancel/fast solve controls, the F8–F12 workflow hints, and multiple-choice consistency checks. Download from this fork's Release rather than the historical upstream links below. Exit the old instance and back up your own configuration/archive before upgrading. The local entry point is `build/bin/Q-Solver.exe`; older validation builds are retained in `archive/` beneath it.
 
-This is not a stable release: local race testing remains blocked and some manual acceptance checks are pending; macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.2.md).
+This is not a stable release: Windows race testing still exits during startup with `0xc0000139`, some earlier manual acceptance checks remain pending, and macOS GUI behavior has not been manually verified. See the [changelog](CHANGELOG.md) and [release notes](_dev/releases/v1.1.0-rc.4.md).
 
 ## What This Is
 
@@ -166,7 +166,7 @@ Other exam tools can later have their own sibling directories alongside Q-Solver
 
 ### Option 1: Download the App
 
-[Upstream releases](https://github.com/jym66/Q-solver/releases) provide the official app and may not include fork extensions. Build this fork's development branch for the question-bank feature; do not confuse upstream and personal releases.
+Download this repository's current prerelease from the [personal fork v1.1.0-rc.4 Release](https://github.com/lizhouya/Q-solver/releases/tag/v1.1.0-rc.4). Official upstream builds remain available from [jym66/Q-solver Releases](https://github.com/jym66/Q-solver/releases); their features and acceptance status differ, so do not mix the two release lines.
 
 > [!NOTE]
 > If macOS blocks the app on first launch, run:

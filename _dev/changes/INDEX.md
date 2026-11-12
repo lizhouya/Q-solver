@@ -47,8 +47,9 @@
 | `037` | unified-api-connection（统一模型与 API 接入） | 已完成 / 自动验证与用户固定 Profile 双启动 GUI 验收通过 / race 环境 BLOCKED 已披露 / 稳定版已晋升 / 功能提交 `0728d8c` / 治理提交与推送已授权 | 2026-11-05 | `037-unified-api-connection/` |
 | `038` | solve-retry-cancel-fast-mode（原图重试、中断与快速解题） | 已完成 / 普通自动验证与用户测试版本验收通过 / race BLOCKED 已披露 / 双提交并推送 / 本地稳定版已晋升 / 未发布 | 2026-11-10 | `038-solve-retry-cancel-fast-mode/` |
 | `039` | shortcut-runtime-feedback（快捷键运行态绑定、历史迁移与 Dock 提示修复） | 已完成 / 普通自动验证与用户 revision C GUI 验收通过 / 正式配置内存迁移 5→0 / Dock F8–F12 顺序完成 / race BLOCKED 已披露 / 本地稳定版已晋升 / 功能提交 `fbae933` / 治理提交与推送已授权 / 未发布 | 2026-11-11 | `039-shortcut-runtime-feedback/` |
-| `040` | mobile-shortcut-hint-sync（同步端五项快捷键提示一致性） | 已完成 / 普通自动验证与用户 GUI 验收通过 / race BLOCKED 已披露 / 功能提交 `09dd485` / 双提交完成 / 本地稳定版已晋升 / 未推送未发布 | 2026-11-12 | `040-mobile-shortcut-hint-sync/` |
-| `041` | choice-option-consistency（选择题字母与选项文本一致性） | 已完成 / 普通自动验证与用户模型复验通过 / race BLOCKED 已披露 / 功能提交 `ac8af04` / 双提交完成 / 本地稳定版已晋升 / 未推送未发布 | 2026-11-12 | `041-choice-option-consistency/` |
+| `040` | mobile-shortcut-hint-sync（同步端五项快捷键提示一致性） | 已完成 / 普通自动验证与用户 GUI 验收通过 / race BLOCKED 已披露 / 功能提交 `09dd485` / 双提交完成 / 本地稳定版已晋升 / 待随 rc.4 推送发布 | 2026-11-12 | `040-mobile-shortcut-hint-sync/` |
+| `041` | choice-option-consistency（选择题字母与选项文本一致性） | 已完成 / 普通自动验证与用户模型复验通过 / race BLOCKED 已披露 / 功能提交 `ac8af04` / 双提交完成 / 本地稳定版已晋升 / 待随 rc.4 推送发布 | 2026-11-12 | `041-choice-option-consistency/` |
+| `042` | v1.1.0-rc.4-release（rc.4 预发布上线） | 进行中 / 发布文档准备 / 待分支与 Tag 推送 / 待 Actions 与 Release 核对 | 2026-11-12 | `042-v1.1.0-rc.4-release/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 

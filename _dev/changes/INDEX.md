@@ -46,6 +46,7 @@
 | `036` | mobile-screenshot-status-reset（同步端截图状态与本地清理收敛） | 已完成 / 自动与用户 GUI 验收通过 / race BLOCKED 已披露 / 双提交并推送 / 未发布 | 2026-11-04 | `036-mobile-screenshot-status-reset/` |
 | `037` | unified-api-connection（统一模型与 API 接入） | 已完成 / 自动验证与用户固定 Profile 双启动 GUI 验收通过 / race 环境 BLOCKED 已披露 / 稳定版已晋升 / 功能提交 `0728d8c` / 治理提交与推送已授权 | 2026-11-05 | `037-unified-api-connection/` |
 | `038` | solve-retry-cancel-fast-mode（原图重试、中断与快速解题） | 已完成 / 普通自动验证与用户测试版本验收通过 / race BLOCKED 已披露 / 双提交并推送 / 本地稳定版已晋升 / 未发布 | 2026-11-10 | `038-solve-retry-cancel-fast-mode/` |
+| `039` | shortcut-runtime-feedback（快捷键运行态绑定、历史迁移与 Dock 提示修复） | 已完成 / 普通自动验证与用户 revision C GUI 验收通过 / 正式配置内存迁移 5→0 / Dock F8–F12 顺序完成 / race BLOCKED 已披露 / 本地稳定版已晋升 / 功能提交 `fbae933` / 治理提交与推送已授权 / 未发布 | 2026-11-11 | `039-shortcut-runtime-feedback/` |
 
 > `030` 由用户在阶段二任务中显式指定；`029` 后续按最小未用编号分配给构建产物生命周期治理。
 

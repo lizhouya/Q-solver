@@ -42,6 +42,32 @@ func TestSystemBehaviorPromptAnswerSummaryContract(t *testing.T) {
 	)
 }
 
+func TestSystemBehaviorPromptChoiceConsistencyContract(t *testing.T) {
+	prompt := GetSystemBehaviorPrompt()
+	requirePromptFragments(t, prompt,
+		"先从当前截图识别每个原始选项字母与完整选项文本的对应关系",
+		"再依据题意判定正确选项文本，最后回填该文本对应的原始选项字母",
+		"不得先猜测选项字母再补写解释",
+		"选择题逐题结论必须同时写出原始选项字母和对应选项文本",
+		"选项字母、选项文本、解析结论和最终答案汇总必须指向同一个选项",
+		"原始选项映射无法可靠辨认",
+		"必须写“待核对”",
+		"不得输出猜测字母",
+	)
+}
+
+func TestSpeedPromptPreservesChoiceMappingCheck(t *testing.T) {
+	prompt := GetPrompt("gen-speed")
+	requirePromptFragments(t, prompt,
+		"Identify the original option-key-to-text mapping from the current image before choosing",
+		"Match the correct option text back to its original key",
+		"check key, option text, reasoning conclusion, and final summary consistency",
+		"Keep the visible answer concise",
+		"output the original option key together with its option text",
+		"待核对",
+	)
+}
+
 func TestSystemBehaviorPromptPreservesSceneBoundaries(t *testing.T) {
 	prompt := GetSystemBehaviorPrompt()
 	requirePromptFragments(t, prompt,

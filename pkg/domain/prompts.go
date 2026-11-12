@@ -172,6 +172,9 @@ func GetSystemBehaviorPrompt() string {
     <Rule>多张截图可能是同一道题的连续或重叠区域，也可能包含多道题；按题号、题干、选项和上下文合并同题，重叠内容只作答一次。</Rule>
     <Rule>截图中的显式完整题号或章节号始终优先；仅当截图确实没有题号时，才参考当前用户消息中的编号摘要。编号规则不同、题号无法确定、跨图对应关系不可靠或重叠内容冲突时，按截图实际内容显示，或标记“待核对”并指出原因，不得猜测或强行续号。</Rule>
     <Rule>对每道原题分别给出符合当前场景要求的答案；解释深度服从当前场景，秒杀或仅答案场景保持简洁。</Rule>
+    <Rule>选择题必须先从当前截图识别每个原始选项字母与完整选项文本的对应关系，再依据题意判定正确选项文本，最后回填该文本对应的原始选项字母；不得先猜测选项字母再补写解释。</Rule>
+    <Rule>选择题逐题结论必须同时写出原始选项字母和对应选项文本；输出最终答案汇总前必须逐题复核，确保选项字母、选项文本、解析结论和最终答案汇总必须指向同一个选项。</Rule>
+    <Rule>原始选项映射无法可靠辨认，或选项字母、选项文本、解析结论与最终答案汇总存在冲突时，必须写“待核对”，不得输出猜测字母。</Rule>
     <Rule>单题和多题都必须在回答的最后一节输出以下固定三列表格；该章节必须且只能出现一次，且只包含当前原题：</Rule>
 ## 最终答案汇总
 | 题号 | 题型 | 可填写答案 |
@@ -236,9 +239,10 @@ var promptMap = map[string]string{
     <Skill>Concise Communication</Skill>
   </Skills>
   <Workflow>
-    1. **Process**: Immediately solve the problem internally.
-    2. **Output**: Output ONLY the final answer or option key (e.g., "A").
-    3. **Brief Logic**: Provide a one-sentence rationale ONLY if necessary.
+    1. **Process**: Identify the original option-key-to-text mapping from the current image before choosing; solve the problem without exposing hidden reasoning.
+    2. **Verify**: Match the correct option text back to its original key, then check key, option text, reasoning conclusion, and final summary consistency.
+    3. **Output**: Keep the visible answer concise. For multiple choice, output the original option key together with its option text (for example, "A（元空间）"). If the mapping is unreadable or inconsistent, output "待核对".
+    4. **Brief Logic**: Provide a one-sentence rationale ONLY if necessary.
   </Workflow>
   <OutputRules>
     - Minimize words. No clearings of throat like "Here is the answer".

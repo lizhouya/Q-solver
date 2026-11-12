@@ -14,10 +14,7 @@ import (
 )
 
 func TestGetSettingsLoadsBeforeStartup(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("APPDATA", root)
-	t.Setenv("XDG_CONFIG_HOME", root)
-	t.Setenv("HOME", root)
+	isolateUserConfigDirs(t)
 	seed := config.NewConfigManager()
 	if err := seed.UpdateFromJSON(`{"apiKey":"test-only","baseURL":"http://localhost/v1","model":"test-model"}`); err != nil {
 		t.Fatal(err)
@@ -36,10 +33,7 @@ func TestGetSettingsLoadsBeforeStartup(t *testing.T) {
 }
 
 func TestGetSettingsReportsReadFailure(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("APPDATA", root)
-	t.Setenv("XDG_CONFIG_HOME", root)
-	t.Setenv("HOME", root)
+	isolateUserConfigDirs(t)
 	a := &App{configManager: config.NewConfigManager()}
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -55,10 +49,7 @@ func TestGetSettingsReportsReadFailure(t *testing.T) {
 
 func newConnectionSettingsTestApp(t *testing.T) *App {
 	t.Helper()
-	root := t.TempDir()
-	t.Setenv("APPDATA", root)
-	t.Setenv("XDG_CONFIG_HOME", root)
-	t.Setenv("HOME", root)
+	isolateUserConfigDirs(t)
 	manager := config.NewConfigManager()
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)

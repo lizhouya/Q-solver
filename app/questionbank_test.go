@@ -627,7 +627,7 @@ func setQuestionBankTestConfig(t *testing.T, a *App, baseURL string) {
 
 func setQuestionBankTestConfigProtocol(t *testing.T, a *App, baseURL, apiProtocol string) {
 	t.Helper()
-	t.Setenv("APPDATA", t.TempDir())
+	isolateUserConfigDirs(t)
 	manager := config.NewConfigManager()
 	payload, err := json.Marshal(config.Config{
 		APIKey: "test-only-key", BaseURL: baseURL, Model: "test-only-model", APIProtocol: apiProtocol,
@@ -693,7 +693,7 @@ func TestRetryFailedQuestionBankRecordsPreconditions(t *testing.T) {
 			t.Fatal(err)
 		}
 		makeQuestionBankOrganizeFailure(t, store, snapshot.ID)
-		t.Setenv("APPDATA", t.TempDir())
+		isolateUserConfigDirs(t)
 		a.configManager = config.NewConfigManager()
 		if err := a.RetryFailedQuestionBankRecords(snapshot.ID); err == nil {
 			t.Fatal("缺少模型配置时仍启动失败重试")

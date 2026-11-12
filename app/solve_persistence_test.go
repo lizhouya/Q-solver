@@ -67,7 +67,7 @@ func (p *numberingCaptureProvider) TestChat(context.Context) error              
 
 func configuredSolveManager(t *testing.T) *config.ConfigManager {
 	t.Helper()
-	t.Setenv("APPDATA", t.TempDir())
+	isolateUserConfigDirs(t)
 	manager := config.NewConfigManager()
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestSolveWithoutQuestionBankUsesEmptyNumberingContext(t *testing.T) {
 }
 
 func TestSolveRollsBackConversationWhenQuestionBankCompletionCannotPersist(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateUserConfigDirs(t)
 	a, store, image := archiveApp(t)
 	manager := config.NewConfigManager()
 	if err := manager.Load(); err != nil {

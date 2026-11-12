@@ -285,7 +285,7 @@ func TestResetAndStablePersistenceFailuresLeaveRuntimeUnchanged(t *testing.T) {
 }
 
 func TestTaskMobileEventsRespectCapturedDisplayEpoch(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateUserConfigDirs(t)
 	configManager := config.NewConfigManager()
 	if err := configManager.Load(); err != nil {
 		t.Fatal("加载隔离测试配置失败")

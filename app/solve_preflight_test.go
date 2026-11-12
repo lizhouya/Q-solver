@@ -16,7 +16,7 @@ import (
 )
 
 func TestTriggerSendWaitsForResumeConfirmationBeforeConsumingScreenshots(t *testing.T) {
-	t.Setenv("APPDATA", t.TempDir())
+	isolateUserConfigDirs(t)
 	manager := config.NewConfigManager()
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)

@@ -99,22 +99,36 @@ func TestMobileShortcutHintsOnlyExposeLabelsAndDisplayNames(t *testing.T) {
 	}
 }
 
-func TestMobileShortcutHintsIncludeFastAndCancelWithoutComboIDs(t *testing.T) {
+func TestMobileShortcutHintsKeepSolveWorkflowOrderWithoutComboIDs(t *testing.T) {
 	hints := mobileShortcutHints(map[string]shortcut.KeyBinding{
-		"send_fast":    {ComboID: "74+160+162", KeyName: "Ctrl+Shift+J"},
-		"cancel_solve": {ComboID: "88+160+162", KeyName: "Ctrl+Shift+X"},
+		"screenshot":   {ComboID: "119", KeyName: "Shift+F8"},
+		"send":         {ComboID: "120", KeyName: "Ctrl+Enter"},
+		"send_fast":    {ComboID: "121", KeyName: "Alt+Q"},
+		"cancel_solve": {ComboID: "122", KeyName: "Esc"},
+		"delete":       {ComboID: "123", KeyName: "Backspace"},
 	})
+	expected := []mobile.ShortcutHint{
+		{Label: "截图", KeyName: "Shift+F8"},
+		{Label: "发送解题", KeyName: "Ctrl+Enter"},
+		{Label: "快速解题", KeyName: "Alt+Q"},
+		{Label: "中断解题", KeyName: "Esc"},
+		{Label: "删除截图", KeyName: "Backspace"},
+	}
+	if len(hints) != len(expected) {
+		t.Fatalf("解题工作流提示数量不正确: got=%+v want=%+v", hints, expected)
+	}
+	for i := range expected {
+		if hints[i] != expected[i] {
+			t.Fatalf("第 %d 项解题工作流提示不正确: got=%+v want=%+v", i, hints[i], expected[i])
+		}
+	}
+
 	raw, err := json.Marshal(hints)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, expected := range []string{"快速解题", "中断解题", "Ctrl+Shift+J", "Ctrl+Shift+X"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("hints missing %q: %s", expected, text)
-		}
-	}
-	for _, forbidden := range []string{"74+160+162", "88+160+162", "combo"} {
+	for _, forbidden := range []string{"119", "120", "121", "122", "123", "combo", "token", "path"} {
 		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
 			t.Fatalf("mobile hints leaked %q: %s", forbidden, text)
 		}

@@ -834,6 +834,16 @@
       renderHints(hints);
       return true;
     }
+    function syncCaptureDockSpacing() {
+      if (captureStatusCard.hidden) {
+        document.body.style.paddingBottom = '';
+        return;
+      }
+      var rect = captureStatusCard.getBoundingClientRect();
+      var height = Number(rect && rect.height);
+      if (!Number.isFinite(height) || height <= 0) height = 80;
+      document.body.style.paddingBottom = Math.ceil(height + 32) + 'px';
+    }
     function renderCaptureStatus(snap) {
       var limit = Number(snap && snap.screenshotLimit);
       if (!Number.isFinite(limit) || limit <= 0) limit = 3;
@@ -844,24 +854,21 @@
       screenshotCount.textContent = String(count);
       screenshotLimit.textContent = String(limit);
       captureStatusCard.hidden = count === 0;
-      document.body.style.paddingBottom = count > 0 ? '112px' : '';
       captureHints.textContent = '';
-      if (count === 0) return;
+      if (count === 0) {
+        syncCaptureDockSpacing();
+        return;
+      }
 
       var hints = Array.isArray(snap && snap.hints) ? snap.hints : [];
       var workflow = [
-        { label: '截图', display: '继续截图' },
-        { label: '删除截图', display: '删除' },
+        { label: '截图', display: count >= limit ? '已满 ' + limit + ' 张' : '继续截图' },
         { label: '发送解题', display: '发送' },
+        { label: '快速解题', display: '快速解题' },
+        { label: '中断解题', display: '中断' },
+        { label: '删除截图', display: '删除' },
       ];
       workflow.forEach(function (definition) {
-        if (definition.label === '截图' && count >= limit) {
-          var full = document.createElement('span');
-          full.className = 'capture-limit';
-          full.textContent = '已满 ' + limit + ' 张';
-          captureHints.appendChild(full);
-          return;
-        }
         var hint = hints.find(function (item) { return item && item.label === definition.label && item.keyName; });
         if (!hint) return;
         var item = document.createElement('div');
@@ -874,7 +881,9 @@
         item.appendChild(label);
         captureHints.appendChild(item);
       });
+      syncCaptureDockSpacing();
     }
+    window.addEventListener('resize', syncCaptureDockSpacing);
     function normalizedControlSeq(snap) {
       var seq = Number(snap && snap.controlSeq);
       return Number.isFinite(seq) && seq >= 0 ? seq : 0;

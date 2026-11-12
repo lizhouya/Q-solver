@@ -30,6 +30,7 @@ class StubElement {
     this.textClears = 0
     this._textContent = ''
     this._innerHTML = ''
+    this.layoutHeight = 0
   }
 
   set textContent(value) {
@@ -60,6 +61,7 @@ class StubElement {
 
   setAttribute(name, value) { this.attributes.set(name, String(value)) }
   addEventListener(type, listener) { this.listeners.set(type, listener) }
+  getBoundingClientRect() { return { height: this.layoutHeight } }
   click() { this.listeners.get('click')?.() }
   select() {}
 }
@@ -104,10 +106,12 @@ class StubEventSource {
 const scrollCalls = []
 const answerScrollCalls = []
 const rafCallbacks = []
+const windowListeners = new Map()
 const window = {
   innerHeight: 800,
   scrollBy(options) { scrollCalls.push(options) },
   scrollTo(options) { answerScrollCalls.push(options) },
+  addEventListener(type, listener) { windowListeners.set(type, listener) },
 }
 
 const context = {
@@ -312,13 +316,16 @@ const unsafeMarkdown = context.renderMarkdown('[脚本](javascript:alert(1)) [�
 assert.doesNotMatch(unsafeMarkdown, /href=/, '不安全 scheme 不得生成链接')
 assert.doesNotMatch(unsafeMarkdown, /javascript:/i, '不安全 URL 不得进入渲染结果')
 
-// 截图状态卡使用服务端绝对数量和实际快捷键；同 clearSeq 的新 idle 清业务历史但保留元数据。
+// 截图状态卡使用服务端绝对数量和五项实际快捷键；同 clearSeq 的新 idle 清业务历史但保留元数据。
 const captureHints = [
-  { label: '截图', keyName: 'F8' },
-  { label: '发送解题', keyName: 'Ctrl+J' },
-  { label: '删除截图', keyName: 'Ctrl+D' },
+  { label: '截图', keyName: 'Shift+F8' },
+  { label: '发送解题', keyName: 'Ctrl+Enter' },
+  { label: '快速解题', keyName: 'Alt+Q' },
+  { label: '中断解题', keyName: 'Esc' },
+  { label: '删除截图', keyName: 'Backspace' },
   { label: '向下滚动', keyName: 'Alt+PgDn' },
 ]
+elements.get('capture-status-card').layoutHeight = 146
 source.emit('snapshot', snapshot('capture-session', 0, 1, '待清答案', 0, '', {
   hints: captureHints,
   screenshotCount: 2,
@@ -327,11 +334,30 @@ source.emit('snapshot', snapshot('capture-session', 0, 1, '待清答案', 0, '',
 assert.equal(elements.get('screenshot-count').textContent, '2', '截图 Dock 应显示服务端数量')
 assert.equal(elements.get('screenshot-limit').textContent, '3', '截图 Dock 应显示服务端上限')
 assert.equal(elements.get('capture-status-card').hidden, false, '存在待发送截图时底部 Dock 必须显示')
-assert.equal(documentBody.style.paddingBottom, '112px', 'Dock 显示时应为答案末尾保留安全空间')
-assert.equal(elements.get('capture-hints').children.length, 3, '截图 Dock 只展示继续截图/删除/发送三个提示')
-assert.equal(elements.get('capture-hints').children[0].children[1].textContent, '继续截图', '未满三张时应提示继续截图')
+assert.equal(documentBody.style.paddingBottom, '178px', 'Dock 应按实际高度加 32px 安全间距为答案末尾留白')
+assert.equal(typeof windowListeners.get('resize'), 'function', '窗口尺寸变化必须重新计算 Dock 底部空间')
+elements.get('capture-status-card').layoutHeight = 164
+windowListeners.get('resize')()
+assert.equal(documentBody.style.paddingBottom, '196px', 'Dock 换行增高后必须同步扩大底部空间')
+elements.get('capture-status-card').layoutHeight = 146
+windowListeners.get('resize')()
+const workflowHints = elements.get('capture-hints').children
+assert.equal(workflowHints.length, 5, '截图 Dock 必须展示截图/发送/快速解题/中断/删除五项提示')
+assert.deepEqual(
+  workflowHints.map(item => [item.children[0].textContent, item.children[1].textContent]),
+  [
+    ['Shift+F8', '继续截图'],
+    ['Ctrl+Enter', '发送'],
+    ['Alt+Q', '快速解题'],
+    ['Esc', '中断'],
+    ['Backspace', '删除'],
+  ],
+  '截图 Dock 必须使用服务端实际绑定并保持桌面解题顺序',
+)
 context.renderCaptureStatus({ hints: captureHints, screenshotCount: 3, screenshotLimit: 3 })
-assert.equal(elements.get('capture-hints').children[0].textContent, '已满 3 张', '三张截图时应替换为已满提示')
+assert.equal(elements.get('capture-hints').children.length, 5, '三张截图时五项快捷键提示必须保留')
+assert.equal(elements.get('capture-hints').children[0].children[0].textContent, 'Shift+F8', '三张截图时必须保留截图键帽')
+assert.equal(elements.get('capture-hints').children[0].children[1].textContent, '已满 3 张', '三张截图时只切换截图文案')
 context.renderCaptureStatus({ hints: captureHints, screenshotCount: 2, screenshotLimit: 3 })
 assert.equal(elements.get('history-list-side').children.length, 1, '测试前提：清理前存在同步端历史')
 source.emit('message', snapshot('capture-session', 0, 2, '', 0, '', {
@@ -345,7 +371,7 @@ assert.equal(elements.get('answer-card').style.display, 'none', '新 idle 应隐
 assert.equal(elements.get('history-list-side').children.length, 0, '新 idle 应清空宽屏历史')
 assert.equal(elements.get('history-list-strip').children.length, 0, '新 idle 应清空窄屏历史')
 assert.equal(elements.get('screenshot-count').textContent, '2', '业务重置应保留截图数量')
-assert.equal(elements.get('capture-hints').children.length, 3, '业务重置应保留截图快捷键提示')
+assert.equal(elements.get('capture-hints').children.length, 5, '业务重置应保留五项截图快捷键提示')
 assert.equal(elements.get('shortcut-card').hidden, false, '业务重置应保留完整快捷键提示')
 source.emit('message', snapshot('capture-session', 0, 3, '', 0, '', {
   status: 'idle',
